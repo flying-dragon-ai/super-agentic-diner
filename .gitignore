@@ -1,0 +1,54 @@
+﻿# Dependencies
+node_modules/
+.venv/
+venv/
+env/
+
+# Python caches and build output
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+.mcp.json
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+coffee.db
+
+# Logs, caches, and temp files
+*.log
+logs/
+.cache/
+tmp/
+temp/
+*.tmp
+*.bak
+
+# IDE/editor and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local agent/tool runtime config
+.codex/
+.qingyan/
+.trae/
+.zhipu/
+
+# Duplicate local copy of this project
+coffee-ai-boss/
+.claude/.mcp.json
+.claude/settings.local.json

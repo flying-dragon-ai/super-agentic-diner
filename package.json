@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "scripts": {
+    "evolver": "evolver",
+    "evolver:help": "evolver --help"
+  },
+  "dependencies": {
+    "@evomap/evolver": "1.89.14"
+  }
+}
