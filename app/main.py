@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
@@ -99,10 +100,23 @@ def _is_confirming(user_msg):
     return False
 
 
+def _normalize_consumer_url(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    parsed = urlparse(text)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="consumer_url must be an absolute http(s) URL")
+    return text[:512]
+
+
 class ChatRequest(BaseModel):
     user_id: int
     message: str
     request_id: Optional[str] = None  # 可选，下单幂等键
+    consumer_url: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -165,6 +179,7 @@ class SkillOrderRequest(BaseModel):
     message: str
     request_id: Optional[str] = None
     auto_confirm: bool = True
+    evomap_node_secret: Optional[str] = None
     payment_proof: Optional[dict[str, Any]] = None
 
 
@@ -182,6 +197,7 @@ class SkillOrderResponse(BaseModel):
     free_orders_remaining: int = 0
     evomap_order_id: Optional[str] = None
     payment_request: Optional[dict[str, Any]] = None
+    service_order_request: Optional[dict[str, Any]] = None
 
 
 def _publish_visualization_event(
@@ -251,10 +267,16 @@ def _require_agent(
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest, db: Session = Depends(get_db)):
     """Handle chat, recommendation, pending confirmation, and paid order flows."""
+    consumer_url = _normalize_consumer_url(req.consumer_url)
+    web_source_payload = {
+        "source_type": "web_dialog",
+        "consumer_url": consumer_url,
+        "correlation_id": req.request_id,
+    }
     _try_publish_visualization_event(
         db,
         "message.received",
-        {"user_id": req.user_id, "message": req.message},
+        {"user_id": req.user_id, "message": req.message, **web_source_payload},
         correlation_id=req.request_id,
     )
     # ===== 第1步：读 Redis 上下文（短期记忆，最近5轮对话）=====
@@ -270,7 +292,14 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             try:
                 items = [(item["name"], req.request_id if i == 0 else None)
                          for i, item in enumerate(pending["coffees"])]
-                orders = place_orders(db, req.user_id, items)
+                orders = place_orders(
+                    db,
+                    req.user_id,
+                    items,
+                    source_type="web_dialog",
+                    consumer_url=consumer_url,
+                    correlation_id=req.request_id,
+                )
             except InsufficientBalanceError as e:
                 clear_pending_order(req.user_id)
                 reply = f"下单失败：{e}。请先充值哦~"
@@ -279,7 +308,12 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                 _try_publish_visualization_event(
                     db,
                     "order.failed",
-                    {"user_id": req.user_id, "reason": str(e), "stage": "payment"},
+                    {
+                        "user_id": req.user_id,
+                        "reason": str(e),
+                        "stage": "payment",
+                        **web_source_payload,
+                    },
                     correlation_id=req.request_id,
                 )
                 return ChatResponse(reply=reply)
@@ -309,6 +343,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                     "order_ids": [o.order_id for o in orders],
                     "coffee_names": [o.coffee_name for o in orders],
                     "total": float(sum(o.amount for o in orders)),
+                    **web_source_payload,
                 },
                 correlation_id=req.request_id,
             )
@@ -324,7 +359,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     _try_publish_visualization_event(
         db,
         "order.intent_detected",
-        {"user_id": req.user_id, "intent": intent.get("intent", "chat")},
+        {"user_id": req.user_id, "intent": intent.get("intent", "chat"), **web_source_payload},
         correlation_id=req.request_id,
     )
 
@@ -375,7 +410,12 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             _try_publish_visualization_event(
                 db,
                 "order.failed",
-                {"user_id": req.user_id, "reason": "coffee_not_resolved", "stage": "resolve"},
+                {
+                    "user_id": req.user_id,
+                    "reason": "coffee_not_resolved",
+                    "stage": "resolve",
+                    **web_source_payload,
+                },
                 correlation_id=req.request_id,
             )
             return ChatResponse(reply=reply)
@@ -404,6 +444,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                 "user_id": req.user_id,
                 "coffees": [{"name": i["name"], "price": float(i["price"])} for i in items],
                 "total": float(total),
+                **web_source_payload,
             },
             correlation_id=req.request_id,
         )
@@ -416,7 +457,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     _try_publish_visualization_event(
         db,
         "order.reply",
-        {"user_id": req.user_id, "intent": intent.get("intent", "chat")},
+        {"user_id": req.user_id, "intent": intent.get("intent", "chat"), **web_source_payload},
         correlation_id=req.request_id,
     )
     return ChatResponse(reply=reply)
@@ -535,6 +576,7 @@ def create_skill_order(
     req: SkillOrderRequest,
     authorization: Optional[str] = Header(None),
     x_agent_token: Optional[str] = Header(None),
+    x_evomap_node_secret: Optional[str] = Header(None),
     db: Session = Depends(get_db),
 ):
     if not req.auto_confirm:
@@ -556,6 +598,7 @@ def create_skill_order(
             agent=agent,
             message=req.message,
             request_id=req.request_id,
+            evomap_node_secret=x_evomap_node_secret or req.evomap_node_secret,
             payment_proof=req.payment_proof,
         )
     except SkillPaymentRequired as exc:
@@ -574,7 +617,10 @@ def create_skill_order(
             agent_id=req.agent_id,
             correlation_id=req.request_id,
         )
-        raise HTTPException(status_code=400, detail={"code": exc.code, "message": str(exc)}) from exc
+        raise HTTPException(
+            status_code=exc.http_status,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
 
 
 @app.get("/agents")
@@ -738,12 +784,10 @@ def list_orders(user_id: int, db: Session = Depends(get_db)):
 
 @app.get("/status")
 def status():
-    """返回系统状态：数据库模式、记忆模式、LLM 是否真实接入"""
-    from app.config import settings
-
+    """Return system status for the fixed MySQL/Redis architecture."""
     return {
-        "db_mode": settings.db_mode,
-        "memory_mode": settings.memory_mode,
+        "database": "mysql",
+        "memory": "redis",
         "llm_active": llm.has_real_key(),
     }
 

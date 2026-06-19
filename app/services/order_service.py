@@ -27,6 +27,13 @@ def place_orders(
     db: Session,
     user_id: int,
     items: list[tuple[str, str | None]],
+    *,
+    source_type: str = "web_dialog",
+    consumer_url: str | None = None,
+    consumer_id: int | None = None,
+    agent_id: int | None = None,
+    ledger_id: int | None = None,
+    correlation_id: str | None = None,
 ) -> list[Order]:
     """批量下单：同一事务内对多杯咖啡扣款。
     items = [(coffee_name, request_id), ...]
@@ -46,11 +53,23 @@ def place_orders(
         if req_id:
             existed = db.query(Order).filter(Order.request_id == req_id).first()
             if existed:
+                existed.source_type = existed.source_type or source_type
+                existed.consumer_url = existed.consumer_url or consumer_url
+                existed.consumer_id = existed.consumer_id or consumer_id
+                existed.agent_id = existed.agent_id or agent_id
+                existed.ledger_id = existed.ledger_id or ledger_id
+                existed.correlation_id = existed.correlation_id or correlation_id
                 orders.append(existed)
                 continue
         orders.append(Order(
             user_id=user_id, coffee_name=coffee_name,
             amount=amount, status=1, request_id=req_id,
+            source_type=source_type,
+            consumer_url=consumer_url,
+            consumer_id=consumer_id,
+            agent_id=agent_id,
+            ledger_id=ledger_id,
+            correlation_id=correlation_id,
         ))
 
     if user.balance < total:

@@ -7,17 +7,8 @@ import redis
 
 from app.config import settings
 
-# fakeredis 进程内单例（memory_mode=fake 时用，保证应用内共享同一实例）
-_fake_client = None
-
 
 def _client() -> redis.Redis:
-    if settings.memory_mode == "fake":
-        global _fake_client
-        if _fake_client is None:
-            import fakeredis
-            _fake_client = fakeredis.FakeRedis(decode_responses=True)
-        return _fake_client
     return redis.Redis.from_url(settings.redis_url, decode_responses=True)
 
 

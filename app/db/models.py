@@ -18,7 +18,7 @@ from sqlalchemy import (
 
 from app.db.database import Base
 
-_PK = BigInteger().with_variant(Integer, "sqlite")
+_PK = BigInteger
 
 
 class User(Base):
@@ -50,9 +50,29 @@ class Order(Base):
     amount = Column(DECIMAL(10, 2), nullable=False)
     status = Column(SmallInteger, nullable=False, default=0)
     request_id = Column(String(64), nullable=True, unique=True)
+    source_type = Column(String(32), nullable=False, default="web_dialog")
+    consumer_url = Column(String(512), nullable=True)
+    consumer_id = Column(BigInteger, ForeignKey("evomap_consumer.consumer_id"), nullable=True)
+    agent_id = Column(BigInteger, ForeignKey("agent_profile.agent_id"), nullable=True)
+    ledger_id = Column(BigInteger, ForeignKey("skill_order_ledger.ledger_id"), nullable=True)
+    correlation_id = Column(String(128), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
 
-    __table_args__ = (Index("idx_user_created", "user_id", "created_at"),)
+    __table_args__ = (
+        Index("idx_user_created", "user_id", "created_at"),
+        Index("idx_order_source_created", "source_type", "created_at"),
+        Index("idx_order_consumer_url", "consumer_url"),
+        Index("idx_order_consumer", "consumer_id"),
+        Index("idx_order_agent", "agent_id"),
+        Index("idx_order_ledger", "ledger_id"),
+        Index("idx_order_correlation", "correlation_id"),
+    )
 
 
 class CoffeeKB(Base):

@@ -1,5 +1,4 @@
-# Dependencies
-node_modules/
+# Python dependencies
 .venv/
 venv/
 env/
@@ -19,7 +18,6 @@ dist/
 .env
 .env.*
 !.env.example
-.mcp.json
 
 # Local databases
 *.db
@@ -46,9 +44,5 @@ Thumbs.db
 coffee-ai-boss/
 
 # Local agent/tool runtime config
-.codex/
-.qingyan/
-.trae/
-.zhipu/
-.claude/.mcp.json
 .claude/settings.local.json
+.ace-tool/

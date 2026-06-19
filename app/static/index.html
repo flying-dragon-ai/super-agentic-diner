@@ -85,7 +85,7 @@
 
   /* 侧栏 */
   #side {
-    width: 300px; background: #221a13; padding: 20px; overflow-y: auto;
+    width: min(46vw, 520px); min-width: 420px; background: #221a13; padding: 20px; overflow-y: auto;
     border-left: 1px solid #3d2f24; flex-shrink: 0;
   }
   #side h3 {
@@ -106,6 +106,16 @@
   .order-item .name { color: #e8d5b7; }
   .order-item .meta { color: #8a7a6a; font-size: 11px; }
   #emptyTip { color: #6a5a4a; font-size: 13px; text-align: center; padding: 16px 0; }
+
+  @media (max-width: 920px) {
+    main { flex-direction: column; }
+    #side {
+      width: 100%;
+      min-width: 0;
+      border-left: none;
+      border-top: 1px solid #3d2f24;
+    }
+  }
 
   /* 滚动条 */
   ::-webkit-scrollbar { width: 6px; }

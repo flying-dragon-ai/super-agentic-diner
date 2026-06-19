@@ -4,45 +4,40 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # 运行模式：sqlite / mysql  —— sqlite 零依赖便于演示，mysql 走真实环境
-    db_mode: str = "mysql"
-    # 记忆模式：fake / redis  —— fake 用进程内 fakeredis，redis 走真实环境
-    memory_mode: str = "redis"
-
-    # MySQL（db_mode=mysql 时生效）
+    # MySQL is the only supported persistent database.
     mysql_host: str = "localhost"
     mysql_port: int = 3306
     mysql_user: str = "coffee"
     mysql_password: str = "coffee123"
     mysql_database: str = "coffee_ai"
 
-    # SQLite 文件路径（db_mode=sqlite 时生效）
-    sqlite_path: str = "./coffee.db"
-
-    # Redis（memory_mode=redis 时生效）
+    # Redis is the only supported memory/middleware backend.
     redis_host: str = "localhost"
     redis_port: int = 6379
     redis_db: int = 0
     redis_password: str = ""
 
-    # LLM（OpenAI 兼容）
+    # OpenAI-compatible LLM provider.
     llm_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-4o-mini"
 
-    # 对话记忆
+    # Chat memory.
     chat_history_rounds: int = 5
     chat_history_ttl: int = 1800
 
-    # A2A Skill / EvoMap 积分点单
+    # A2A Skill / EvoMap credit ordering.
     skill_free_order_limit: int = 2
+    evomap_payment_mode: str = "service_order"
+    evomap_hub_url: str = "https://evomap.ai"
+    evomap_service_listing_id: str = ""
+    evomap_order_credits: int = 1
+    evomap_request_timeout_seconds: float = 15.0
     evomap_credit_rate: str = "1"
     evomap_atp_caps: str = "a2a_super_order,coffee_order"
 
     @property
     def database_url(self) -> str:
-        if self.db_mode == "sqlite":
-            return f"sqlite:///{self.sqlite_path}"
         return (
             f"mysql+pymysql://{self.mysql_user}:{self.mysql_password}"
             f"@{self.mysql_host}:{self.mysql_port}/{self.mysql_database}?charset=utf8mb4"
