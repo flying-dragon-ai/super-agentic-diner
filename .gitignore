@@ -42,11 +42,7 @@ temp/
 .DS_Store
 Thumbs.db
 
-# Local agent/tool runtime config
-.codex/
-.qingyan/
-.trae/
-.zhipu/
+
 
 # Duplicate local copy of this project
 coffee-ai-boss/
