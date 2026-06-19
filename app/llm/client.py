@@ -29,11 +29,18 @@ def has_real_key() -> bool:
     return bool(settings.effective_llm_api_key)
 
 
+def _chat_completions_url() -> str:
+    base_url = settings.llm_base_url.rstrip("/")
+    if base_url.endswith("/chat/completions"):
+        return base_url
+    return base_url + "/chat/completions"
+
+
 def _call_llm(messages):
     """统一调用入口：POST {base_url}/chat/completions
     遇到 429 限流时自动重试 1 次（等 1.5 秒）。
     """
-    url = settings.llm_base_url.rstrip("/") + "/chat/completions"
+    url = _chat_completions_url()
     headers = {
         "Authorization": f"Bearer {settings.effective_llm_api_key}",
         "Content-Type": "application/json",
