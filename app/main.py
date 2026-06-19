@@ -1254,3 +1254,9 @@ def index():
 def screen():
     """Full-screen restaurant visualization display."""
     return FileResponse(_STATIC_DIR / "screen.html")
+
+
+@app.get("/screeny")
+def screeny():
+    """Alias for the full-screen restaurant visualization display."""
+    return FileResponse(_STATIC_DIR / "screen.html")

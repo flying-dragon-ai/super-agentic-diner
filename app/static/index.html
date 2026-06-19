@@ -59,11 +59,25 @@
 
   #quick {
     display: flex; gap: 8px; padding: 8px 20px; flex-wrap: wrap; flex-shrink: 0;
+    align-items: center;
+  }
+  #quickMenu {
+    display: flex; gap: 8px; flex-wrap: wrap; min-width: 0;
   }
   #quick button {
     background: #4a3429; color: #e8d5b7; border: 1px solid #6f4e37;
     padding: 6px 12px; border-radius: 16px; font-size: 12px; cursor: pointer;
     transition: all .15s;
+    min-height: 30px;
+    max-width: 150px;
+    overflow-wrap: anywhere;
+  }
+  #quick button.intent-active {
+    background: #6f4e37; border-color: #c08552; color: #fff3df;
+  }
+  #quick .quick-clear {
+    margin-left: auto;
+    flex: 0 0 auto;
   }
   #quick button:hover { background: #6f4e37; }
 
@@ -140,11 +154,8 @@
   <div id="chat">
     <div id="messages"></div>
     <div id="quick">
-      <button onclick="fill('店长，我想喝点清甜水果味的，但不要加牛奶，推荐一下。')">🍓 求推荐果味</button>
-      <button onclick="fill('有没有椰子味的？不要太苦。')">🥥 椰子味</button>
-      <button onclick="fill('就买你刚才推荐的那杯，从我余额里扣钱吧。')">💳 下单扣款</button>
-      <button onclick="fill('我想来点纯粹苦味的，不要拿铁。')">☕ 纯苦味</button>
-      <button onclick="clearChat()" style="margin-left:auto">🗑 清空对话</button>
+      <div id="quickMenu" aria-label="意图快捷菜单"></div>
+      <button class="quick-clear" onclick="clearChat()">🗑 清空对话</button>
     </div>
     <div id="consumerUrlBar">
       <input id="consumerUrlInput" placeholder="Order page URL" />
@@ -182,11 +193,159 @@
   </aside>
 </main>
 
+<script src="/static/restaurant-scene-core.js"></script>
 <script src="/static/order-visualization.js"></script>
 <script>
 const USER_ID = 1;
 const $ = id => document.getElementById(id);
 const orderViz = () => window.OrderVisualization;
+const quickState = {
+  lastUserText: '',
+  lastBotText: '',
+  selectedKey: '',
+  scene: 'welcome',
+};
+
+const quickPresets = {
+  welcome: [
+    {key: 'fruit', label: '🍓 果香推荐', prompt: '店长，我想喝点清甜水果味的，但不要加牛奶，推荐一下。'},
+    {key: 'coconut', label: '🥥 椰香少苦', prompt: '有没有椰子味的？不要太苦。'},
+    {key: 'menu', label: '📋 看看菜单', prompt: '店长，今天有什么适合新手的咖啡？'},
+    {key: 'bitter', label: '☕ 纯苦风味', prompt: '我想来点纯粹苦味的，不要拿铁。'},
+  ],
+  fruit: [
+    {key: 'fruit-milkless', label: '🍓 果香无奶', prompt: '我想要清爽水果香，不加牛奶，帮我推荐一杯。'},
+    {key: 'cold-brew', label: '🧊 冷萃清爽', prompt: '有没有适合冰着喝的清爽冷萃？'},
+    {key: 'less-bitter', label: '🍯 少苦一点', prompt: '可以推荐不太苦、入口更清甜的咖啡吗？'},
+    {key: 'order-reco', label: '✅ 选推荐款', prompt: '就买你刚才推荐的那杯，从我余额里扣钱吧。'},
+  ],
+  coconut: [
+    {key: 'coconut-soft', label: '🥥 椰香柔和', prompt: '我想喝椰子味明显、不要太苦的咖啡。'},
+    {key: 'coconut-ice', label: '🧊 冰椰拿铁', prompt: '有没有冰的椰香拿铁或类似口味？'},
+    {key: 'sweet', label: '🍮 甜感更足', prompt: '想要甜感更明显一点，不要酸苦太重。'},
+    {key: 'order-reco', label: '✅ 选这杯', prompt: '就买你刚才推荐的那杯，从我余额里扣钱吧。'},
+  ],
+  bitter: [
+    {key: 'black', label: '☕ 黑咖啡', prompt: '我想要纯粹咖啡苦香，不要奶味，推荐一杯。'},
+    {key: 'deep', label: '🫘 深烘风味', prompt: '有没有深烘、坚果或可可调性的咖啡？'},
+    {key: 'no-latte', label: '🚫 不要拿铁', prompt: '不要拿铁和奶咖，想喝更直接的咖啡味。'},
+    {key: 'order-reco', label: '💳 直接下单', prompt: '就买你刚才推荐的那杯，从我余额里扣钱吧。'},
+  ],
+  ordering: [
+    {key: 'confirm', label: '✅ 确认下单', prompt: '确认下单。'},
+    {key: 'balance', label: '💰 看余额', prompt: '先帮我确认余额够不够。'},
+    {key: 'change', label: '🔁 换一杯', prompt: '我想换一杯，重新推荐一下。'},
+    {key: 'pickup', label: '🧾 看订单', prompt: '帮我看看最近订单。'},
+  ],
+  confirming: [
+    {key: 'confirm', label: '✅ 确认', prompt: '确认。'},
+    {key: 'less-sweet', label: '半糖', prompt: '如果可以的话，甜度帮我调低一点再下单。'},
+    {key: 'cancel', label: '先等等', prompt: '先等等，我再想一下。'},
+    {key: 'change', label: '换口味', prompt: '换个口味，重新推荐。'},
+  ],
+  paid: [
+    {key: 'again', label: '再来一杯', prompt: '我还想再点一杯，推荐一个不同口味。'},
+    {key: 'orders', label: '查看订单', prompt: '帮我看看最近订单。'},
+    {key: 'review', label: '评价口味', prompt: '这杯如果偏苦，下次帮我推荐更清甜的。'},
+    {key: 'dessert', label: '搭配建议', prompt: '这杯适合搭配什么甜点或小食？'},
+  ],
+  waiting: [
+    {key: 'thinking', label: '稍等', prompt: '好的，我等你推荐。'},
+    {key: 'fruit', label: '果香', prompt: '优先考虑果香清爽的。'},
+    {key: 'hot', label: '热饮', prompt: '如果可以，推荐热饮。'},
+    {key: 'ice', label: '冰饮', prompt: '如果可以，推荐冰饮。'},
+  ],
+  issue: [
+    {key: 'retry', label: '重试发送', prompt: '请再试一次，帮我继续处理这杯咖啡。'},
+    {key: 'menu', label: '回到菜单', prompt: '先回到菜单，重新推荐一杯。'},
+    {key: 'manual', label: '人工点单', prompt: '如果系统繁忙，请按常规菜单帮我点单。'},
+    {key: 'clear', label: '重新开始', prompt: '我们重新开始，我想喝一杯咖啡。'},
+  ],
+};
+
+function containsAny(text, words) {
+  return words.some(word => text.includes(word));
+}
+
+function normalizeText(text) {
+  return String(text || '').toLowerCase();
+}
+
+function extractCoffeeName(text) {
+  const source = String(text || '');
+  const quoted = source.match(/[「『]([^」』]{2,16})[」』]/);
+  if (quoted) return quoted[1].replace(/[，。,.].*$/, '').slice(0, 8);
+  const named = source.match(/([\u4e00-\u9fa5]{2,8}(拿铁|冷萃|美式|摩卡|咖啡|澳白|卡布))/);
+  return named ? named[1].slice(0, 8) : '';
+}
+
+function inferQuickScene(userText, botText, stage) {
+  const user = normalizeText(userText);
+  const bot = normalizeText(botText);
+  const joined = user + ' ' + bot;
+  if (stage === 'issue') return 'issue';
+  if (stage === 'sending') return 'waiting';
+  if (containsAny(bot, ['已生成订单', '已为您下单', '扣款', '订单 #', '订单#'])) return 'paid';
+  if (containsAny(bot, ['确认下单', '回复「确认」', '回复“确认”', '待确认'])) return 'confirming';
+  if (containsAny(user, ['确认', '下单', '买', '扣钱', '扣款', '结账', '支付'])) return 'ordering';
+  if (containsAny(joined, ['椰子', '椰香', '椰'])) return 'coconut';
+  if (containsAny(joined, ['果味', '水果', '果香', '清甜', '酸甜', '不要牛奶', '无奶'])) return 'fruit';
+  if (containsAny(joined, ['苦', '黑咖啡', '深烘', '美式', '不要拿铁', '纯粹'])) return 'bitter';
+  if (containsAny(joined, ['推荐', '菜单', '喝点', '口味', '忌口', '适合'])) return 'welcome';
+  return quickState.scene || 'welcome';
+}
+
+function tuneActionsForContext(actions, userText, botText) {
+  const coffeeName = extractCoffeeName(botText);
+  const user = normalizeText(userText);
+  const tuned = actions.map(action => ({...action}));
+  if (coffeeName) {
+    const labelName = coffeeName.length > 5 ? coffeeName.slice(0, 5) : coffeeName;
+    const orderIndex = tuned.findIndex(action => action.key === 'order-reco' || action.key === 'confirm');
+    if (orderIndex >= 0) {
+      tuned[orderIndex] = {
+        ...tuned[orderIndex],
+        label: '✅ 买' + labelName,
+        prompt: '就买「' + coffeeName + '」，从我余额里扣钱吧。',
+      };
+    }
+  }
+  if (containsAny(user, ['冰', '冷'])) {
+    tuned[1] = {key: 'ice-focus', label: '🧊 冰饮优先', prompt: '优先推荐冰饮，口感清爽一点。'};
+  } else if (containsAny(user, ['热', '暖'])) {
+    tuned[1] = {key: 'hot-focus', label: '♨️ 热饮优先', prompt: '优先推荐热饮，适合慢慢喝。'};
+  }
+  if (containsAny(user, ['不要牛奶', '无奶', '不加奶'])) {
+    tuned[0] = {key: 'milkless', label: '无奶', prompt: '请按不加牛奶的方向推荐。'};
+  }
+  return tuned.slice(0, 4);
+}
+
+function renderQuickMenu(options) {
+  const opts = options || {};
+  if (opts.userText !== undefined) quickState.lastUserText = opts.userText;
+  if (opts.botText !== undefined) quickState.lastBotText = opts.botText;
+  const scene = opts.scene || inferQuickScene(quickState.lastUserText, quickState.lastBotText, opts.stage);
+  quickState.scene = scene;
+  const menu = $('quickMenu');
+  if (!menu) return;
+  const base = quickPresets[scene] || quickPresets.welcome;
+  const actions = tuneActionsForContext(base, quickState.lastUserText, quickState.lastBotText);
+  menu.innerHTML = '';
+  actions.forEach(action => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = action.label;
+    button.title = action.prompt;
+    button.dataset.intent = action.key;
+    if (action.key === quickState.selectedKey) button.classList.add('intent-active');
+    button.addEventListener('click', () => {
+      quickState.selectedKey = action.key;
+      fill(action.prompt);
+    });
+    menu.appendChild(button);
+  });
+}
 
 function addMsg(text, role) {
   const el = document.createElement('div');
@@ -197,12 +356,17 @@ function addMsg(text, role) {
   return el;
 }
 
-function fill(text){ $('msgInput').value = text; $('msgInput').focus(); }
+function fill(text){
+  $('msgInput').value = text;
+  $('msgInput').focus();
+  renderQuickMenu({userText: text});
+}
 
 async function send() {
   const text = $('msgInput').value.trim();
   if (!text) return;
   $('msgInput').value = '';
+  renderQuickMenu({userText: text, stage: 'sending'});
   addMsg(text, 'user');
   orderViz()?.emit('message:sent', {message: text});
   const typing = addMsg('店长正在思考…', 'bot');
@@ -221,6 +385,7 @@ async function send() {
     }
     typing.classList.remove('typing');
     typing.textContent = data.reply;
+    renderQuickMenu({userText: text, botText: data.reply});
     if (!orderViz()?.isRealtimeConnected()) {
       orderViz()?.handleChatResult(data);
     }
@@ -232,6 +397,7 @@ async function send() {
   } catch (e) {
     typing.textContent = '⚠️ 网络错误：' + e.message;
     typing.classList.add('sys');
+    renderQuickMenu({userText: text, botText: e.message, stage: 'issue'});
     orderViz()?.emit('order:failed', {error: e.message});
   } finally {
     $('sendBtn').disabled = false;
@@ -239,10 +405,19 @@ async function send() {
 }
 
 async function clearChat() {
-  await fetch('/history/' + USER_ID, {method: 'DELETE'});
+  // 先重置本地 UI 和菜单，确保即使后端不可用菜单也回到欢迎态
   $('messages').innerHTML = '';
   orderViz()?.reset();
+  quickState.lastUserText = '';
+  quickState.lastBotText = '';
+  quickState.selectedKey = '';
+  renderQuickMenu({scene: 'welcome', userText: '', botText: ''});
   addMsg('对话已清空，我们重新开始吧~ 您想喝点什么？', 'bot');
+  try {
+    await fetch('/history/' + USER_ID, {method: 'DELETE'});
+  } catch (e) {
+    // 后端清空失败不阻塞本地重置
+  }
 }
 
 async function refreshUser() {
@@ -285,6 +460,13 @@ async function refreshMode() {
 // 初始化
 (async function init() {
   if ($('consumerUrlInput')) $('consumerUrlInput').value = window.location.href;
+  if ($('msgInput')) {
+    $('msgInput').addEventListener('input', () => {
+      quickState.selectedKey = '';
+      renderQuickMenu({userText: $('msgInput').value});
+    });
+  }
+  renderQuickMenu({scene: 'welcome'});
   addMsg('您好！我是咖啡馆 AI 店长 ☕\n\n告诉我您喜欢的口味，或者有什么忌口，我来为您推荐~\n（试试右侧的快捷按钮）', 'bot');
   await Promise.all([refreshUser(), refreshOrders(), refreshMode()]);
 })();
