@@ -105,22 +105,101 @@ def _lookup_price_from_kb(db, coffee_name):
     return float(kb.price) if kb else 0.0
 
 
-# 待确认订单时，用户确认的触发词（LLM 优先，这是关键字的底层兜底）
-_CONFIRM_WORDS = (
-    "确认", "下单", "好的", "好", "对", "是的", "没错",
-    "买", "可以", "行", "就下单", "下单吧", "结账",
-    "没错下单", "对了下单",
+# 待确认订单时，用户确认的触发词。分两组使用：
+# - _CONFIRM_STRONG：可安全出现在长句任意位置（如「就买「确认」，从我余额里扣钱吧」），
+#   因为这些词（确认/下单/扣钱/从余额…）即便夹在句中也表示“同意下单”；
+# - _CONFIRM_WEAK：单字或短词（好/对/行/买…），仅在“纯短句”里按 startswith 兜底，
+#   避免它们在长句中被误命中（如“还行吧”不应被“行”误判为确认）。
+# 另用否定/修改/疑问词守门，防止把“换一杯”“不要了”“下单流程是怎样的”误判为确认。
+_CONFIRM_STRONG = (
+    "确认", "下单", "结账", "扣钱", "扣款", "付款", "买单", "从余额", "余额扣",
 )
+
+_CONFIRM_WEAK = (
+    "好的", "好", "对", "是的", "没错", "可以", "行", "买",
+    "就下单", "下单吧", "没错下单", "对了下单",
+)
+
+# 否定 / 修改 / 观望 / 疑问信号：出现即视为“不是在确认”（优先级最高）。
+# 这样既能放行长句确认，又不会把修改订单或提问误判为确认（曾导致反复要求确认的死循环）。
+_CONFIRM_NEGATIVE_WORDS = (
+    "不", "别", "换", "改", "取消", "退", "再想想", "太贵", "算了",
+    "别的", "另外", "改主意",
+    # 疑问类：用户在提问而非确认
+    "怎么", "如何", "什么", "是否", "能不能", "可不可以",
+)
+_CONFIRM_QUESTION_MARKS = ("吗", "？", "?")
 
 
 def _is_confirming(user_msg):
     """判断用户是否在确认待支付订单。
-    用 startswith 而非 in，避免「不对」被「对」误判。
+
+    既要接住带支付措辞的长句确认（「就买「确认」，从我余额里扣钱吧」），
+    又要避免把修改订单（「换一杯」「不要了」「太贵换一个」）或提问
+    （「下单流程是怎样的」）误判为确认，否则会陷入“反复要求确认”的死循环。
+
+    判定优先级：
+      1) 含否定/修改/疑问词 → 不是确认；
+      2) 含强确认词（确认/下单/扣钱/从余额等，长句也算）→ 是确认；
+      3) 纯短句以弱确认词开头（“好”/“对”/“行”等）→ 是确认；
+      4) 其余（如纯咖啡名“美式咖啡”、闲聊）→ 不是确认，落入下方重新处理。
     """
     msg = user_msg.strip()
-    if len(msg) <= 6:
-        return any(msg.startswith(w) for w in _CONFIRM_WORDS)
+    if not msg:
+        return False
+    # 1) 否定/修改/疑问优先：含这些词一律不按确认处理
+    if any(w in msg for w in _CONFIRM_NEGATIVE_WORDS):
+        return False
+    if any(w in msg for w in _CONFIRM_QUESTION_MARKS):
+        return False
+    # 2) 强确认词：长句中出现也算确认（“确认”/“下单”/“扣钱”/“从余额”等）
+    if any(w in msg for w in _CONFIRM_STRONG):
+        return True
+    # 3) 弱确认词：仅当消息是纯短句时按 startswith 兜底
+    if len(msg) <= 6 and any(msg.startswith(w) for w in _CONFIRM_WEAK):
+        return True
     return False
+
+
+# 查看订单意图触发词：必须同时含「订单」+ 查看/历史类词。
+# 「下单/结账/扣钱」等下单词不含「订单」，天然不会误判为下单。
+_ORDER_VIEW_HINTS = (
+    "看", "查看", "查一下", "查询", "最近", "我的", "列表", "记录", "历史", "情况",
+)
+
+
+def _is_order_view_query(user_msg: str) -> bool:
+    """判断用户是否想查看历史订单（与「下单」严格区分）。"""
+    msg = user_msg.strip()
+    if "订单" not in msg:
+        return False
+    return any(hint in msg for hint in _ORDER_VIEW_HINTS)
+
+
+def _format_order_history_reply(db: Session, user_id: int) -> str:
+    """返回最近订单的对话式摘要，供 /chat 直接回复，避免落入推荐 RAG。"""
+    rows = (
+        db.query(Order)
+        .filter(Order.user_id == user_id)
+        .order_by(Order.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    if not rows:
+        return "您还没有订单哦~ 想喝点什么？告诉我喜欢的口味，我来帮您推荐。"
+    lines = []
+    total = 0.0
+    for o in rows:
+        total += float(o.amount)
+        lines.append(
+            f"  • {o.coffee_name}  ¥{float(o.amount):.2f}  ·  "
+            f"{o.created_at.strftime('%m-%d %H:%M')}  ·  #{o.order_id}"
+        )
+    return (
+        "您最近的订单：\n"
+        + "\n".join(lines)
+        + f"\n最近 {len(rows)} 单合计 ¥{total:.2f}。\n想再来一杯吗？我可以帮您推荐或下单。"
+    )
 
 
 def _normalize_consumer_url(value: str | None) -> str | None:
@@ -453,9 +532,23 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     _try_publish_visualization_event(
         db,
         "message.received",
-        {"user_id": req.user_id, "message": req.message, **web_source_payload},
-        correlation_id=req.request_id,
-    )
+       {"user_id": req.user_id, "message": req.message, **web_source_payload},
+       correlation_id=req.request_id,
+   )
+    # ===== 查看订单意图：直接返回订单列表，避免被当成「求推荐」走 RAG =====
+    # 放在 pending 检查之前，这样查看订单不会清掉待确认订单。
+    if _is_order_view_query(req.message):
+        reply = _format_order_history_reply(db, req.user_id)
+        add_message(req.user_id, "user", req.message)
+        add_message(req.user_id, "assistant", reply)
+        _try_publish_visualization_event(
+            db,
+            "order.reply",
+            {"user_id": req.user_id, "intent": "view_orders", **web_source_payload},
+            correlation_id=req.request_id,
+        )
+        return ChatResponse(reply=reply)
+
     # ===== 第1步：读 Redis 上下文（短期记忆，最近5轮对话）=====
     history = get_history(req.user_id)
 
@@ -478,9 +571,12 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                     consumer_url=consumer_url,
                     correlation_id=req.request_id,
                 )
-            except InsufficientBalanceError as e:
+            except (InsufficientBalanceError, ValueError) as e:
+                # InsufficientBalanceError：余额不足；
+                # ValueError：place_orders 对「用户不存在/参数非法」抛出，
+                # 不捕获会变成 HTTP 500，这里统一降级为友好提示。
                 clear_pending_order(req.user_id)
-                reply = f"下单失败：{e}。请先充值哦~"
+                reply = f"下单失败：{e}。请稍后重试或联系店长~"
                 add_message(req.user_id, "user", req.message)
                 add_message(req.user_id, "assistant", reply)
                 _publish_web_restaurant_event(
