@@ -1,6 +1,22 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+_PLACEHOLDER_SECRETS = {
+    "sk-your-key-here",
+    "your-openai-api-key",
+    "your-deepseek-api-key",
+}
+
+
+def _clean_secret(value: str | None) -> str:
+    return (value or "").strip()
+
+
+def _is_real_secret(value: str | None) -> bool:
+    text = _clean_secret(value)
+    return bool(text) and text not in _PLACEHOLDER_SECRETS and not text.startswith("sk-your")
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -19,6 +35,8 @@ class Settings(BaseSettings):
 
     # OpenAI-compatible LLM provider.
     llm_api_key: str = ""
+    deepseek_api_key: str = ""
+    openai_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-4o-mini"
 
@@ -47,6 +65,42 @@ class Settings(BaseSettings):
     def redis_url(self) -> str:
         auth = f":{self.redis_password}@" if self.redis_password else ""
         return f"redis://{auth}{self.redis_host}:{self.redis_port}/{self.redis_db}"
+
+    @property
+    def effective_llm_api_key(self) -> str:
+        for value in (self.llm_api_key, self.deepseek_api_key, self.openai_api_key):
+            if _is_real_secret(value):
+                return _clean_secret(value)
+        return ""
+
+    @property
+    def llm_api_key_source(self) -> str | None:
+        candidates = (
+            ("LLM_API_KEY", self.llm_api_key),
+            ("DEEPSEEK_API_KEY", self.deepseek_api_key),
+            ("OPENAI_API_KEY", self.openai_api_key),
+        )
+        for name, value in candidates:
+            if _is_real_secret(value):
+                return name
+        return None
+
+    @property
+    def llm_status_reason(self) -> str:
+        if self.llm_api_key_source:
+            return "configured"
+        configured_placeholders = [
+            name
+            for name, value in (
+                ("LLM_API_KEY", self.llm_api_key),
+                ("DEEPSEEK_API_KEY", self.deepseek_api_key),
+                ("OPENAI_API_KEY", self.openai_api_key),
+            )
+            if _clean_secret(value)
+        ]
+        if configured_placeholders:
+            return "placeholder_or_invalid_api_key"
+        return "missing_api_key"
 
 
 settings = Settings()

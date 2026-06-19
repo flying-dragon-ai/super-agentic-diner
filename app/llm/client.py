@@ -26,8 +26,7 @@ def get_client() -> httpx.Client:
 
 def has_real_key() -> bool:
     """是否配置了真实 LLM key（非占位符）"""
-    k = settings.llm_api_key.strip()
-    return bool(k) and k != "sk-your-key-here" and not k.startswith("sk-your")
+    return bool(settings.effective_llm_api_key)
 
 
 def _call_llm(messages):
@@ -36,7 +35,7 @@ def _call_llm(messages):
     """
     url = settings.llm_base_url.rstrip("/") + "/chat/completions"
     headers = {
-        "Authorization": f"Bearer {settings.llm_api_key}",
+        "Authorization": f"Bearer {settings.effective_llm_api_key}",
         "Content-Type": "application/json",
     }
     payload = {"model": settings.llm_model, "messages": messages, "temperature": 0.7}

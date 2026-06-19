@@ -70,6 +70,12 @@ app = FastAPI(title="智能咖啡馆 AI 店长")
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
+_PRESENCE_CLIENT_EVENTS = {
+    "presence.join": "presence.customer_joined",
+    "presence.move": "presence.customer_moved",
+    "presence.leave": "presence.customer_left",
+}
+
 
 def _resolve_coffees_from_history(db, history, max_messages=1):
     """【任务三·第3步】从 Redis 历史消息中提取被推荐过的咖啡名。
@@ -1098,9 +1104,50 @@ def _public_ledger(ledger: SkillOrderLedger | None) -> dict[str, Any] | None:
     }
 
 
+def _presence_coordinate(value: Any, minimum: float, maximum: float) -> int:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return int(minimum)
+    return int(max(minimum, min(maximum, number)))
+
+
+def _presence_message_from_client(message: dict[str, Any]) -> dict[str, Any] | None:
+    event_type = _PRESENCE_CLIENT_EVENTS.get(str(message.get("type") or ""))
+    if not event_type:
+        return None
+    raw_payload = message.get("payload")
+    if not isinstance(raw_payload, dict):
+        return None
+    visitor_id = str(raw_payload.get("visitor_id") or "").strip()
+    if not visitor_id:
+        return None
+    visitor_id = visitor_id[:80]
+    display_name = str(raw_payload.get("display_name") or "").strip()[:40]
+    if not display_name:
+        display_name = f"Guest {visitor_id[-4:].upper()}"
+    payload: dict[str, Any] = {
+        "visitor_id": visitor_id,
+        "display_name": display_name,
+    }
+    if event_type != "presence.customer_left":
+        payload["x"] = _presence_coordinate(raw_payload.get("x"), 24, 616)
+        payload["y"] = _presence_coordinate(raw_payload.get("y"), 82, 326)
+    elif "x" in raw_payload and "y" in raw_payload:
+        payload["x"] = _presence_coordinate(raw_payload.get("x"), 24, 616)
+        payload["y"] = _presence_coordinate(raw_payload.get("y"), 82, 326)
+    return {
+        "type": event_type,
+        "payload": payload,
+        "correlation_id": f"presence:{visitor_id}",
+        "created_at": datetime.utcnow().isoformat(),
+    }
+
+
 @app.websocket("/ws/visualization")
 async def visualization_websocket(websocket: WebSocket):
     await visualization_hub.connect(websocket)
+    presence_payload: dict[str, Any] | None = None
     try:
         while True:
             message = await websocket.receive_json()
@@ -1112,8 +1159,25 @@ async def visualization_websocket(websocket: WebSocket):
                         "created_at": datetime.utcnow().isoformat(),
                     }
                 )
+                continue
+            presence_message = _presence_message_from_client(message)
+            if presence_message:
+                if presence_message["type"] != "presence.customer_left":
+                    presence_payload = presence_message["payload"]
+                else:
+                    presence_payload = None
+                await visualization_hub.broadcast(presence_message)
     except WebSocketDisconnect:
         visualization_hub.disconnect(websocket)
+        if presence_payload:
+            await visualization_hub.broadcast(
+                {
+                    "type": "presence.customer_left",
+                    "payload": presence_payload,
+                    "correlation_id": f"presence:{presence_payload['visitor_id']}",
+                    "created_at": datetime.utcnow().isoformat(),
+                }
+            )
 
 
 @app.get("/user/{user_id}")
@@ -1173,6 +1237,10 @@ def status():
         "database": "mysql",
         "memory": "redis",
         "llm_active": llm.has_real_key(),
+        "llm_key_source": settings.llm_api_key_source,
+        "llm_status_reason": settings.llm_status_reason,
+        "llm_base_url": settings.llm_base_url,
+        "llm_model": settings.llm_model,
     }
 
 
