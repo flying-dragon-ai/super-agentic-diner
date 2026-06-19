@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     chat_history_rounds: int = 5
     chat_history_ttl: int = 1800
 
+    # A2A Skill / EvoMap 积分点单
+    skill_free_order_limit: int = 2
+    evomap_credit_rate: str = "1"
+    evomap_atp_caps: str = "a2a_super_order,coffee_order"
+
     @property
     def database_url(self) -> str:
         if self.db_mode == "sqlite":

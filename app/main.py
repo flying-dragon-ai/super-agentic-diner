@@ -1,29 +1,18 @@
-# ============================================================
-# 【面试题·任务三】FastAPI 入口：聊天 + 下单接口
-#
-# 对应面试题任务三："就买你刚才推荐的那杯，从我余额里扣钱吧。"
-# 后端处理流程（把 Redis、MySQL、LLM 串联）：
-#
-#   第1步：读 Redis 上下文（让 AI 知道"刚才推荐的那杯"是哪杯）
-#   第2步：调 LLM 理解用户意图（是下单？推荐？闲聊？）
-#   第3步：解析具体咖啡名（价格 → LLM引用 → RAG关键词 → 历史提取，4路优先级）
-#   第4步：显示订单摘要，存入 Redis 待确认（两段式下单，防误扣）
-#   第5步：用户确认后 → MySQL 事务内扣款（BEGIN → FOR UPDATE行锁 → 校验 → 扣+插 → COMMIT）
-#   第6步：写回 Redis 记忆 + 返回话术
-#
-# 安全提示（面试题要求）：扣钱操作用事务+行锁保证安全性和顺序
-# ============================================================
-from typing import Optional
+"""FastAPI entrypoint for chat ordering and Agent visualization APIs."""
+from datetime import datetime
+from typing import Any, Optional
 
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db.database import get_db
-from app.db.models import CoffeeKB, Order, User
+from app.db.models import AgentProfile, CoffeeKB, EvomapConsumer, Order, User, VisualizationEvent
 from app.llm import client as llm
 from app.memory.chat_history import (
     add_message,
@@ -36,15 +25,32 @@ from app.services.chat_service import extract_price, handle_message, match_by_pr
 from app.rag.keywords import extract_keywords
 from app.rag.retrieval import retrieve
 from app.services.order_service import (
-    CoffeeNotResolvedError,
     InsufficientBalanceError,
-    place_order,
     place_orders,
+)
+from app.services.skill_order_service import (
+    SkillOrderError,
+    SkillPaymentRequired,
+    ensure_consumer,
+    process_skill_order,
+)
+from app.services.visualization_service import (
+    VALID_AGENT_ACTIONS,
+    VALID_AGENT_ROLES,
+    create_visualization_event,
+    decode_json,
+    encode_json,
+    event_to_message,
+    generate_agent_token,
+    hash_agent_token,
+    make_sprite_seed,
+    visualization_hub,
 )
 
 app = FastAPI(title="智能咖啡馆 AI 店长")
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
+app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
 
 def _resolve_coffees_from_history(db, history, max_messages=1):
@@ -93,19 +99,6 @@ def _is_confirming(user_msg):
     return False
 
 
-# 修改/取消订单的信号词
-_MODIFY_WORDS = (
-    "只要", "不要", "换", "改", "改成", "换成",
-    "去掉", "太多了", "错了", "不对", "不是",
-    "来个", "来杯", "给我来", "帮我来",
-)
-
-
-def _is_modifying(user_msg):
-    """判断用户是否在修改/重新选择待确认订单"""
-    return any(w in user_msg for w in _MODIFY_WORDS)
-
-
 class ChatRequest(BaseModel):
     user_id: int
     message: str
@@ -117,18 +110,153 @@ class ChatResponse(BaseModel):
     order_id: Optional[int] = None
 
 
+class AgentRegisterRequest(BaseModel):
+    tool_name: str
+    display_name: str
+    role_type: str = "waiter"
+    capabilities: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentRegisterResponse(BaseModel):
+    agent_id: int
+    api_token: str
+    role_type: str
+    sprite_seed: int
+
+
+class AgentActionRequest(BaseModel):
+    action_type: str
+    target: Optional[str] = None
+    message: Optional[str] = None
+    correlation_id: Optional[str] = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentActionResponse(BaseModel):
+    ok: bool
+    event_id: int
+
+
+class SkillRegisterRequest(BaseModel):
+    tool_name: str = "codex"
+    display_name: str = "A2A Consumer"
+    evomap_node_id: str
+    evomap_did: Optional[str] = None
+    role_type: str = "customer"
+    capabilities: list[str] = Field(default_factory=lambda: ["a2a_super_order"])
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    evomap_capability_status: str = "unknown"
+
+
+class SkillRegisterResponse(BaseModel):
+    consumer_id: int
+    agent_id: int
+    api_token: str
+    role_type: str
+    sprite_seed: int
+    free_orders_remaining: int
+    evomap_node_id: str
+
+
+class SkillOrderRequest(BaseModel):
+    consumer_id: int
+    agent_id: int
+    message: str
+    request_id: Optional[str] = None
+    auto_confirm: bool = True
+    payment_proof: Optional[dict[str, Any]] = None
+
+
+class SkillOrderResponse(BaseModel):
+    ok: bool
+    status: str
+    reply: str
+    request_id: str
+    consumer_id: int
+    ledger_id: Optional[int] = None
+    order_ids: list[int] = Field(default_factory=list)
+    coffee_names: list[str] = Field(default_factory=list)
+    amount_credits: Optional[int] = None
+    payment_status: Optional[str] = None
+    free_orders_remaining: int = 0
+    evomap_order_id: Optional[str] = None
+    payment_request: Optional[dict[str, Any]] = None
+
+
+def _publish_visualization_event(
+    db: Session,
+    event_type: str,
+    payload: dict[str, Any],
+    agent_id: int | None = None,
+    correlation_id: str | None = None,
+) -> dict[str, Any]:
+    message = create_visualization_event(
+        db,
+        event_type=event_type,
+        payload=payload,
+        agent_id=agent_id,
+        correlation_id=correlation_id,
+    )
+    visualization_hub.broadcast_from_sync(message)
+    return message
+
+
+def _try_publish_visualization_event(
+    db: Session,
+    event_type: str,
+    payload: dict[str, Any],
+    agent_id: int | None = None,
+    correlation_id: str | None = None,
+) -> None:
+    try:
+        _publish_visualization_event(db, event_type, payload, agent_id, correlation_id)
+    except Exception:
+        db.rollback()
+        visualization_hub.broadcast_from_sync(
+            {
+                "event_id": None,
+                "type": event_type,
+                "agent_id": agent_id,
+                "payload": payload,
+                "correlation_id": correlation_id,
+                "created_at": datetime.utcnow().isoformat(),
+            }
+        )
+
+
+def _extract_agent_token(authorization: str | None, x_agent_token: str | None) -> str:
+    if x_agent_token:
+        return x_agent_token.strip()
+    if authorization and authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    raise HTTPException(status_code=401, detail="缺少 Agent API token")
+
+
+def _require_agent(
+    db: Session,
+    agent_id: int,
+    authorization: str | None,
+    x_agent_token: str | None,
+) -> AgentProfile:
+    token = _extract_agent_token(authorization, x_agent_token)
+    agent = db.query(AgentProfile).filter(AgentProfile.agent_id == agent_id).first()
+    if not agent or agent.status != "active":
+        raise HTTPException(status_code=404, detail="Agent 不存在或已停用")
+    if agent.api_token_hash != hash_agent_token(token):
+        raise HTTPException(status_code=401, detail="Agent API token 无效")
+    return agent
+
+
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest, db: Session = Depends(get_db)):
-    """【面试题·任务三·完整流程】聊天/下单主接口
-
-    当用户发来 "就买你刚才推荐的那杯，从我余额里扣钱吧。" 时：
-    第1步：读 Redis 上下文 → 知道"刚才推荐的那杯"是什么
-    第2步：调 LLM → 理解用户意图（下单确认）
-    第3步：解析咖啡名 → 价格/LLM/RAG/历史 四路优先
-    第4步：显示摘要 → 存 Redis 待确认（两段式防误扣）
-    第5步：用户回复"确认" → MySQL 事务扣款
-    第6步：写 Redis 记忆 + 返回话术
-    """
+    """Handle chat, recommendation, pending confirmation, and paid order flows."""
+    _try_publish_visualization_event(
+        db,
+        "message.received",
+        {"user_id": req.user_id, "message": req.message},
+        correlation_id=req.request_id,
+    )
     # ===== 第1步：读 Redis 上下文（短期记忆，最近5轮对话）=====
     history = get_history(req.user_id)
 
@@ -148,6 +276,12 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                 reply = f"下单失败：{e}。请先充值哦~"
                 add_message(req.user_id, "user", req.message)
                 add_message(req.user_id, "assistant", reply)
+                _try_publish_visualization_event(
+                    db,
+                    "order.failed",
+                    {"user_id": req.user_id, "reason": str(e), "stage": "payment"},
+                    correlation_id=req.request_id,
+                )
                 return ChatResponse(reply=reply)
 
             clear_pending_order(req.user_id)
@@ -167,6 +301,17 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                 )
             add_message(req.user_id, "user", req.message)
             add_message(req.user_id, "assistant", reply)
+            _try_publish_visualization_event(
+                db,
+                "order.paid",
+                {
+                    "user_id": req.user_id,
+                    "order_ids": [o.order_id for o in orders],
+                    "coffee_names": [o.coffee_name for o in orders],
+                    "total": float(sum(o.amount for o in orders)),
+                },
+                correlation_id=req.request_id,
+            )
             return ChatResponse(reply=reply, order_id=orders[0].order_id)
         else:
             # 不是纯确认词 → 清掉待确认，落入下方正常流程重新处理
@@ -176,6 +321,12 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     # ===== 第2步：无待确认订单 → 调 LLM 理解用户意图 =====
     # LLM 返回三分类之一：order（下单）/ recommend（求推荐）/ chat（闲聊）
     intent = llm.parse_intent(history, req.message)
+    _try_publish_visualization_event(
+        db,
+        "order.intent_detected",
+        {"user_id": req.user_id, "intent": intent.get("intent", "chat")},
+        correlation_id=req.request_id,
+    )
 
     # ===== 第3步：LLM 判断为"下单"意图 → 解析具体是哪杯咖啡 =====
     # 四路优先级：价格匹配 > LLM显式名 > RAG关键词 > 历史提取
@@ -221,6 +372,12 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             reply = "不好意思，我没太确定您想买哪杯，能再说一下咖啡名字吗？"
             add_message(req.user_id, "user", req.message)
             add_message(req.user_id, "assistant", reply)
+            _try_publish_visualization_event(
+                db,
+                "order.failed",
+                {"user_id": req.user_id, "reason": "coffee_not_resolved", "stage": "resolve"},
+                correlation_id=req.request_id,
+            )
             return ChatResponse(reply=reply)
 
         # ===== 第4步：两段式下单 —— 先存 Redis 待确认，显示摘要（不直接扣款）=====
@@ -240,13 +397,295 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         )
         add_message(req.user_id, "user", req.message)
         add_message(req.user_id, "assistant", reply)
+        _try_publish_visualization_event(
+            db,
+            "order.pending_confirmation",
+            {
+                "user_id": req.user_id,
+                "coffees": [{"name": i["name"], "price": float(i["price"])} for i in items],
+                "total": float(total),
+            },
+            correlation_id=req.request_id,
+        )
         return ChatResponse(reply=reply)
 
     # ===== 非下单意图（recommend/chat）→ 走 RAG 聊天流程 =====
     # handle_message 内部：读Redis → 关键词提取 → LIKE检索 → LLM生成 → 写Redis
     clear_pending_order(req.user_id)
     reply = handle_message(db, req.user_id, req.message)
+    _try_publish_visualization_event(
+        db,
+        "order.reply",
+        {"user_id": req.user_id, "intent": intent.get("intent", "chat")},
+        correlation_id=req.request_id,
+    )
     return ChatResponse(reply=reply)
+
+
+@app.post("/agents/register", response_model=AgentRegisterResponse)
+def register_agent(req: AgentRegisterRequest, db: Session = Depends(get_db)):
+    role_type = req.role_type.strip().lower()
+    if role_type not in VALID_AGENT_ROLES:
+        raise HTTPException(status_code=400, detail=f"不支持的角色类型：{req.role_type}")
+    token = generate_agent_token()
+    agent = AgentProfile(
+        tool_name=req.tool_name.strip(),
+        display_name=req.display_name.strip(),
+        role_type=role_type,
+        capabilities_json=encode_json(req.capabilities),
+        metadata_json=encode_json(req.metadata),
+        api_token_hash=hash_agent_token(token),
+        sprite_seed=make_sprite_seed(),
+        status="active",
+        created_at=datetime.utcnow(),
+        last_seen_at=datetime.utcnow(),
+    )
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
+    _publish_visualization_event(
+        db,
+        "agent.registered",
+        {
+            "agent_id": agent.agent_id,
+            "tool_name": agent.tool_name,
+            "display_name": agent.display_name,
+            "role_type": agent.role_type,
+            "capabilities": req.capabilities,
+            "sprite_seed": agent.sprite_seed,
+        },
+        agent_id=agent.agent_id,
+    )
+    return AgentRegisterResponse(
+        agent_id=agent.agent_id,
+        api_token=token,
+        role_type=agent.role_type,
+        sprite_seed=agent.sprite_seed,
+    )
+
+
+@app.post("/skill/register", response_model=SkillRegisterResponse)
+def register_skill_consumer(req: SkillRegisterRequest, db: Session = Depends(get_db)):
+    role_type = req.role_type.strip().lower()
+    if role_type not in VALID_AGENT_ROLES:
+        raise HTTPException(status_code=400, detail=f"不支持的角色类型：{req.role_type}")
+
+    consumer = ensure_consumer(
+        db,
+        evomap_node_id=req.evomap_node_id,
+        evomap_did=req.evomap_did,
+        display_name=req.display_name,
+    )
+    token = generate_agent_token()
+    metadata = dict(req.metadata)
+    metadata.update(
+        {
+            "source": "a2a-super-order-skill",
+            "consumer_id": consumer.consumer_id,
+            "evomap_node_id": consumer.evomap_node_id,
+            "evomap_did": consumer.evomap_did,
+            "evomap_capability_status": req.evomap_capability_status,
+        }
+    )
+    agent = AgentProfile(
+        tool_name=req.tool_name.strip(),
+        display_name=req.display_name.strip() or consumer.display_name,
+        role_type=role_type,
+        capabilities_json=encode_json(req.capabilities),
+        metadata_json=encode_json(metadata),
+        api_token_hash=hash_agent_token(token),
+        sprite_seed=make_sprite_seed(),
+        status="active",
+        created_at=datetime.utcnow(),
+        last_seen_at=datetime.utcnow(),
+    )
+    db.add(agent)
+    db.commit()
+    db.refresh(agent)
+    free_orders_remaining = max(settings.skill_free_order_limit - consumer.free_orders_used, 0)
+    _publish_visualization_event(
+        db,
+        "agent.registered",
+        {
+            "agent_id": agent.agent_id,
+            "consumer_id": consumer.consumer_id,
+            "tool_name": agent.tool_name,
+            "display_name": agent.display_name,
+            "role_type": agent.role_type,
+            "capabilities": req.capabilities,
+            "sprite_seed": agent.sprite_seed,
+            "evomap_node_id": consumer.evomap_node_id,
+            "free_orders_remaining": free_orders_remaining,
+        },
+        agent_id=agent.agent_id,
+    )
+    return SkillRegisterResponse(
+        consumer_id=consumer.consumer_id,
+        agent_id=agent.agent_id,
+        api_token=token,
+        role_type=agent.role_type,
+        sprite_seed=agent.sprite_seed,
+        free_orders_remaining=free_orders_remaining,
+        evomap_node_id=consumer.evomap_node_id,
+    )
+
+
+@app.post("/skill/orders", response_model=SkillOrderResponse)
+def create_skill_order(
+    req: SkillOrderRequest,
+    authorization: Optional[str] = Header(None),
+    x_agent_token: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    if not req.auto_confirm:
+        raise HTTPException(status_code=400, detail="Skill 点单当前要求 auto_confirm=true")
+
+    agent = _require_agent(db, req.agent_id, authorization, x_agent_token)
+    metadata = decode_json(agent.metadata_json, {})
+    if metadata.get("consumer_id") and int(metadata["consumer_id"]) != req.consumer_id:
+        raise HTTPException(status_code=403, detail="Agent 与消费者身份不匹配")
+
+    consumer = db.query(EvomapConsumer).filter(EvomapConsumer.consumer_id == req.consumer_id).first()
+    if not consumer or consumer.status != "active":
+        raise HTTPException(status_code=404, detail="EvoMap 消费者不存在或已停用")
+
+    try:
+        return process_skill_order(
+            db,
+            consumer=consumer,
+            agent=agent,
+            message=req.message,
+            request_id=req.request_id,
+            payment_proof=req.payment_proof,
+        )
+    except SkillPaymentRequired as exc:
+        raise HTTPException(status_code=402, detail=exc.payload) from exc
+    except SkillOrderError as exc:
+        _try_publish_visualization_event(
+            db,
+            "order.failed",
+            {
+                "consumer_id": req.consumer_id,
+                "agent_id": req.agent_id,
+                "reason": str(exc),
+                "code": exc.code,
+                "stage": "skill_order",
+            },
+            agent_id=req.agent_id,
+            correlation_id=req.request_id,
+        )
+        raise HTTPException(status_code=400, detail={"code": exc.code, "message": str(exc)}) from exc
+
+
+@app.get("/agents")
+def list_agents(db: Session = Depends(get_db)):
+    rows = (
+        db.query(AgentProfile)
+        .filter(AgentProfile.status == "active")
+        .order_by(AgentProfile.created_at.asc())
+        .all()
+    )
+    return [
+        {
+            "agent_id": a.agent_id,
+            "tool_name": a.tool_name,
+            "display_name": a.display_name,
+            "role_type": a.role_type,
+            "capabilities": decode_json(a.capabilities_json, []),
+            "metadata": decode_json(a.metadata_json, {}),
+            "sprite_seed": a.sprite_seed,
+            "status": a.status,
+            "last_seen_at": a.last_seen_at.isoformat(),
+        }
+        for a in rows
+    ]
+
+
+@app.post("/agents/{agent_id}/heartbeat")
+def agent_heartbeat(
+    agent_id: int,
+    authorization: Optional[str] = Header(None),
+    x_agent_token: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    agent = _require_agent(db, agent_id, authorization, x_agent_token)
+    agent.last_seen_at = datetime.utcnow()
+    db.commit()
+    event = _publish_visualization_event(
+        db,
+        "agent.heartbeat",
+        {
+            "agent_id": agent.agent_id,
+            "display_name": agent.display_name,
+            "role_type": agent.role_type,
+        },
+        agent_id=agent.agent_id,
+    )
+    return {"ok": True, "event_id": event["event_id"]}
+
+
+@app.post("/agents/{agent_id}/actions", response_model=AgentActionResponse)
+def post_agent_action(
+    agent_id: int,
+    req: AgentActionRequest,
+    authorization: Optional[str] = Header(None),
+    x_agent_token: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    agent = _require_agent(db, agent_id, authorization, x_agent_token)
+    action_type = req.action_type.strip()
+    if action_type not in VALID_AGENT_ACTIONS:
+        raise HTTPException(status_code=400, detail=f"不支持的动作类型：{req.action_type}")
+    agent.last_seen_at = datetime.utcnow()
+    db.commit()
+    event = _publish_visualization_event(
+        db,
+        "agent.action",
+        {
+            "agent_id": agent.agent_id,
+            "tool_name": agent.tool_name,
+            "display_name": agent.display_name,
+            "role_type": agent.role_type,
+            "sprite_seed": agent.sprite_seed,
+            "action_type": action_type,
+            "target": req.target,
+            "message": req.message,
+            "payload": req.payload,
+        },
+        agent_id=agent.agent_id,
+        correlation_id=req.correlation_id,
+    )
+    return AgentActionResponse(ok=True, event_id=event["event_id"])
+
+
+@app.get("/visualization/events")
+def list_visualization_events(limit: int = 50, db: Session = Depends(get_db)):
+    safe_limit = min(max(limit, 1), 200)
+    rows = (
+        db.query(VisualizationEvent)
+        .order_by(VisualizationEvent.created_at.desc())
+        .limit(safe_limit)
+        .all()
+    )
+    return [event_to_message(row) for row in reversed(rows)]
+
+
+@app.websocket("/ws/visualization")
+async def visualization_websocket(websocket: WebSocket):
+    await visualization_hub.connect(websocket)
+    try:
+        while True:
+            message = await websocket.receive_json()
+            if message.get("type") == "ping":
+                await websocket.send_json(
+                    {
+                        "type": "pong",
+                        "payload": {},
+                        "created_at": datetime.utcnow().isoformat(),
+                    }
+                )
+    except WebSocketDisconnect:
+        visualization_hub.disconnect(websocket)
 
 
 @app.get("/user/{user_id}")

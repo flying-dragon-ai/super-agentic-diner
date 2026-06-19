@@ -1,16 +1,4 @@
-# ============================================================
-# 【面试题·任务二·2】关键词 RAG 召回模块
-#
-# 对应面试题：
-#   任务二·2：如何避开"否定词陷阱"？
-#     → 正向词用 LIKE 召回候选（OR 扩大召回面）
-#     → 负向词用 NOT LIKE 过滤掉含奶饮品（AND 剔除）
-#
-# SQL 等价逻辑：
-#   SELECT * FROM coffee_kb
-#   WHERE (content LIKE '%果香%' OR tags LIKE '%柑橘%')      ← 正向召回
-#     AND content NOT LIKE '%牛奶%' AND content NOT LIKE '%拿铁%'  ← 负向过滤
-# ============================================================
+"""Keyword RAG retrieval for coffee knowledge-base rows."""
 from __future__ import annotations
 
 from sqlalchemy import or_

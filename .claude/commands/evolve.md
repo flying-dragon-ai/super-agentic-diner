@@ -16,17 +16,14 @@ Trigger a deliberate evolution step for the current task.
    what worked, what didn't, and what the durable lesson is.
 
 3. **Record.** The `Stop` hook records outcomes automatically at task end. If
-   the user wants to run the full engine *now*, and `@evomap/evolver` is on
-   `PATH`, run:
+   the user wants to run the full engine *now*, use the project-local CLI:
 
    ```bash
-   evolver run
+   ./node_modules/.bin/evolver run
    ```
 
-   to execute a full evolution cycle (or use `/evolver:run`). If it is not
-   installed, tell the user the outcome will still be captured automatically by
-   the Stop hook, and that `npm install -g @evomap/evolver` unlocks the full
-   review-and-solidify cycle.
+   to execute a full evolution cycle (or use `/evolver:run`). If the local CLI
+   is missing, tell the user to restore `node_modules` from this repo checkout.
 
 Keep this lightweight — `/evolve` is for an explicit checkpoint, not a ceremony
 on every turn.

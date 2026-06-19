@@ -24,10 +24,12 @@ F=~/.evolver/memory/evolution/memory_graph.jsonl
 R=$(git rev-parse --show-toplevel 2>/dev/null); [ -n "$R" ] && { [ -f "$R/.evolver/workspace-id" ] && echo "workspace-id: present" || echo "workspace-id: not yet created"; } || echo "not a git repo — memory inactive here"
 ```
 
-4. **Full engine (optional)** — is the `@evomap/evolver` CLI installed?
+4. **Full engine (optional)** — is the project-local `@evomap/evolver` CLI present?
 
 ```bash
-command -v evolver >/dev/null 2>&1 && evolver --version 2>/dev/null | head -1 || echo "evolver CLI not installed — hooks + MCP still work; 'npm i -g @evomap/evolver' unlocks /evolver:run etc."
+EVOLVER="./node_modules/.bin/evolver"
+[ -f "$EVOLVER" ] || EVOLVER="./node_modules/.bin/evolver.cmd"
+[ -f "$EVOLVER" ] && $EVOLVER --help >/dev/null 2>&1 && echo "project-local evolver CLI: present" || echo "project-local evolver CLI: missing from node_modules"
 ```
 
 Finish with one line on overall readiness.

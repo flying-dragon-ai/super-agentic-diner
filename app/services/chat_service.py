@@ -1,14 +1,4 @@
-# ============================================================
-# 【面试题·任务二】RAG 聊天主流程
-#
-# 完整流程（把 Redis、MySQL、LLM 串联）：
-#   1. 读 Redis 上下文（让 AI 记住刚才聊了什么）
-#   2. 价格匹配（如"来个28元的"→ 按价格查 MySQL）
-#   3. 关键词提取 + RAG 检索（jieba 分词 → LIKE 召回 → NOT LIKE 过滤）
-#   4. 无结果时加载全部真实产品（杜绝 LLM 编造不存在的咖啡）
-#   5. 调 LLM 生成回复（基于检索到的真实资料）
-#   6. 写回 Redis 记忆（本轮对话）
-# ============================================================
+"""RAG-backed chat service for menu recommendations and product lookup."""
 import re
 
 from sqlalchemy.orm import Session

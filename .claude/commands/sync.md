@@ -7,7 +7,9 @@ allowed-tools: Bash
 Sync Evolver assets with the EvoMap Hub.
 
 ```bash
-EVOLVER="evolver"; command -v evolver >/dev/null 2>&1 || EVOLVER="npx -y @evomap/evolver"
+EVOLVER="./node_modules/.bin/evolver"
+[ -f "$EVOLVER" ] || EVOLVER="./node_modules/.bin/evolver.cmd"
+[ -f "$EVOLVER" ] || { echo "project-local Evolver CLI missing; restore node_modules from this repo checkout."; exit 1; }
 $EVOLVER sync $ARGUMENTS
 ```
 

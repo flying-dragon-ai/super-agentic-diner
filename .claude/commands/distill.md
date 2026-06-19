@@ -9,7 +9,9 @@ Distill Evolver run history into a reusable skill/gene.
 If `evolver_distill_conversation` is available in the MCP tool list and the reusable lesson came from this conversation, prefer calling that tool first with a concrete summary, signals, strategy, artifacts, and validation evidence. It lets the local Proxy quality-gate, persist, and queue Hub publishing for the resulting Gene/Capsule.
 
 ```bash
-EVOLVER="evolver"; command -v evolver >/dev/null 2>&1 || EVOLVER="npx -y @evomap/evolver"
+EVOLVER="./node_modules/.bin/evolver"
+[ -f "$EVOLVER" ] || EVOLVER="./node_modules/.bin/evolver.cmd"
+[ -f "$EVOLVER" ] || { echo "project-local Evolver CLI missing; restore node_modules from this repo checkout."; exit 1; }
 $EVOLVER distill $ARGUMENTS
 ```
 

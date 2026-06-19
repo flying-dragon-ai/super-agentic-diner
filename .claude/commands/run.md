@@ -8,10 +8,12 @@ Run an Evolver evolution cycle in the **current git repository**.
 
 Steps:
 1. Confirm we're in a git repo (`git rev-parse --is-inside-work-tree`). If not, tell the user Evolver requires git and stop.
-2. Resolve the CLI and run it, passing through the user's flags. Execute:
+2. Resolve the project-local CLI and run it, passing through the user's flags. Execute:
 
 ```bash
-EVOLVER="evolver"; command -v evolver >/dev/null 2>&1 || EVOLVER="npx -y @evomap/evolver"
+EVOLVER="./node_modules/.bin/evolver"
+[ -f "$EVOLVER" ] || EVOLVER="./node_modules/.bin/evolver.cmd"
+[ -f "$EVOLVER" ] || { echo "project-local Evolver CLI missing; restore node_modules from this repo checkout."; exit 1; }
 EVOLVE_STRATEGY="${EVOLVE_STRATEGY:-balanced}" $EVOLVER run $ARGUMENTS
 ```
 

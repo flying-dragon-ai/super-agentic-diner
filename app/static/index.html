@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>智能咖啡馆 · AI 店长</title>
+<link rel="stylesheet" href="/static/order-visualization.css">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body {
@@ -133,6 +134,22 @@
     </div>
   </div>
   <aside id="side">
+    <section id="orderViz" aria-label="A2A 点单过程可视化">
+      <h3>🎮 A2A 点单过程</h3>
+      <div class="viz-card">
+        <div class="viz-head">
+          <div class="viz-title">咖啡馆动线</div>
+          <div class="viz-status" id="orderVizStatus">idle</div>
+        </div>
+        <div class="viz-canvas-wrap">
+          <canvas id="orderGameCanvas" width="640" height="360"></canvas>
+        </div>
+        <div class="viz-caption" id="orderVizCaption">等待顾客发送消息</div>
+        <div class="viz-agents" id="orderVizAgents"></div>
+        <div class="viz-flow" id="orderVizFlow" aria-hidden="true"></div>
+        <div class="viz-events" id="orderVizEvents"></div>
+      </div>
+    </section>
     <h3>👤 用户信息</h3>
     <div class="card" id="userCard">
       <div id="userName">加载中…</div>
@@ -144,9 +161,11 @@
   </aside>
 </main>
 
+<script src="/static/order-visualization.js"></script>
 <script>
 const USER_ID = 1;
 const $ = id => document.getElementById(id);
+const orderViz = () => window.OrderVisualization;
 
 function addMsg(text, role) {
   const el = document.createElement('div');
@@ -164,6 +183,7 @@ async function send() {
   if (!text) return;
   $('msgInput').value = '';
   addMsg(text, 'user');
+  orderViz()?.emit('message:sent', {message: text});
   const typing = addMsg('店长正在思考…', 'bot');
   typing.classList.add('typing');
   $('sendBtn').disabled = true;
@@ -174,8 +194,14 @@ async function send() {
       body: JSON.stringify({user_id: USER_ID, message: text})
     });
     const data = await r.json();
+    if (!r.ok) {
+      throw new Error(data.detail || data.message || '请求失败');
+    }
     typing.classList.remove('typing');
     typing.textContent = data.reply;
+    if (!orderViz()?.isRealtimeConnected()) {
+      orderViz()?.handleChatResult(data);
+    }
     if (data.order_id) {
       addMsg('✅ 已生成订单 #' + data.order_id, 'sys');
     }
@@ -184,6 +210,7 @@ async function send() {
   } catch (e) {
     typing.textContent = '⚠️ 网络错误：' + e.message;
     typing.classList.add('sys');
+    orderViz()?.emit('order:failed', {error: e.message});
   } finally {
     $('sendBtn').disabled = false;
   }
@@ -192,6 +219,7 @@ async function send() {
 async function clearChat() {
   await fetch('/history/' + USER_ID, {method: 'DELETE'});
   $('messages').innerHTML = '';
+  orderViz()?.reset();
   addMsg('对话已清空，我们重新开始吧~ 您想喝点什么？', 'bot');
 }
 
