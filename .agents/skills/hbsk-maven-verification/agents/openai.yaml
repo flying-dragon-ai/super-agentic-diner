@@ -1,4 +1,0 @@
-interface:
-  display_name: "HBSK Maven Verification"
-  short_description: "Plan reliable HBSK Maven verification"
-  default_prompt: "Plan the focused HBSK verification command for this change and report exact evidence."
