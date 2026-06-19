@@ -6,6 +6,7 @@ from decimal import Decimal
 from sqlalchemy import (
     DECIMAL,
     BigInteger,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -17,6 +18,16 @@ from sqlalchemy import (
 )
 
 from app.db.database import Base
+from app.domain_constants import (
+    IDENTITY_STATUS_ACTIVE,
+    IDENTITY_STATUSES,
+    LEDGER_PAYMENT_STATUSES,
+    ORDER_PAYMENT_STATUSES,
+    ORDER_SOURCE_TYPES,
+    ORDER_SOURCE_WEB_DIALOG,
+    ORDER_STATUSES,
+    PAYMENT_STATUS_PAID,
+)
 
 _PK = BigInteger
 
@@ -50,7 +61,8 @@ class Order(Base):
     amount = Column(DECIMAL(10, 2), nullable=False)
     status = Column(SmallInteger, nullable=False, default=0)
     request_id = Column(String(64), nullable=True, unique=True)
-    source_type = Column(String(32), nullable=False, default="web_dialog")
+    source_type = Column(String(32), nullable=False, default=ORDER_SOURCE_WEB_DIALOG)
+    payment_status = Column(String(32), nullable=False, default=PAYMENT_STATUS_PAID)
     consumer_url = Column(String(512), nullable=True)
     consumer_id = Column(BigInteger, ForeignKey("evomap_consumer.consumer_id"), nullable=True)
     agent_id = Column(BigInteger, ForeignKey("agent_profile.agent_id"), nullable=True)
@@ -65,8 +77,21 @@ class Order(Base):
     )
 
     __table_args__ = (
+        CheckConstraint(
+            f"source_type IN ({', '.join(repr(value) for value in sorted(ORDER_SOURCE_TYPES))})",
+            name="ck_order_source_type",
+        ),
+        CheckConstraint(
+            f"status IN ({', '.join(str(value) for value in sorted(ORDER_STATUSES))})",
+            name="ck_order_status",
+        ),
+        CheckConstraint(
+            f"payment_status IN ({', '.join(repr(value) for value in sorted(ORDER_PAYMENT_STATUSES))})",
+            name="ck_order_payment_status",
+        ),
         Index("idx_user_created", "user_id", "created_at"),
         Index("idx_order_source_created", "source_type", "created_at"),
+        Index("idx_order_payment_status", "payment_status"),
         Index("idx_order_consumer_url", "consumer_url"),
         Index("idx_order_consumer", "consumer_id"),
         Index("idx_order_agent", "agent_id"),
@@ -86,6 +111,12 @@ class CoffeeKB(Base):
     price = Column(DECIMAL(10, 2), nullable=False, default=Decimal("0.00"))
     tags = Column(String(255), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
 
 
 class AgentProfile(Base):
@@ -101,11 +132,23 @@ class AgentProfile(Base):
     metadata_json = Column(Text, nullable=True)
     api_token_hash = Column(String(128), nullable=False)
     sprite_seed = Column(Integer, nullable=False, default=0)
-    status = Column(String(32), nullable=False, default="active")
+    status = Column(String(32), nullable=False, default=IDENTITY_STATUS_ACTIVE)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     last_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
 
-    __table_args__ = (Index("idx_agent_status_role", "status", "role_type"),)
+    __table_args__ = (
+        CheckConstraint(
+            f"status IN ({', '.join(repr(value) for value in sorted(IDENTITY_STATUSES))})",
+            name="ck_agent_profile_status",
+        ),
+        Index("idx_agent_status_role", "status", "role_type"),
+    )
 
 
 class VisualizationEvent(Base):
@@ -119,6 +162,12 @@ class VisualizationEvent(Base):
     payload_json = Column(Text, nullable=False)
     correlation_id = Column(String(128), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
 
     __table_args__ = (
         Index("idx_viz_event_created", "created_at"),
@@ -137,11 +186,23 @@ class EvomapConsumer(Base):
     display_name = Column(String(128), nullable=False)
     local_user_id = Column(BigInteger, ForeignKey("user.user_id"), nullable=True)
     free_orders_used = Column(Integer, nullable=False, default=0)
-    status = Column(String(32), nullable=False, default="active")
+    status = Column(String(32), nullable=False, default=IDENTITY_STATUS_ACTIVE)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     last_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
 
-    __table_args__ = (Index("idx_evomap_consumer_status", "status"),)
+    __table_args__ = (
+        CheckConstraint(
+            f"status IN ({', '.join(repr(value) for value in sorted(IDENTITY_STATUSES))})",
+            name="ck_evomap_consumer_status",
+        ),
+        Index("idx_evomap_consumer_status", "status"),
+    )
 
 
 class SkillOrderLedger(Base):
@@ -173,6 +234,10 @@ class SkillOrderLedger(Base):
     )
 
     __table_args__ = (
+        CheckConstraint(
+            f"payment_status IN ({', '.join(repr(value) for value in sorted(LEDGER_PAYMENT_STATUSES))})",
+            name="ck_skill_order_ledger_payment_status",
+        ),
         Index("idx_skill_order_consumer", "consumer_id", "created_at"),
         Index("idx_skill_order_payment", "payment_status"),
     )

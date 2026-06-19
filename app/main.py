@@ -23,6 +23,14 @@ from app.db.models import (
     User,
     VisualizationEvent,
 )
+from app.domain_constants import (
+    IDENTITY_STATUS_ACTIVE,
+    ORDER_SOURCE_SKILL,
+    ORDER_SOURCE_WEB_DIALOG,
+    PAYMENT_STATUS_PAID,
+    PAYMENT_STATUS_PAYMENT_FAILED,
+    PAYMENT_STATUS_PAYMENT_PENDING,
+)
 from app.llm import client as llm
 from app.memory.chat_history import (
     add_message,
@@ -250,6 +258,149 @@ def _try_publish_visualization_event(
         )
 
 
+def _web_restaurant_payload(
+    req: ChatRequest,
+    *,
+    state: str,
+    consumer_url: str | None,
+    coffees: list[dict[str, Any]] | None = None,
+    coffee_names: list[str] | None = None,
+    total: float | int | None = None,
+    payment_status: str | None = None,
+    order_ids: list[int] | None = None,
+    message: str | None = None,
+    reason: str | None = None,
+    stage: str | None = None,
+    patience: int | None = None,
+    satisfaction: int | None = None,
+) -> dict[str, Any]:
+    public_coffees = [
+        {"name": item["name"], "price": float(item["price"])}
+        for item in (coffees or [])
+        if item.get("name") is not None
+    ]
+    names = coffee_names or [item["name"] for item in public_coffees]
+    return {
+        "version": 1,
+        "state": state,
+        "source_type": ORDER_SOURCE_WEB_DIALOG,
+        "consumer_url": consumer_url,
+        "customer": {
+            "kind": "web",
+            "user_id": req.user_id,
+            "display_name": f"Web 用户 {req.user_id}",
+        },
+        "user_id": req.user_id,
+        "coffees": public_coffees,
+        "coffee_names": names,
+        "total": float(total) if total is not None else None,
+        "payment_status": payment_status,
+        "order_ids": order_ids or [],
+        "message": message,
+        "reason": reason,
+        "stage": stage,
+        "patience": patience,
+        "satisfaction": satisfaction,
+    }
+
+
+def _publish_web_restaurant_event(
+    db: Session,
+    event_type: str,
+    *,
+    req: ChatRequest,
+    consumer_url: str | None,
+    state: str,
+    coffees: list[dict[str, Any]] | None = None,
+    coffee_names: list[str] | None = None,
+    total: float | int | None = None,
+    payment_status: str | None = None,
+    order_ids: list[int] | None = None,
+    message: str | None = None,
+    reason: str | None = None,
+    stage: str | None = None,
+    patience: int | None = None,
+    satisfaction: int | None = None,
+) -> None:
+    _try_publish_visualization_event(
+        db,
+        event_type,
+        _web_restaurant_payload(
+            req,
+            state=state,
+            consumer_url=consumer_url,
+            coffees=coffees,
+            coffee_names=coffee_names,
+            total=total,
+            payment_status=payment_status,
+            order_ids=order_ids,
+            message=message,
+            reason=reason,
+            stage=stage,
+            patience=patience,
+            satisfaction=satisfaction,
+        ),
+        correlation_id=req.request_id,
+    )
+
+
+def _publish_web_completion_flow(
+    db: Session,
+    *,
+    req: ChatRequest,
+    consumer_url: str | None,
+    orders: list[Order],
+) -> None:
+    coffees = [{"name": order.coffee_name, "price": float(order.amount)} for order in orders]
+    coffee_names = [order.coffee_name for order in orders]
+    order_ids = [order.order_id for order in orders]
+    total = float(sum(order.amount for order in orders))
+    common = {
+        "req": req,
+        "consumer_url": consumer_url,
+        "coffees": coffees,
+        "coffee_names": coffee_names,
+        "total": total,
+        "payment_status": PAYMENT_STATUS_PAID,
+        "order_ids": order_ids,
+    }
+    _publish_web_restaurant_event(
+        db,
+        "restaurant.payment_completed",
+        state="payment_completed",
+        patience=82,
+        satisfaction=88,
+        **common,
+    )
+    for stage, label, patience in (
+        ("grinding", "grinding beans", 78),
+        ("brewing", "brewing coffee", 72),
+        ("plating", "plating order", 68),
+    ):
+        _publish_web_restaurant_event(
+            db,
+            "restaurant.preparation_progress",
+            state="making",
+            stage=stage,
+            message=label,
+            patience=patience,
+            satisfaction=90,
+            **common,
+        )
+    _publish_web_restaurant_event(db, "restaurant.order_ready", state="ready", patience=70, satisfaction=92, **common)
+    _publish_web_restaurant_event(db, "restaurant.order_delivered", state="delivered", patience=74, satisfaction=94, **common)
+    _publish_web_restaurant_event(
+        db,
+        "restaurant.customer_reviewed",
+        state="reviewed",
+        message="顾客评价：出餐顺利",
+        patience=76,
+        satisfaction=96,
+        **common,
+    )
+    _publish_web_restaurant_event(db, "restaurant.customer_left", state="left", patience=80, satisfaction=96, **common)
+
+
 def _extract_agent_token(authorization: str | None, x_agent_token: str | None) -> str:
     if x_agent_token:
         return x_agent_token.strip()
@@ -266,7 +417,7 @@ def _require_agent(
 ) -> AgentProfile:
     token = _extract_agent_token(authorization, x_agent_token)
     agent = db.query(AgentProfile).filter(AgentProfile.agent_id == agent_id).first()
-    if not agent or agent.status != "active":
+    if not agent or agent.status != IDENTITY_STATUS_ACTIVE:
         raise HTTPException(status_code=404, detail="Agent 不存在或已停用")
     if agent.api_token_hash != hash_agent_token(token):
         raise HTTPException(status_code=401, detail="Agent API token 无效")
@@ -278,10 +429,21 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     """Handle chat, recommendation, pending confirmation, and paid order flows."""
     consumer_url = _normalize_consumer_url(req.consumer_url)
     web_source_payload = {
-        "source_type": "web_dialog",
+        "source_type": ORDER_SOURCE_WEB_DIALOG,
+        "payment_status": PAYMENT_STATUS_PAID,
         "consumer_url": consumer_url,
         "correlation_id": req.request_id,
     }
+    _publish_web_restaurant_event(
+        db,
+        "restaurant.customer_entered",
+        req=req,
+        consumer_url=consumer_url,
+        state="entered",
+        message=req.message,
+        patience=100,
+        satisfaction=80,
+    )
     _try_publish_visualization_event(
         db,
         "message.received",
@@ -305,7 +467,8 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                     db,
                     req.user_id,
                     items,
-                    source_type="web_dialog",
+                    source_type=ORDER_SOURCE_WEB_DIALOG,
+                    payment_status=PAYMENT_STATUS_PAID,
                     consumer_url=consumer_url,
                     correlation_id=req.request_id,
                 )
@@ -314,6 +477,34 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                 reply = f"下单失败：{e}。请先充值哦~"
                 add_message(req.user_id, "user", req.message)
                 add_message(req.user_id, "assistant", reply)
+                _publish_web_restaurant_event(
+                    db,
+                    "restaurant.payment_failed",
+                    req=req,
+                    consumer_url=consumer_url,
+                    state="failed",
+                    coffees=pending.get("coffees", []),
+                    total=pending.get("total"),
+                    payment_status=PAYMENT_STATUS_PAYMENT_FAILED,
+                    reason=str(e),
+                    stage="payment",
+                    patience=28,
+                    satisfaction=35,
+                )
+                _publish_web_restaurant_event(
+                    db,
+                    "restaurant.order_failed",
+                    req=req,
+                    consumer_url=consumer_url,
+                    state="failed",
+                    coffees=pending.get("coffees", []),
+                    total=pending.get("total"),
+                    payment_status=PAYMENT_STATUS_PAYMENT_FAILED,
+                    reason=str(e),
+                    stage=ORDER_SOURCE_WEB_DIALOG,
+                    patience=24,
+                    satisfaction=30,
+                )
                 _try_publish_visualization_event(
                     db,
                     "order.failed",
@@ -344,6 +535,12 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                 )
             add_message(req.user_id, "user", req.message)
             add_message(req.user_id, "assistant", reply)
+            _publish_web_completion_flow(
+                db,
+                req=req,
+                consumer_url=consumer_url,
+                orders=orders,
+            )
             _try_publish_visualization_event(
                 db,
                 "order.paid",
@@ -416,6 +613,18 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             reply = "不好意思，我没太确定您想买哪杯，能再说一下咖啡名字吗？"
             add_message(req.user_id, "user", req.message)
             add_message(req.user_id, "assistant", reply)
+            _publish_web_restaurant_event(
+                db,
+                "restaurant.order_failed",
+                req=req,
+                consumer_url=consumer_url,
+                state="failed",
+                message=req.message,
+                reason="coffee_not_resolved",
+                stage="resolve",
+                patience=45,
+                satisfaction=32,
+            )
             _try_publish_visualization_event(
                 db,
                 "order.failed",
@@ -446,6 +655,18 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         )
         add_message(req.user_id, "user", req.message)
         add_message(req.user_id, "assistant", reply)
+        _publish_web_restaurant_event(
+            db,
+            "restaurant.order_confirming",
+            req=req,
+            consumer_url=consumer_url,
+            state="confirming",
+            coffees=[{"name": i["name"], "price": float(i["price"])} for i in items],
+            total=float(total),
+            payment_status=PAYMENT_STATUS_PAYMENT_PENDING,
+            patience=88,
+            satisfaction=84,
+        )
         _try_publish_visualization_event(
             db,
             "order.pending_confirmation",
@@ -486,7 +707,7 @@ def register_agent(req: AgentRegisterRequest, db: Session = Depends(get_db)):
         metadata_json=encode_json(req.metadata),
         api_token_hash=hash_agent_token(token),
         sprite_seed=make_sprite_seed(),
-        status="active",
+        status=IDENTITY_STATUS_ACTIVE,
         created_at=datetime.utcnow(),
         last_seen_at=datetime.utcnow(),
     )
@@ -545,7 +766,7 @@ def register_skill_consumer(req: SkillRegisterRequest, db: Session = Depends(get
         metadata_json=encode_json(metadata),
         api_token_hash=hash_agent_token(token),
         sprite_seed=make_sprite_seed(),
-        status="active",
+        status=IDENTITY_STATUS_ACTIVE,
         created_at=datetime.utcnow(),
         last_seen_at=datetime.utcnow(),
     )
@@ -597,7 +818,7 @@ def create_skill_order(
         raise HTTPException(status_code=403, detail="Agent 与消费者身份不匹配")
 
     consumer = db.query(EvomapConsumer).filter(EvomapConsumer.consumer_id == req.consumer_id).first()
-    if not consumer or consumer.status != "active":
+    if not consumer or consumer.status != IDENTITY_STATUS_ACTIVE:
         raise HTTPException(status_code=404, detail="EvoMap 消费者不存在或已停用")
 
     try:
@@ -622,6 +843,8 @@ def create_skill_order(
                 "reason": str(exc),
                 "code": exc.code,
                 "stage": "skill_order",
+                "source_type": ORDER_SOURCE_SKILL,
+                "payment_status": PAYMENT_STATUS_PAYMENT_FAILED,
             },
             agent_id=req.agent_id,
             correlation_id=req.request_id,
@@ -636,7 +859,7 @@ def create_skill_order(
 def list_agents(db: Session = Depends(get_db)):
     rows = (
         db.query(AgentProfile)
-        .filter(AgentProfile.status == "active")
+        .filter(AgentProfile.status == IDENTITY_STATUS_ACTIVE)
         .order_by(AgentProfile.created_at.asc())
         .all()
     )
@@ -778,14 +1001,14 @@ def restaurant_state(limit: int = 50, db: Session = Depends(get_db)):
     )
     active_agents = (
         db.query(AgentProfile)
-        .filter(AgentProfile.status == "active")
+        .filter(AgentProfile.status == IDENTITY_STATUS_ACTIVE)
         .order_by(AgentProfile.last_seen_at.desc())
         .limit(50)
         .all()
     )
     active_consumers = (
         db.query(EvomapConsumer)
-        .filter(EvomapConsumer.status == "active")
+        .filter(EvomapConsumer.status == IDENTITY_STATUS_ACTIVE)
         .order_by(EvomapConsumer.last_seen_at.desc())
         .limit(50)
         .all()
@@ -813,12 +1036,14 @@ def restaurant_state(limit: int = 50, db: Session = Depends(get_db)):
                 "amount": float(row.amount),
                 "status": row.status,
                 "source_type": row.source_type,
+                "payment_status": row.payment_status,
                 "consumer_url": row.consumer_url,
                 "consumer": _public_consumer(consumers_by_id.get(row.consumer_id)),
                 "agent": _public_agent(agents_by_id.get(row.agent_id)),
                 "ledger": _public_ledger(ledgers_by_id.get(row.ledger_id)),
                 "correlation_id": row.correlation_id,
                 "created_at": row.created_at.isoformat(),
+                "updated_at": row.updated_at.isoformat(),
             }
             for row in recent_orders
         ],
@@ -841,6 +1066,7 @@ def _public_agent(agent: AgentProfile | None) -> dict[str, Any] | None:
         "sprite_seed": agent.sprite_seed,
         "status": agent.status,
         "last_seen_at": agent.last_seen_at.isoformat(),
+        "updated_at": agent.updated_at.isoformat(),
     }
 
 
@@ -854,6 +1080,7 @@ def _public_consumer(consumer: EvomapConsumer | None) -> dict[str, Any] | None:
         "free_orders_used": consumer.free_orders_used,
         "status": consumer.status,
         "last_seen_at": consumer.last_seen_at.isoformat(),
+        "updated_at": consumer.updated_at.isoformat(),
     }
 
 
@@ -931,6 +1158,8 @@ def list_orders(user_id: int, db: Session = Depends(get_db)):
             "coffee_name": o.coffee_name,
             "amount": float(o.amount),
             "status": o.status,
+            "source_type": o.source_type,
+            "payment_status": o.payment_status,
             "created_at": o.created_at.strftime("%Y-%m-%d %H:%M"),
         }
         for o in rows

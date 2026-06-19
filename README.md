@@ -34,6 +34,11 @@ cp .env.example .env
 python scripts/init_db.py
 ```
 
+已有 MySQL 库升级字段、索引、外键和状态约束：
+```bash
+python scripts/migrate_order_sources.py
+```
+
 ### 5. 启动服务
 ```bash
 uvicorn app.main:app --reload

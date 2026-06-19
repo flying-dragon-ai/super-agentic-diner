@@ -7,6 +7,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import CoffeeKB, Order, User
+from app.domain_constants import (
+    ORDER_PAYMENT_STATUSES,
+    ORDER_SOURCE_TYPES,
+    ORDER_SOURCE_WEB_DIALOG,
+    ORDER_STATUS_PAID,
+    PAYMENT_STATUS_PAID,
+)
 
 
 class InsufficientBalanceError(Exception):
@@ -28,7 +35,8 @@ def place_orders(
     user_id: int,
     items: list[tuple[str, str | None]],
     *,
-    source_type: str = "web_dialog",
+    source_type: str = ORDER_SOURCE_WEB_DIALOG,
+    payment_status: str = PAYMENT_STATUS_PAID,
     consumer_url: str | None = None,
     consumer_id: int | None = None,
     agent_id: int | None = None,
@@ -39,6 +47,11 @@ def place_orders(
     items = [(coffee_name, request_id), ...]
     任意一杯余额不足则全部回滚。
     """
+    if source_type not in ORDER_SOURCE_TYPES:
+        raise ValueError(f"不支持的订单来源：{source_type}")
+    if payment_status not in ORDER_PAYMENT_STATUSES:
+        raise ValueError(f"不支持的支付状态：{payment_status}")
+
     user = db.execute(
         select(User).where(User.user_id == user_id).with_for_update()
     ).scalar_one_or_none()
@@ -54,6 +67,7 @@ def place_orders(
             existed = db.query(Order).filter(Order.request_id == req_id).first()
             if existed:
                 existed.source_type = existed.source_type or source_type
+                existed.payment_status = existed.payment_status or payment_status
                 existed.consumer_url = existed.consumer_url or consumer_url
                 existed.consumer_id = existed.consumer_id or consumer_id
                 existed.agent_id = existed.agent_id or agent_id
@@ -63,8 +77,9 @@ def place_orders(
                 continue
         orders.append(Order(
             user_id=user_id, coffee_name=coffee_name,
-            amount=amount, status=1, request_id=req_id,
+            amount=amount, status=ORDER_STATUS_PAID, request_id=req_id,
             source_type=source_type,
+            payment_status=payment_status,
             consumer_url=consumer_url,
             consumer_id=consumer_id,
             agent_id=agent_id,
