@@ -70,6 +70,14 @@
   #inputBar {
     display: flex; gap: 10px; padding: 16px 20px; background: #221a13; flex-shrink: 0;
   }
+  #consumerUrlBar {
+    display: flex; gap: 10px; padding: 10px 20px 0; background: #221a13; flex-shrink: 0;
+  }
+  #consumerUrlInput {
+    flex: 1; background: #2d231b; color: #e8d5b7; border: 1px solid #4a3429;
+    border-radius: 10px; padding: 9px 12px; font-size: 12px; outline: none;
+  }
+  #consumerUrlInput:focus { border-color: #c08552; }
   #msgInput {
     flex: 1; background: #3d2f24; color: #f5ebe0; border: 1px solid #6f4e37;
     border-radius: 12px; padding: 12px 16px; font-size: 14px; outline: none;
@@ -138,6 +146,9 @@
       <button onclick="fill('我想来点纯粹苦味的，不要拿铁。')">☕ 纯苦味</button>
       <button onclick="clearChat()" style="margin-left:auto">🗑 清空对话</button>
     </div>
+    <div id="consumerUrlBar">
+      <input id="consumerUrlInput" placeholder="Order page URL" />
+    </div>
     <div id="inputBar">
       <input id="msgInput" placeholder="和店长说点什么…" onkeydown="if(event.key==='Enter')send()" />
       <button id="sendBtn" onclick="send()">发送</button>
@@ -198,10 +209,11 @@ async function send() {
   typing.classList.add('typing');
   $('sendBtn').disabled = true;
   try {
+    const consumerUrl = $('consumerUrlInput')?.value.trim() || window.location.href;
     const r = await fetch('/chat', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({user_id: USER_ID, message: text})
+      body: JSON.stringify({user_id: USER_ID, message: text, consumer_url: consumerUrl})
     });
     const data = await r.json();
     if (!r.ok) {
@@ -272,6 +284,7 @@ async function refreshMode() {
 
 // 初始化
 (async function init() {
+  if ($('consumerUrlInput')) $('consumerUrlInput').value = window.location.href;
   addMsg('您好！我是咖啡馆 AI 店长 ☕\n\n告诉我您喜欢的口味，或者有什么忌口，我来为您推荐~\n（试试右侧的快捷按钮）', 'bot');
   await Promise.all([refreshUser(), refreshOrders(), refreshMode()]);
 })();

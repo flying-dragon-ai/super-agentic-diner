@@ -9,11 +9,20 @@ from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocke
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.database import get_db
-from app.db.models import AgentProfile, CoffeeKB, EvomapConsumer, Order, User, VisualizationEvent
+from app.db.models import (
+    AgentProfile,
+    CoffeeKB,
+    EvomapConsumer,
+    Order,
+    SkillOrderLedger,
+    User,
+    VisualizationEvent,
+)
 from app.llm import client as llm
 from app.memory.chat_history import (
     add_message,
@@ -716,6 +725,152 @@ def list_visualization_events(limit: int = 50, db: Session = Depends(get_db)):
     return [event_to_message(row) for row in reversed(rows)]
 
 
+@app.get("/admin/restaurant-state")
+def restaurant_state(limit: int = 50, db: Session = Depends(get_db)):
+    """Read-only aggregate state for the restaurant visualization screen."""
+    safe_limit = min(max(limit, 1), 200)
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    today_count, today_amount = (
+        db.query(func.count(Order.order_id), func.coalesce(func.sum(Order.amount), 0))
+        .filter(Order.created_at >= today_start)
+        .one()
+    )
+    source_rows = (
+        db.query(
+            Order.source_type,
+            func.count(Order.order_id),
+            func.coalesce(func.sum(Order.amount), 0),
+        )
+        .filter(Order.created_at >= today_start)
+        .group_by(Order.source_type)
+        .all()
+    )
+
+    recent_orders = (
+        db.query(Order)
+        .order_by(Order.created_at.desc())
+        .limit(safe_limit)
+        .all()
+    )
+    agent_ids = {row.agent_id for row in recent_orders if row.agent_id}
+    consumer_ids = {row.consumer_id for row in recent_orders if row.consumer_id}
+    ledger_ids = {row.ledger_id for row in recent_orders if row.ledger_id}
+
+    agents_by_id = {
+        row.agent_id: row
+        for row in db.query(AgentProfile).filter(AgentProfile.agent_id.in_(agent_ids)).all()
+    } if agent_ids else {}
+    consumers_by_id = {
+        row.consumer_id: row
+        for row in db.query(EvomapConsumer).filter(EvomapConsumer.consumer_id.in_(consumer_ids)).all()
+    } if consumer_ids else {}
+    ledgers_by_id = {
+        row.ledger_id: row
+        for row in db.query(SkillOrderLedger).filter(SkillOrderLedger.ledger_id.in_(ledger_ids)).all()
+    } if ledger_ids else {}
+
+    event_rows = (
+        db.query(VisualizationEvent)
+        .order_by(VisualizationEvent.created_at.desc())
+        .limit(safe_limit)
+        .all()
+    )
+    active_agents = (
+        db.query(AgentProfile)
+        .filter(AgentProfile.status == "active")
+        .order_by(AgentProfile.last_seen_at.desc())
+        .limit(50)
+        .all()
+    )
+    active_consumers = (
+        db.query(EvomapConsumer)
+        .filter(EvomapConsumer.status == "active")
+        .order_by(EvomapConsumer.last_seen_at.desc())
+        .limit(50)
+        .all()
+    )
+
+    return {
+        "summary": {
+            "today_order_count": int(today_count or 0),
+            "today_amount": float(today_amount or 0),
+            "source_stats": [
+                {
+                    "source_type": source_type or "unknown",
+                    "count": int(count or 0),
+                    "amount": float(amount or 0),
+                }
+                for source_type, count, amount in source_rows
+            ],
+            "active_agent_count": len(active_agents),
+            "active_consumer_count": len(active_consumers),
+        },
+        "recent_orders": [
+            {
+                "order_id": row.order_id,
+                "coffee_name": row.coffee_name,
+                "amount": float(row.amount),
+                "status": row.status,
+                "source_type": row.source_type,
+                "consumer_url": row.consumer_url,
+                "consumer": _public_consumer(consumers_by_id.get(row.consumer_id)),
+                "agent": _public_agent(agents_by_id.get(row.agent_id)),
+                "ledger": _public_ledger(ledgers_by_id.get(row.ledger_id)),
+                "correlation_id": row.correlation_id,
+                "created_at": row.created_at.isoformat(),
+            }
+            for row in recent_orders
+        ],
+        "recent_events": [event_to_message(row) for row in event_rows],
+        "agents": [_public_agent(row) for row in active_agents],
+        "consumers": [_public_consumer(row) for row in active_consumers],
+    }
+
+
+def _public_agent(agent: AgentProfile | None) -> dict[str, Any] | None:
+    if not agent:
+        return None
+    return {
+        "agent_id": agent.agent_id,
+        "tool_name": agent.tool_name,
+        "display_name": agent.display_name,
+        "role_type": agent.role_type,
+        "capabilities": decode_json(agent.capabilities_json, []),
+        "metadata": decode_json(agent.metadata_json, {}),
+        "sprite_seed": agent.sprite_seed,
+        "status": agent.status,
+        "last_seen_at": agent.last_seen_at.isoformat(),
+    }
+
+
+def _public_consumer(consumer: EvomapConsumer | None) -> dict[str, Any] | None:
+    if not consumer:
+        return None
+    return {
+        "consumer_id": consumer.consumer_id,
+        "evomap_node_id": consumer.evomap_node_id,
+        "display_name": consumer.display_name,
+        "free_orders_used": consumer.free_orders_used,
+        "status": consumer.status,
+        "last_seen_at": consumer.last_seen_at.isoformat(),
+    }
+
+
+def _public_ledger(ledger: SkillOrderLedger | None) -> dict[str, Any] | None:
+    if not ledger:
+        return None
+    return {
+        "ledger_id": ledger.ledger_id,
+        "request_id": ledger.request_id,
+        "amount_credits": ledger.amount_credits,
+        "payment_status": ledger.payment_status,
+        "free_order_sequence": ledger.free_order_sequence,
+        "evomap_order_id": ledger.evomap_order_id,
+        "updated_at": ledger.updated_at.isoformat(),
+    }
+
+
 @app.websocket("/ws/visualization")
 async def visualization_websocket(websocket: WebSocket):
     await visualization_hub.connect(websocket)
@@ -796,3 +951,9 @@ def status():
 def index():
     """根路由：返回聊天网页"""
     return FileResponse(_STATIC_DIR / "index.html")
+
+
+@app.get("/screen")
+def screen():
+    """Full-screen restaurant visualization display."""
+    return FileResponse(_STATIC_DIR / "screen.html")
