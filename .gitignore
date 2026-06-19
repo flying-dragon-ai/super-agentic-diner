@@ -1,4 +1,4 @@
-﻿# Dependencies
+# Dependencies
 node_modules/
 .venv/
 venv/
@@ -42,9 +42,13 @@ temp/
 .DS_Store
 Thumbs.db
 
-
-
 # Duplicate local copy of this project
 coffee-ai-boss/
+
+# Local agent/tool runtime config
+.codex/
+.qingyan/
+.trae/
+.zhipu/
 .claude/.mcp.json
 .claude/settings.local.json
