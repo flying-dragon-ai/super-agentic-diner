@@ -1,0 +1,15 @@
+﻿{
+    "mcpServers":  {
+                       "evomap":  {
+                                      "command":  "npx",
+                                      "args":  [
+                                                   "-y",
+                                                   "@evomap/gep-mcp-server"
+                                               ],
+                                      "env":  {
+                                                  "EVOMAP_API_KEY":  "your-api-key-here",
+                                                  "EVOMAP_NODE_ID":  "node_f889252db96551ba"
+                                              }
+                                  }
+                   }
+}
