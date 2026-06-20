@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime
 
 import redis
@@ -125,6 +126,96 @@ def get_experience_for_user(user_id: int) -> str:
         parts.extend(f"• {h}" for h in community_hints)
 
     return "\n".join(parts) if parts else ""
+
+
+# ============================================================
+# 硬过滤：从经验中提取结构化过滤规则，推荐前直接剔除已知错项
+# ============================================================
+
+# 口味/品类关键词 → 对应的 product tags 匹配规则
+# 当经验文本出现"不要X"/"不X"/"避开X"时，X 映射到这些 tag
+_TAG_SYNONYMS: dict[str, list[str]] = {
+    "甜": ["甜", "焦糖"],
+    "苦": ["苦"],
+    "牛奶": ["牛奶"],
+    "奶": ["牛奶", "拿铁"],
+    "拿铁": ["拿铁"],
+    "美式": ["美式"],
+    "摩卡": ["摩卡"],
+    "焦糖": ["焦糖"],
+    "椰香": ["椰香"],
+    "果香": ["果香"],
+    "冷萃": ["冷萃"],
+    "酸": ["酸"],
+}
+
+# 否定前缀模式：经验文本中"不要X"/"不X"/"别X"→ X 是要避开的
+_NEGATION_PATTERN = re.compile(
+    r"(?:不要|不|别|避免|避开|去掉|没有|无|不适合|讨厌|反感)"
+    r"(甜|苦|牛奶|奶|拿铁|美式|摩卡|焦糖|椰香|果香|冷萃|酸)"
+)
+
+
+def _extract_banned_tags(text: str) -> set[str]:
+    """从经验文本中提取要避开的 tag（如"不要甜"→ {"甜", "焦糖"}）。
+
+    用正则匹配"否定词+口味词"模式，再展开为同义词 tag 集合。
+    """
+    tags: set[str] = set()
+    if not text:
+        return tags
+    for match in _NEGATION_PATTERN.finditer(text):
+        keyword = match.group(1)
+        # 展开同义词：如"奶"→ ["牛奶", "拿铁"]
+        for tag in _TAG_SYNONYMS.get(keyword, [keyword]):
+            tags.add(tag)
+    return tags
+
+
+def get_hard_filters(user_id: int) -> dict:
+    """返回该用户的硬过滤规则，供推荐 Agent 在 RAG 检索后直接剔除。
+
+    返回：
+        {
+            "banned_names": ["焦糖玛奇朵"],       # 按名字直接拉黑（曾推荐错的）
+            "banned_tags": ["甜", "焦糖", "牛奶"], # 按标签过滤（用户明确不要的口味）
+        }
+
+    规则来源（从 Redis 本地经验提取）：
+      1. coffee_name + rating ≤ 3 → 直接拉黑该咖啡名
+      2. insight + tags 文本解析 → 提取否定口味 → 展开 tag 过滤
+    """
+    banned_names: set[str] = set()
+    banned_tags: set[str] = set()
+
+    try:
+        r = _client()
+        key = _REDIS_KEY.format(user_id)
+        items = r.lrange(key, 0, -1)
+        for raw in items:
+            try:
+                data = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+            # 规则1：低评分的错推咖啡 → 拉黑名字
+            rating = data.get("rating")
+            coffee_name = data.get("coffee_name", "")
+            if coffee_name and (rating is None or rating <= 3):
+                banned_names.add(coffee_name)
+
+            # 规则2：从 insight + tags 文本提取否定口味
+            insight = data.get("insight", "")
+            tags_text = data.get("tags", "")
+            combined_text = f"{insight} {tags_text}"
+            banned_tags.update(_extract_banned_tags(combined_text))
+    except Exception as exc:
+        logger.warning("硬过滤规则提取失败: %s", exc)
+
+    return {
+        "banned_names": list(banned_names),
+        "banned_tags": list(banned_tags),
+    }
 
 
 def _read_local_hints(user_id: int) -> list[str]:

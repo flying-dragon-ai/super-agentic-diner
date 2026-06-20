@@ -122,6 +122,7 @@ def orchestrate(
                     "user_id": user_id,
                     "applied_experience": reco["applied_experience"],
                     "candidate_count": len(reco["candidates"]),
+                    "hard_filtered": reco.get("hard_filtered", []),
                 },
             }
         )
