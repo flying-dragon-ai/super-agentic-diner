@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     redis_port: int = 6379
     redis_db: int = 0
     redis_password: str = ""
+    # Socket timeouts so a flaky/unreachable Redis fails fast instead of
+    # hanging the request. The redis-py default is no limit, which produced
+    # ~56s hangs and 500s on /chat when the network to the cloud Redis dipped.
+    redis_socket_connect_timeout: float = 2.0
+    redis_socket_timeout: float = 3.0
 
     # OpenAI-compatible LLM provider.
     llm_api_key: str = ""

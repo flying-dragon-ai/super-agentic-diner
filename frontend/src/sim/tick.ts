@@ -24,6 +24,7 @@ const isSocialFurniture = (type: string) =>
   ["couch", "couch_v", "beanbag", "coffee_machine", "water_cooler"].includes(type);
 const isAwayFurniture = (type: string) =>
   ["couch", "couch_v", "beanbag"].includes(type);
+const isCustomerAgent = (agent: RenderAgent) => agent.role === "customer";
 
 const snapClamp = (v: number) =>
   Math.max(SNAP_GRID, Math.min(CANVAS_W - SNAP_GRID, Math.round(v / SNAP_GRID) * SNAP_GRID));
@@ -74,6 +75,13 @@ const settleIdle = (
   if ((agent.danceUntil ?? 0) > now) {
     agent.state = "dancing";
     agent.path = [];
+    return;
+  }
+  // Customers should move only when backend visualization events direct them
+  // (enter, walk_to_counter/table, leave). Letting idle customers join the
+  // staff social-roam loop makes visitors drift across the whole cafe.
+  if (isCustomerAgent(agent)) {
+    agent.state = "standing";
     return;
   }
   // Away: idle for > AWAY_THRESHOLD_MS -> route to nearest couch/beanbag.

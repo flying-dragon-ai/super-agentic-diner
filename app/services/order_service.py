@@ -27,6 +27,7 @@ from app.domain_constants import (
 from app.domain_constants import WALLET_CURRENCY_CNY
 from app.services import wallet_service
 from app.services.catalog_service import (
+    AmbiguousProductError,
     CatalogError,
     OutOfStockError,
     decrement_stock,
@@ -69,7 +70,11 @@ class LineSpec:
 
 def resolve_line(db: Session, coffee_name: str, quantity: int = 1) -> LineSpec:
     """Look up a product by name and return a single-quantity, no-option line."""
-    product = get_product_by_name(db, coffee_name)
+    try:
+        product = get_product_by_name(db, coffee_name)
+    except AmbiguousProductError as exc:
+        # 简称命中多杯（如「冷萃」），下单前必须让用户明确，不能擅自选一杯。
+        raise OrderError(str(exc)) from exc
     if product is None:
         raise OrderError(f"未找到商品：{coffee_name}")
     return LineSpec(product=product, quantity=quantity)

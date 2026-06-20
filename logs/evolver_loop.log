@@ -1,0 +1,5 @@
+{"ts":"2026-06-20T15:24:54.877Z","type":"sse_open_failed","error":"eventsource_not_available","reconnectInMs":5000}
+{"ts":"2026-06-20T15:24:59.902Z","type":"sse_open_failed","error":"eventsource_not_available","reconnectInMs":10000}
+{"ts":"2026-06-20T15:25:09.923Z","type":"sse_open_failed","error":"eventsource_not_available","reconnectInMs":20000}
+{"ts":"2026-06-20T15:25:33.501Z","type":"sse_open_failed","error":"eventsource_not_available","reconnectInMs":40000}
+{"ts":"2026-06-20T15:25:35.454Z","type":"heartbeat_ok","tick":1,"fpSent":true,"pendingEvents":false}

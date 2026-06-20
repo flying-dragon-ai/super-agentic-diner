@@ -1,0 +1,16 @@
+- generic [ref=e2]:
+  - generic:
+    - link "3D 咖啡厅" [ref=e3] [cursor=pointer]:
+      - /url: /3d/scene
+    - link "大屏" [ref=e4] [cursor=pointer]:
+      - /url: /3d/dashboard
+  - generic [ref=e5]:
+    - generic [ref=e9]:
+      - generic [ref=e10]: Coffee AI Boss · 3D 咖啡厅
+      - generic [ref=e11]: "WS: connecting · 在场员工 0 · 焦点 无"
+    - generic [ref=e12]:
+      - button "全景" [ref=e13] [cursor=pointer]
+      - button "机器" [ref=e14] [cursor=pointer]
+      - button "吧台" [ref=e15] [cursor=pointer]
+      - button "休闲" [ref=e16] [cursor=pointer]
+      - button "✏️ 编辑" [ref=e17] [cursor=pointer]

@@ -444,6 +444,25 @@ async function refreshMode() {
   addMsg('您好！我是咖啡馆 AI 店长 ☕\n\n告诉我您喜欢的口味，或者有什么忌口，我来为您推荐~\n（试试右侧的快捷按钮）', 'bot');
   await Promise.all([refreshUser(), refreshOrders(), refreshMode()]);
 })();
+
+// 背景音乐：浏览器禁止无交互自动播放，首次 pointerdown/keydown 后起播，循环。
+// 注意：该归档页不在 FastAPI 托管路径（仅 file:// 或额外挂路由可访问）。
+(function initBgm() {
+  var bgm = new Audio('m1.mp3');
+  bgm.loop = true;
+  bgm.volume = 0.4;
+  var started = false;
+  var start = function () {
+    if (started) return;
+    bgm.play().then(function () {
+      started = true;
+      window.removeEventListener('pointerdown', start);
+      window.removeEventListener('keydown', start);
+    }).catch(function () { /* 仍被阻止，下次交互再试 */ });
+  };
+  window.addEventListener('pointerdown', start);
+  window.addEventListener('keydown', start);
+})();
 </script>
 </body>
 </html>

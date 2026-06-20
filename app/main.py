@@ -44,6 +44,7 @@ from app.memory.chat_history import (
     get_pending_order,
     set_pending_order,
 )
+from app.services.catalog_service import AmbiguousProductError, get_product_by_name
 from app.services.chat_service import extract_price, handle_message, match_by_price
 from app.services.agent_orchestrator import orchestrate as agent_orchestrate
 from app.services.agents.experience_agent import list_recent_experiences
@@ -150,6 +151,9 @@ if _3D_STATIC_DIR.is_dir():
     _3d_office_assets = _3D_STATIC_DIR / "office-assets"
     if _3d_office_assets.is_dir():
         app.mount("/3d/office-assets", StaticFiles(directory=_3d_office_assets), name="static-3d-office-assets")
+    _3d_sounds = _3D_STATIC_DIR / "sounds"
+    if _3d_sounds.is_dir():
+        app.mount("/3d/sounds", StaticFiles(directory=_3d_sounds), name="static-3d-sounds")
 from app.auth.router import router as auth_router  # noqa: E402
 
 app.include_router(auth_router)
@@ -184,8 +188,14 @@ def _resolve_coffees_from_history(db, history, max_messages=1):
 
 
 def _lookup_price_from_product(db, coffee_name):
-    """从商品目录查价格，查不到返回 0"""
-    product = db.query(Product).filter(Product.name == coffee_name).first()
+    """从商品目录查价格（与扣款共用 get_product_by_name，保证报价=扣款价）。
+
+    未找到或简称歧义时返回 0.0；正常下单链路传精确名，不会触发歧义。
+    """
+    try:
+        product = get_product_by_name(db, coffee_name)
+    except AmbiguousProductError:
+        return 0.0
     return float(product.base_price) if product else 0.0
 
 

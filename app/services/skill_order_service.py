@@ -48,7 +48,11 @@ from app.services.visualization_service import (
 from app.db.models import Product
 from app.domain_constants import WALLET_CURRENCY_CREDITS
 from app.services import wallet_service
-from app.services.catalog_service import decrement_stock
+from app.services.catalog_service import (
+    AmbiguousProductError,
+    decrement_stock,
+    get_product_by_name,
+)
 from app.services.staff_service import ensure_staff_agents, orchestrate_staff_node
 
 logger = logging.getLogger(__name__)
@@ -1056,6 +1060,15 @@ def _resolve_items(db: Session, message: str) -> list[dict[str, Any]]:
 
 
 def _resolve_coffee_names(db: Session, message: str) -> list[str]:
+    """Parse coffee names from a free-form Skill message.
+
+    Returns exact product names only. Short names (冷萃/拿铁/美式) are accepted
+    via :func:`get_product_by_name` only when they match a single product;
+    ambiguous short names (e.g. 「冷萃」hits both 柑橘冷萃 and 椰香冷萃) are NOT
+    coerced to the cheapest match — the caller surfaces a "please specify"
+    prompt instead. This fixes the bug where a short name silently mapped to a
+    different cup and the charged price diverged from what the user ordered.
+    """
     rows = db.query(Product).order_by(Product.base_price.asc()).all()
     names = [row.name for row in rows]
 
@@ -1071,27 +1084,26 @@ def _resolve_coffee_names(db: Session, message: str) -> list[str]:
 
     try:
         intent = llm.parse_intent([], message)
-        coffee = intent.get("coffee_name")
+        coffee = (intent.get("coffee_name") or "").strip()
         if coffee:
-            for name in names:
-                if name in coffee or coffee in name:
-                    return [name]
+            try:
+                product = get_product_by_name(db, coffee)
+            except AmbiguousProductError:
+                # LLM 给出歧义简称（如「冷萃」），不硬凑最便宜的一杯。
+                product = None
+            if product:
+                return [product.name]
     except Exception:
         logger.exception("LLM 解析咖啡名失败，回退 RAG 兜底 message=%r", message[:80])
 
     positive, negative = extract_keywords(message)
     if positive or negative:
         retrieved = [row.name for row in retrieve(db, positive, negative)]
-        if retrieved:
-            return retrieved[:1]
+        # 关键词命中唯一一杯才接受；命中多杯（如「拿铁」同时命中焦糖玛奇朵
+        # 和莓果拿铁的 tags）属于歧义，下单场景不取最便宜的一杯。
+        if len(retrieved) == 1:
+            return retrieved
 
-    for row in rows:
-        if row.name.endswith("拿铁") and "拿铁" in message:
-            return [row.name]
-        if row.name.endswith("冷萃") and "冷萃" in message:
-            return [row.name]
-        if "美式" in row.name and "美式" in message:
-            return [row.name]
     return []
 
 

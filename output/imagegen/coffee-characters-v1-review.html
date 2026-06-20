@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Coffee Characters V1 Review</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #2a1913;
+      --muted: #72574a;
+      --line: #d8b98d;
+      --paper: #fff7e8;
+      --panel: #fff0d3;
+      --wood: #8a4a2f;
+      --accent: #d5792f;
+      --ok: #27684b;
+      --wait: #8a5a16;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Segoe UI", Arial, "Microsoft YaHei", sans-serif;
+      background:
+        linear-gradient(90deg, rgba(129, 82, 45, 0.08) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(129, 82, 45, 0.08) 1px, transparent 1px),
+        linear-gradient(180deg, #fff4dc 0%, #efd0a0 100%);
+      background-size: 48px 48px, 48px 48px, auto;
+    }
+
+    header {
+      padding: 32px 32px 20px;
+      border-bottom: 4px solid var(--wood);
+      background: rgba(255, 247, 232, 0.92);
+    }
+
+    main {
+      width: min(1440px, calc(100vw - 48px));
+      margin: 24px auto 48px;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 30px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 20px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 0 0 10px;
+      font-size: 16px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0;
+      line-height: 1.65;
+    }
+
+    code,
+    pre {
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 13px;
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #2b1b14;
+      color: #fff1d7;
+    }
+
+    .status {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-top: 14px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
+      padding: 6px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fffaf0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .pill.ok {
+      border-color: rgba(39, 104, 75, 0.35);
+      color: var(--ok);
+      background: #edf8ef;
+    }
+
+    .pill.wait {
+      border-color: rgba(138, 90, 22, 0.35);
+      color: var(--wait);
+      background: #fff6df;
+    }
+
+    .section {
+      margin-top: 22px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 247, 232, 0.94);
+      box-shadow: 0 10px 24px rgba(78, 42, 26, 0.12);
+    }
+
+    .grid-two {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .image-panel {
+      display: grid;
+      gap: 10px;
+    }
+
+    .image-frame {
+      border: 6px solid #7a3f28;
+      border-radius: 8px;
+      background: var(--panel);
+      overflow: hidden;
+    }
+
+    .image-frame img {
+      display: block;
+      width: 100%;
+      height: auto;
+      image-rendering: auto;
+    }
+
+    .refs {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .refs img {
+      display: block;
+      width: 100%;
+      aspect-ratio: 3 / 4;
+      object-fit: cover;
+      border: 4px solid #7a3f28;
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .note-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .checklist {
+      margin: 0;
+      padding-left: 20px;
+      line-height: 1.7;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    @media (max-width: 980px) {
+      main {
+        width: min(100vw - 28px, 760px);
+      }
+
+      .grid-two,
+      .note-grid,
+      .refs {
+        grid-template-columns: 1fr;
+      }
+
+      header {
+        padding: 24px 18px 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Coffee Characters V1 Review</h1>
+    <p>当前版本用于评估四个参考角色的统一建模方向、咖啡馆构图和后续生成条件。</p>
+    <div class="status">
+      <span class="pill ok">参考图已固定</span>
+      <span class="pill ok">本地评估板已生成</span>
+      <span class="pill ok">咖啡馆构图预览已生成</span>
+      <span class="pill wait">真正模型重绘等待 OPENAI_API_KEY</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="section">
+      <h2>当前 V1 预览</h2>
+      <div class="grid-two">
+        <article class="image-panel">
+          <h3>四角色参考评估板</h3>
+          <div class="image-frame">
+            <img src="coffee-characters-reference-board-v1.png" alt="四角色参考评估板">
+          </div>
+          <p class="muted">用于检查角色顺序、发色、耳朵、尾巴、围裙、比例和 chibi 角色定位。</p>
+        </article>
+
+        <article class="image-panel">
+          <h3>咖啡馆合成构图预览</h3>
+          <div class="image-frame">
+            <img src="coffee-characters-cafe-composite-preview-v1.png" alt="咖啡馆合成构图预览">
+          </div>
+          <p class="muted">用于检查四个角色放入同一咖啡馆后的站位、前后层次和整体暖色像素氛围。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>输入参考图</h2>
+      <div class="refs">
+        <img src="references/character-ref-01.png" alt="角色参考 1">
+        <img src="references/character-ref-02.png" alt="角色参考 2">
+        <img src="references/character-ref-03.png" alt="角色参考 3">
+        <img src="references/character-ref-04.png" alt="角色参考 4">
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>评估标准</h2>
+      <div class="note-grid">
+        <div>
+          <h3>当前预览可评估</h3>
+          <ul class="checklist">
+            <li>四个角色是否保持独立，不混合成一个人物。</li>
+            <li>角色 1 是否保持浅棕金发、蓬松耳朵、大尾巴和沉静店员气质。</li>
+            <li>角色 2 是否保持黑发、黑耳朵、黑尾巴和咖啡师气质。</li>
+            <li>角色 3 是否保持金发、活泼表情、咖啡杯动作和咖啡围裙。</li>
+            <li>角色 4 是否保持小比例 chibi、浅色女仆服和粉蓝点缀。</li>
+          </ul>
+        </div>
+        <div>
+          <h3>真正模型图必须修正</h3>
+          <ul class="checklist">
+            <li>消除粗抠图边缘和原图背景残留。</li>
+            <li>统一四个角色的像素颗粒、线条粗细和光照。</li>
+            <li>避免水印、文字、logo 和随机招牌。</li>
+            <li>后续咖啡馆成图需要自然遮挡、接触阴影和一致透视。</li>
+            <li>先生成概念设定板，确认后再生成完整咖啡馆场景。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>待环境就绪后的生成命令</h2>
+      <p class="muted">本机设置好 <code>OPENAI_API_KEY</code> 后运行：</p>
+      <pre>powershell -ExecutionPolicy Bypass -File output/imagegen/run-concept-sheet-v1.ps1</pre>
+      <p class="muted" style="margin-top: 14px;">概念设定板确认满意后，再运行最终咖啡馆场景生成：</p>
+      <pre>powershell -ExecutionPolicy Bypass -File output/imagegen/run-final-cafe-scene-v1.ps1</pre>
+    </section>
+
+    <section class="section">
+      <h2>本地验收命令</h2>
+      <p class="muted">检查当前参考图、预览图、提示词、脚本和页面引用：</p>
+      <pre>python output/imagegen/validate-imagegen-workflow.py</pre>
+      <p class="muted" style="margin-top: 14px;">真正生成图产出后，使用严格验收：</p>
+      <pre>python output/imagegen/validate-imagegen-workflow.py --require-generated</pre>
+    </section>
+  </main>
+</body>
+</html>

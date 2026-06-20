@@ -1,0 +1,30 @@
+Create one evaluation image: a unified four-character concept sheet for review before the final cafe-scene composite.
+
+Use the four input images as references. Treat them as four independent characters in the same order as the inputs. Do not merge their traits into one person and do not generate extra characters.
+
+Style:
+High-quality Japanese anime pixel art, polished 2D pixel-art character design, crisp pixel edges, clean silhouettes, refined linework, warm coffee-shop palette, retro game character concept sheet. The four characters should look like they belong to the same pixel-art cafe world.
+
+Composition:
+Show four characters side by side with enough spacing for review and future cutout/compositing. Use a clean warm neutral background or a very subtle cafe-themed backdrop. Full-body or three-quarter-body framing is preferred. Keep ears, tails, hair, apron, hands, and outfit details clearly visible.
+
+Character 1:
+Preserve the calm light-brown/blonde cafe worker from reference 1. Keep the fluffy animal ears, large pale fluffy tail, white shirt, dark coffee apron, warm orange-brown eyes, folded-arm or calm shop-staff attitude, and quiet serious expression.
+
+Character 2:
+Preserve the composed black-haired barista from reference 2. Keep the black animal ears, black tail, white shirt, coffee apron, warm orange eyes, small hair clips, and steady cafe-worker presence.
+
+Character 3:
+Preserve the lively blonde cafe worker from reference 3. Keep the bright expression, blonde animal ears, pale orange striped tail, coffee-themed apron, white shirt, warm eyes, and small coffee-cup pose.
+
+Character 4:
+Preserve the small chibi mascot-like character from reference 4. Keep the pink-blonde hair, pastel maid outfit, headpiece, bows, soft candy colors, short chibi proportions, and cute mascot feeling. Do not stretch this character into adult proportions.
+
+Palette:
+Coffee brown, cream white, caramel orange, warm pale yellow, soft cafe lighting, with small pastel pink and blue accents for character 4.
+
+Hard constraints:
+Four separate characters only. Same order as the four references. Preserve each character's key hair color, ears, tail, apron/outfit, expression, and body proportion. Character 4 must stay chibi. No text, no logo, no watermark.
+
+Avoid:
+Fused characters, changed hair colors, missing animal ears, missing tails, unrelated clothing, realistic rendering, 3D rendering, watercolor, oil painting, soft blur, messy background, distorted limbs, unreadable hands, extra fingers, duplicate faces, extra characters, captions, signs, logos, and watermarks.

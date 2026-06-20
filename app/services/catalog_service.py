@@ -23,24 +23,56 @@ class CatalogError(Exception):
     pass
 
 
+class AmbiguousProductError(CatalogError):
+    """Multiple products match one query (e.g. 「冷萃」hits both 柑橘冷萃 and 椰香冷萃).
+
+    Carries the candidate products so the caller can surface a "please specify
+    which cup" prompt instead of silently picking one — which is what used to
+    make the charged price diverge from the name the user thought they ordered.
+    """
+
+    def __init__(self, query: str, candidates: list[Product]) -> None:
+        self.query = query
+        self.candidates = candidates
+        names = "、".join(p.name for p in candidates)
+        super().__init__(f"「{query}」匹配到多杯：{names}，请明确要哪一杯")
+
+
 class OutOfStockError(CatalogError):
     pass
 
 
 def get_product_by_name(db: Session, name: str) -> Product | None:
-    """Exact-name match. Falls back to a LIKE match for tolerant ordering."""
+    """Resolve a product by name with disambiguation.
+
+    The menu is defined by exact product names (美式咖啡 / 柑橘冷萃 / ...). To
+    tolerate colloquial short names (e.g. 「美式」→ 美式咖啡), a substring
+    fallback is used **only when it matches exactly one product**. When the
+    short name is ambiguous (e.g. 「冷萃」matches both 柑橘冷萃 and 椰香冷萃),
+    :class:`AmbiguousProductError` is raised so the caller must ask the user
+    to specify — we never silently pick a cup.
+    """
+    query = (name or "").strip()
+    if not query:
+        return None
     product = (
         db.query(Product)
-        .filter(Product.name == name)
+        .filter(Product.name == query)
         .first()
     )
     if product:
         return product
-    return (
+    candidates = (
         db.query(Product)
-        .filter(Product.name.like(f"%{name}%"))
-        .first()
+        .filter(Product.name.like(f"%{query}%"))
+        .order_by(Product.product_id.asc())
+        .all()
     )
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        raise AmbiguousProductError(query, candidates)
+    return None
 
 
 def get_product(db: Session, product_id: int) -> Product | None:

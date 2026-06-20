@@ -67,6 +67,10 @@ function MachineLabel({
 }) {
   return (
     <Billboard position={position} follow={false}>
+      <mesh position={[0, 0, -0.006]}>
+        <planeGeometry args={[0.62, 0.16]} />
+        <meshBasicMaterial color="#111827" transparent opacity={0.78} depthWrite={false} />
+      </mesh>
       <Text
         fontSize={0.065}
         color="#f8f4e8"
@@ -309,7 +313,7 @@ export function CoffeeMachineHeroModel({
       <SteamWand position={[0.33, 0.44, 0.16]} />
       <CupProp position={[-0.11, 0.19, 0.08]} scale={0.62} />
       <CupProp position={[0.11, 0.19, 0.08]} scale={0.62} fill={CUP_FILL_LIGHT} />
-      {showLabel ? <MachineLabel text="Hero" position={[0, 1.02, 0]} /> : null}
+      {showLabel ? <MachineLabel text="制作系统" position={[0, 1.02, 0]} /> : null}
       <SelectionRing active={isSelected} radius={0.56} />
     </group>
   );
@@ -375,7 +379,7 @@ export function CoffeeMachineCompactModel({
       <Portafilter position={[0.06, 0.29, 0.12]} rotation={[0, 0.1, -0.05]} handleColor="#5f3523" />
       <SteamWand position={[0.24, 0.38, 0.12]} rotation={[0.2, 0, 0.24]} />
       <CupProp position={[0.02, 0.19, 0.04]} scale={0.56} fill={CUP_FILL_LIGHT} />
-      {showLabel ? <MachineLabel text="Compact" position={[0, 0.92, 0]} /> : null}
+      {showLabel ? <MachineLabel text="库存终端" position={[0, 0.92, 0]} /> : null}
       <SelectionRing active={isSelected} radius={0.42} />
     </group>
   );
@@ -446,7 +450,7 @@ export function CoffeeMachineGrinderModel({
       </mesh>
       <Portafilter position={[0.02, 0.15, 0.16]} rotation={[0, 0.06, 0]} handleColor="#6b422b" />
       <CupProp position={[0.02, 0.18, 0.02]} scale={0.52} fill={CUP_FILL_MAIN} />
-      {showLabel ? <MachineLabel text="Hopper" position={[0, 1.06, 0]} /> : null}
+      {showLabel ? <MachineLabel text="原料库存" position={[0, 1.06, 0]} /> : null}
       <SelectionRing active={isSelected} radius={0.46} />
     </group>
   );

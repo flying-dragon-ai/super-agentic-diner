@@ -51,6 +51,7 @@ import { ROLE_LABEL, resolveAction, resolveRole } from "../sim/roleMap";
 import { Palette, PALETTE } from "../ui/Palette";
 import { SelectedObjectPanel } from "../ui/SelectedObjectPanel";
 import { ImmersiveOverlay, type OverlayKind } from "../overlays/ImmersiveOverlay";
+import { initSceneMusic, stopSceneMusic } from "../sounds/sceneMusic";
 import {
   HeatmapSystem,
   TrailSystem,
@@ -89,6 +90,16 @@ export default function OfficeScene() {
   const [wallDrawStart, setWallDrawStart] = useState<{ x: number; y: number } | null>(null);
   const [overlay, setOverlay] = useState<OverlayKind>(null);
   const colorMap = useColorMap(agentsRef);
+  const [compactChrome, setCompactChrome] = useState(
+    () => typeof window !== "undefined" && window.innerWidth < 700,
+  );
+
+  useEffect(() => {
+    const syncChrome = () => setCompactChrome(window.innerWidth < 700);
+    syncChrome();
+    window.addEventListener("resize", syncChrome);
+    return () => window.removeEventListener("resize", syncChrome);
+  }, []);
 
   useEffect(() => {
     sim.setFurniture(furniture);
@@ -164,16 +175,32 @@ export default function OfficeScene() {
     return () => socket.close();
   }, [sim]);
 
+  // Scene background music: starts after the first user interaction (browser
+  // autoplay policy), pauses when leaving /scene, resumes on return.
+  useEffect(() => {
+    initSceneMusic();
+    return () => stopSceneMusic();
+  }, []);
+
   agentsRef.current = sim.agents;
   lookupRef.current = new Map(sim.agents.map((a) => [a.id, a]));
 
   const [camX, camY, camZ] = OVERVIEW_CAMERA;
   const floorW = CANVAS_W * SCALE;
   const floorH = CANVAS_H * SCALE;
+  const statusTop = compactChrome ? 64 : 12;
+  const viewToolbarTop = compactChrome ? 112 : 64;
+  const eventLogMaxHeight = compactChrome
+    ? "min(260px, calc(100vh - 190px))"
+    : "min(260px, calc(100vh - 130px))";
 
+  // Project world coords back to canvas pixels, snapped to the grid and clamped
+  // to the canvas bounds. The clamp matters: a click near the screen edge can
+  // raycast onto the floor plane far outside the cafe, which previously let
+  // furniture be "placed" at off-canvas coords (e.g. y:-1330) and vanish.
   const worldToCanvas = useCallback((wx: number, wz: number) => ({
-    cx: snap(Math.round((wx + CANVAS_W * SCALE * 0.5) / SCALE)),
-    cy: snap(Math.round((wz + CANVAS_H * SCALE * 0.5) / SCALE)),
+    cx: Math.max(0, Math.min(CANVAS_W, snap(Math.round((wx + CANVAS_W * SCALE * 0.5) / SCALE)))),
+    cy: Math.max(0, Math.min(CANVAS_H, snap(Math.round((wz + CANVAS_H * SCALE * 0.5) / SCALE)))),
   }), []);
 
   const switchView = useCallback((key: keyof typeof CAMERA_PRESETS) => {
@@ -457,11 +484,23 @@ export default function OfficeScene() {
         />
       </Canvas>
       <ImmersiveOverlay kind={overlay} onClose={() => setOverlay(null)} />
-      <div style={{ position: "absolute", top: 12, left: 12, color: "#e8dfc0", fontFamily: "monospace", fontSize: 12, background: "rgba(0,0,0,0.55)", padding: "6px 10px", borderRadius: 6 }}>
+      <div style={{ position: "absolute", top: statusTop, left: 12, color: "#e8dfc0", fontFamily: "monospace", fontSize: 12, background: "rgba(0,0,0,0.55)", padding: "6px 10px", borderRadius: 6, maxWidth: "calc(100vw - 24px)" }}>
         <div>Coffee AI Boss · 3D 咖啡厅</div>
         <div style={{ opacity: 0.7 }}>WS: {status} · 在场员工 {sim.agents.length} · 焦点 {focusId ?? "无"}</div>
       </div>
-      <div style={{ position: "absolute", top: 12, right: 12, display: "flex", gap: 6 }}>
+      <div
+        style={{
+          position: "absolute",
+          top: viewToolbarTop,
+          right: 12,
+          zIndex: 20,
+          display: "flex",
+          flexWrap: "wrap",
+          justifyContent: "flex-end",
+          gap: 6,
+          maxWidth: "calc(100vw - 24px)",
+        }}
+      >
         {(Object.keys(CAMERA_PRESETS) as (keyof typeof CAMERA_PRESETS)[]).map((key) => (
           <button
             key={key}
@@ -510,7 +549,7 @@ export default function OfficeScene() {
           onReset={resetLayout}
         />
       )}
-      <div style={{ position: "absolute", bottom: 12, right: 12, width: 360, maxHeight: 260, overflowY: "auto", background: "rgba(8,12,20,0.8)", color: "#cfe0ff", fontFamily: "monospace", fontSize: 11, padding: 8, borderRadius: 6 }}>
+      <div style={{ position: "absolute", bottom: 12, right: 12, width: "min(360px, calc(100vw - 24px))", maxHeight: eventLogMaxHeight, overflowY: "auto", background: "rgba(8,12,20,0.8)", color: "#cfe0ff", fontFamily: "monospace", fontSize: 11, padding: 8, borderRadius: 6 }}>
         {events.map((e) => (
           <div key={String(e.event_id)} style={{ padding: "2px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
             <span style={{ color: "#f0c060" }}>{e.type}</span>{" "}

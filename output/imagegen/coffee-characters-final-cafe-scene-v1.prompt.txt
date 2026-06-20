@@ -1,0 +1,32 @@
+Create the final pixel-art cafe scene using the approved four-character concept sheet and the local composition preview as references.
+
+Input image roles:
+The concept sheet image is the authoritative character design reference. Preserve the four characters' identities, proportions, hair colors, animal ears, tails, cafe aprons/outfits, facial attitudes, and relative role differences.
+The cafe composite preview image is only a rough composition reference for placement and cafe mood. Do not copy its rough cutout edges, source-background fragments, or pasted look.
+
+Primary request:
+Place the four approved characters naturally inside one warm pixel-art coffee shop. The image should look like one coherent hand-drawn pixel-art scene, not a collage.
+
+Scene:
+A cozy anime pixel-art cafe interior with a wood bar counter, espresso machine, menu boards, tiled wall, hanging lights, cups, coffee beans, shelves, jars, small plants, and warm sunlight. Keep the environment detailed but not so busy that the characters become hard to read.
+
+Character placement:
+Character 1 should appear as a calm cafe worker near the left or front counter area, with light brown/blonde hair, fluffy pale ears and a large pale tail, white shirt, dark coffee apron, and quiet serious expression.
+Character 2 should appear as the main barista near the espresso machine or center counter, with black hair, black animal ears and black tail, white shirt, coffee apron, warm orange eyes, and composed presence.
+Character 3 should appear as the lively staff member holding or serving coffee near the right/center area, with blonde hair, bright expression, pale orange striped tail, coffee apron, and welcoming energy.
+Character 4 should appear as a smaller chibi mascot-like character near the counter, shelf, or display area, with pastel maid outfit, pink-blonde hair, headpiece, bows, and short chibi proportions. Do not make this character full adult size.
+
+Style:
+High-quality Japanese anime pixel art, crisp pixel edges, refined 2D sprite-like rendering, warm cafe lighting, cohesive color palette, clean silhouettes, natural occlusion, contact shadows, and consistent perspective. All characters and props should share the same pixel density and lighting.
+
+Palette:
+Coffee brown, cream white, caramel orange, warm pale yellow, roasted wood tones, soft sunlight, with small pastel pink and blue accents for the chibi mascot.
+
+Composition:
+Landscape cafe scene, suitable as a polished visual asset. Four characters should be visible and balanced across the frame. Use foreground counter and objects for natural depth, but do not hide key character features such as ears, tails, faces, apron, and hands.
+
+Hard constraints:
+Four characters only. Do not fuse characters. Preserve the approved concept sheet designs. Character 4 must remain chibi. No text, no readable menu words, no logos, no watermark. Do not include generated captions or signatures. The final scene must not look like pasted images.
+
+Avoid:
+Collage look, rough cutout edges, source image fragments, mismatched lighting, inconsistent pixel sizes, missing ears, missing tails, changed hair colors, changed outfits, extra characters, distorted hands, extra fingers, duplicate faces, unreadable faces, realistic rendering, 3D rendering, watercolor, oil painting, blur, heavy bloom, text, signs, logos, and watermarks.
