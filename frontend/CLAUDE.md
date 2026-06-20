@@ -19,7 +19,7 @@
 
 ## 模块职责
 
-Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws/visualization` 事件流对接）。**2026-06-20 09:40 起，本模块是项目唯一活跃 UI**（像素 Colyseus 方案与独立 2D 对话页均已归档到 `_archive/`），后端根路由 `/` 已改为直出本前端构建产物。四大职责：
+Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws/visualization` 事件流对接）。**2026-06-20 09:40 起，本模块是项目唯一活跃 UI**（像素 Colyseus 方案与独立 2D 对话页均已移出活跃仓库，归档位置见 `docs/archive-manifest.md`），后端根路由 `/` 已改为直出本前端构建产物。四大职责：
 1. **3D 咖啡厅场景**（`/3d/scene`）：用 React-Three-Fiber 渲染带真实 GLB 家具的咖啡厅（吧台/客座圆桌/沙发豆袋休闲区，2026-06-20 从办公室改造），Agent（**4 个固有服务员 barista/cashier/waiter/manager + 动态顾客**，2026-06-20 新增服务员团队）按可视化事件驱动行走、工作、说话。内嵌聊天消费后端 `POST /chat`（匿名 user_id，无登录门槛）。
 2. **监控大屏**（`/3d/dashboard`）：聚合 `/admin/restaurant-state`，展示今日订单/金额/来源分布/最近订单/事件流/在线员工。
 3. **咖啡机展示**（`/3d/machines`）：独立 Canvas 展示咖啡机模型簇（`CoffeeMachinePreviewCluster`，2026-06-20 新增）。
@@ -57,7 +57,7 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
 - **@react-three/fiber 9** + **@react-three/drei 10**（`useGLTF`、`Billboard`、`Text`、`OrbitControls`）+ **three 0.183**（3D 渲染）
 - **Vite 6** + **@vitejs/plugin-react**
 - **TypeScript 5.6**（strict）
-- **Playwright 1.61**（devDependency，E2E，但无测试文件；`.playwright-mcp/` 有截图佐证渲染）
+- **Playwright 1.61**（devDependency，E2E；临时截图证据不保留在活跃仓库，历史证据见 archive manifest）
 - 构建产物 `app/static/3d/office-assets/` 含家具 GLB 模型与背景贴图
 
 ## 数据模型（前端运行时状态）
@@ -188,7 +188,7 @@ scene.snapshot (连接即收) → onSnapshot: 遍历 payload.agents 预创建人
 
 ## 测试与质量
 
-- **Playwright** 已装但无测试文件（覆盖缺口；`.playwright-mcp/page-*.png` 有运行时截图佐证渲染）。
+- **Playwright** 已装但无测试文件（覆盖缺口；运行时截图证据已移出活跃仓库，历史证据见 archive manifest）。
 - 类型检查：`npm run build` 会先跑 `tsc --noEmit`（2026-06-20 验证零错误）。
 - 无单元测试框架。
 - 移植残留（2026-06-20 已清理）：原 navigation `void ITEM_FOOTPRINT/snap`、agentStore `void NAV_ENTRY`、OfficeScene `roleDeskIndex`/`DESK_LOCS`/`ROLE_DESK`/`getDeskLocations` 整套 void 占位、main.py unused import `bridge_event_to_colyseus`、furnitureDefaults `void nextUid` 已全部清理；roleMap 坐标超界与注释不符已修。

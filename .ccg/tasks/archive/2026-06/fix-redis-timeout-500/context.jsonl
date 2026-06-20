@@ -1,4 +1,0 @@
-{"_example": "Fill with {\"file\": \"path\", \"reason\": \"why\"}. Seed rows are skipped."}
-{"file": "app/memory/chat_history.py", "reason": "根因：6 个 Redis 函数（add_message/get_history/set_pending_order/get_pending_order/clear_pending_order/clear_history）均无 try/except；_client() line 14-15 from_url 未设 socket_timeout → 超时抛 redis.exceptions.TimeoutError 冒泡到 /chat → 500"}
-{"file": "app/config.py", "reason": "redis_url line 76-78 未带超时参数；需加 redis_socket_timeout / redis_socket_connect_timeout 配置项（默认 2-3s）"}
-{"file": "app/main.py", "reason": "/chat handler line 637 get_history / line 640 get_pending_order 直接调用未捕获 Redis 异常；作为双保险再加一层 try/except 降级"}

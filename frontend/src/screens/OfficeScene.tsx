@@ -66,6 +66,52 @@ type DragState =
   | { kind: "placing"; itemType: string }
   | { kind: "moving"; uid: string };
 
+const EVENT_TEXT: Record<string, string> = {
+  "message.received": "收到顾客消息",
+  "order.intent_detected": "已识别点单需求",
+  "order.pending_confirmation": "等待顾客确认订单",
+  "order.payment_required": "等待顾客确认支付",
+  "order.payment_failed": "支付未完成",
+  "order.paid": "支付完成，订单已确认",
+  "order.failed": "订单处理失败",
+  "order.reply": "店长已回复顾客",
+  "restaurant.customer_entered": "顾客进入咖啡厅",
+  "restaurant.order_ticketed": "已生成点单小票",
+  "restaurant.order_confirming": "正在确认订单内容",
+  "restaurant.payment_requested": "已向顾客发起支付",
+  "restaurant.payment_processing": "正在处理支付",
+  "restaurant.payment_completed": "支付完成，准备制作",
+  "restaurant.payment_failed": "支付失败，等待重试",
+  "restaurant.preparation_progress": "咖啡正在制作中",
+  "restaurant.order_ready": "咖啡已制作完成",
+  "restaurant.order_delivered": "咖啡已送达顾客",
+  "restaurant.customer_reviewed": "顾客已完成评价",
+  "restaurant.customer_left": "顾客离开咖啡厅",
+  "restaurant.order_failed": "订单流程异常",
+  "agent.registered": "员工已进入咖啡厅",
+  "presence.customer_joined": "在线顾客已进入",
+  "presence.customer_moved": "在线顾客正在移动",
+  "presence.customer_left": "在线顾客已离开",
+};
+
+const AGENT_ACTION_TEXT: Record<string, string> = {
+  enter_scene: "员工回到岗位",
+  walk_to_counter: "服务员前往点单台",
+  take_order: "收银员正在接单",
+  prepare_coffee: "咖啡师开始制作",
+  deliver_order: "服务员正在送餐",
+  show_message: "员工正在回复顾客",
+  leave_scene: "员工离开咖啡厅",
+};
+
+function formatSceneEvent(event: VisEvent) {
+  if (event.type === "agent.action") {
+    const actionType = typeof event.payload?.action_type === "string" ? event.payload.action_type : "";
+    return AGENT_ACTION_TEXT[actionType] ?? "员工正在处理订单";
+  }
+  return EVENT_TEXT[event.type] ?? "咖啡厅状态已更新";
+}
+
 export default function OfficeScene() {
   const sim = useMemo(() => createSimStore(), []);
   const agentsRef = useRef<RenderAgent[]>([]);
@@ -550,12 +596,18 @@ export default function OfficeScene() {
         />
       )}
       <div style={{ position: "absolute", bottom: 12, right: 12, width: "min(360px, calc(100vw - 24px))", maxHeight: eventLogMaxHeight, overflowY: "auto", background: "rgba(8,12,20,0.8)", color: "#cfe0ff", fontFamily: "monospace", fontSize: 11, padding: 8, borderRadius: 6 }}>
-        {events.map((e) => (
-          <div key={String(e.event_id)} style={{ padding: "2px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-            <span style={{ color: "#f0c060" }}>{e.type}</span>{" "}
-            <span style={{ opacity: 0.6 }}>{new Date(e.created_at).toLocaleTimeString()}</span>
-          </div>
-        ))}
+        <div style={{ color: "#9fb6d8", fontSize: 11, padding: "0 0 6px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+          咖啡厅动态
+        </div>
+        {events.map((e) => {
+          const text = formatSceneEvent(e);
+          return (
+            <div key={String(e.event_id)} style={{ padding: "4px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+              <span style={{ color: "#f0c060" }}>{text}</span>{" "}
+              <span style={{ opacity: 0.6 }}>{new Date(e.created_at).toLocaleTimeString()}</span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

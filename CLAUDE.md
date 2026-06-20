@@ -10,7 +10,7 @@
 | 2026-06-20 21:30 | 增量刷新（第六次 init） | **匿名点单门槛确立 + 过时登录描述清除**（仅文档刷新，不改源码）。核心改动对齐 `app/main.py:1696` `index()`：根路由 `/` **直接返回 3D 咖啡厅 SPA，匿名可访问、不校验登录**（3D 未构建时才 fallback 到 2D `index.html`）。确认全程无登录门槛：① `POST /chat`（`main.py:588`）无 auth 依赖、匿名 `req.user_id`；② 前端 `App.tsx` 路由 `/scene` `/machines` `/dashboard` 均无 `<ProtectedRoute>` 守卫，`/login` `/register` 为可选；③ `LoginPage` 提供"匿名进入 3D"链接。设计动因：咖啡厅线下点单场景，顾客匿名消费不该有账号密码门槛。**uvicorn 启动建议更新**：`--reload-dir app`（规避根目录 `_mock_hub.py` 触发热重载）或干脆不带 `--reload`（避免 Windows + merge 频繁文件变化触发 reload 卡死）。**过时描述已全部清除**（逐条见下）。新增设计原则"咖啡厅匿名点单，无登录门槛"。**唯一例外**：`/ws/visualization` 的在线顾客 presence 仍需签名 Cookie（`_register_web_customer_presence` 匿名访客被跳过，不显示为在线顾客人偶），但**不阻断匿名点单**，详见 FAQ。覆盖率 99% |
 | 2026-06-20 19:07 | 增量刷新（第五次 init） | **服务员团队编排落地对齐**（外部 commit "服务员团队编排/staff 智能模型" 已合并，对应 `docs/smart-search-evidence/20260619-coffee-pixel-style/SKILL-VISUALIZATION-ROADMAP.md` 5 个 Phase 全部 ✅ 并经独立验证）。本次仅刷新文档、不改源码：① **重大新功能**——`app/services/staff_service.py`（新建）：4 个固有服务员 agent（`staff:barista/cashier/waiter/manager`，幂等创建、固定 sprite_seed 100001-100004）+ `ensure_web_customer_agent`（web 匿名用户也建顾客 agent，修 B4 `agent_anon`）+ `orchestrate_staff_node`（业务节点→服务员动作编排：intent_detected→waiter walk_to_counter / payment_completed→cashier take_order / preparation_progress→barista prepare_coffee / order_ready→barista enter_scene / order_delivered→waiter deliver_order / customer_left→waiter+cashier 复位）；编排挂载到 `main.py` lifespan startup（广播 4 条 `agent.registered`）+ `_publish_web/skill_completion_flow` 各节点。② 前端契约适配（修 B1/B2/B3）：`OfficeScene.tsx` `onEvent` 重写（`agent.action` 取 `payload.action_type`、兼容 snake_case `display_name/role_type/sprite_seed`）+ 新增 `onSnapshot` 按 `payload.agents` 预创建人偶；`scene.snapshot` 追加 `agents` 字段（4 staff + 活跃顾客）。③ **App.tsx 导航修正**：TopBar 链接 "3D 办公室"→"3D 咖啡厅"（漏改已修）。④ 新增路由 `/machines` → `MachineShowcase`（咖啡机展示页，frontend/CLAUDE.md 路由段补全）。⑤ `roleMap.ts` `waiter` 工位 y700→660 微调（frontend/CLAUDE.md 同步）。⑥ 忽略根目录 `_mock_hub.py`（临时 EvoMap Hub mock，文件头注明 NOT part of repo，会触发 uvicorn --reload 干扰，已用 `--reload-dir app` 规避）。详见 app/CLAUDE.md「服务员团队编排」与 frontend/CLAUDE.md。覆盖率 99% → 99% |
 | 2026-06-20 14:08 | 增量对齐（第四次 init） | **Skill 改造**：`.agents/skills/a2a-super-order/` 全量精读并**新建模块级 CLAUDE.md**（此前文档体系未覆盖该模块）。本次改动：① `scripts/order.py` 新增 `detect_username`（`getpass.getuser()`，跨平台系统账号名，修复旧 `platform.node()` 误用 hostname）/`detect_evomap_install`（只读检测 `~/.evomap/{node_id,node_secret}`，无副作用）/`load_evomap_credentials`（优先 `~/.evomap/` 文件 > `A2A_NODE_SECRET` > `EVOMAP_NODE_SECRET`）/`--check-evomap` 子命令；`register_if_needed` 接入凭证自动读取。② `SKILL.md` 新增 "EvoMap Installation Check"（未装→AI 引导用户二次确认后 `npx @evomap/evolver --loop`）+ NPX 安装说明 + 安全红线（只读检测安全；安装/注册/扣费必须用户明确确认；密钥 `redact_for_stdout` 脱敏）。③ `references/api.md` 同步 `--check-evomap` 文档。模块索引新增「A2A 超级点单 Skill」行，Mermaid 图补 `.agents/skills` 节点。覆盖率 98% → 99%。相关设计文档：`docs/EvoMap A2A Skill 脚本改造实施计划.md` |
-| 2026-06-20 10:05 | 增量对齐（第三次 init） | **架构变更对齐**：09:40 起 `colyseus-server/` 与 2D 对话页（`app/static/index.html`）整体归档到 `_archive/`（`_archive/colyseus-server/`、`_archive/2d-legacy/`）。根 `/` 改为直出 3D SPA，Colyseus 子进程拉起为 no-op（目标目录不存在）。根 CLAUDE.md / index.json 的 Colyseus 节点标注 `status: archived` 并改链到 `_archive/colyseus-server/CLAUDE.md`；新增「架构演进」小节。补扫 Dashboard.tsx 全文、evomap_payment_service.py（支付证明脱敏/order_id 抽取）、skill_order_service.py（`_resume_existing_order` 幂等三态恢复 + `_reject_unverified_payment_proof`）；并校正数据模型实际为 15 张表（新增 Product/ProductOptionGroup/ProductOption/OrderItem/OrderItemOption/UserWallet/BalanceTransaction）+ wallet_service/catalog_service。覆盖率 97% → 98% |
+| 2026-06-20 10:05 | 增量对齐（第三次 init） | **架构变更对齐**：09:40 起 `colyseus-server/` 与 2D 对话页（`app/static/index.html`）整体移出活跃仓库，外部归档位置见 `docs/archive-manifest.md`。根 `/` 改为直出 3D SPA，Colyseus 子进程拉起为 no-op（目标目录不存在）。根 CLAUDE.md / index.json 的 Colyseus 节点标注 `status: archived` 并改链到 `docs/archive-manifest.md`；新增「架构演进」小节。补扫 Dashboard.tsx 全文、evomap_payment_service.py（支付证明脱敏/order_id 抽取）、skill_order_service.py（`_resume_existing_order` 幂等三态恢复 + `_reject_unverified_payment_proof`）；并校正数据模型实际为 15 张表（新增 Product/ProductOptionGroup/ProductOption/OrderItem/OrderItemOption/UserWallet/BalanceTransaction）+ wallet_service/catalog_service。覆盖率 97% → 98% |
 | 2026-06-20 09:35 | 增量补扫 | 第二次 init：精读 office3d/ 全套 + sim/tick.ts + auth/AuthPages.tsx + docs/ 5 份设计文档全文，补全 A\*寻路/Agent 骨骼动画/表单实现/积分扣款链路细节，覆盖率 88% → 97% |
 | 2026-06-20 | 创建 | 初始化架构师首次扫描，生成根级 + 4 个模块级 CLAUDE.md，覆盖率 ~88% |
 
@@ -94,8 +94,8 @@
 | 时间 | 变更 | 现状 |
 |------|------|------|
 | 2026-06-20 21:30 | **根路由 `/` 删除登录校验**：`app/main.py:1696` `index()` 改为**直接返回 3D SPA（匿名、不校验登录）**，仅在 3D 未构建时 fallback 到 2D `index.html` | 全程匿名点单（`/` + `/chat` + 3D 场景）。`/auth/*` 与 `/3d/login` `/3d/register` 保留但**改为可选增值**（个性化昵称 + 在线顾客人偶 presence），非点单前置。WS 在线顾客 presence 仍读签名 Cookie（`_register_web_customer_presence` 匿名访客被跳过），但**不阻断匿名点单** |
-| 2026-06-20 09:40 | **Colyseus 像素多人房间方案弃用**：`colyseus-server/` 整目录归档到 [`_archive/colyseus-server/`](./_archive/colyseus-server/) | 可视化统一走后端 `/ws/visualization` 事件流 + 3D 办公室。`app/colyseus_bridge.py` 仍在仓库（启动时检查 `colyseus-server/` 目录存在性，目录已移走后 `_COLYSEUS_DIR.is_dir()=False` → 仅记 warning 跳过，`bridge_event_to_colyseus` 仅 debug 日志），属"可恢复的停用"，**未删代码**。归档目录自带 `CLAUDE.md`：[`./_archive/colyseus-server/CLAUDE.md`](./_archive/colyseus-server/CLAUDE.md) |
-| 2026-06-20 09:40 | **2D 原生对话页归档**：原 `app/static/index.html`（2D 聊天 UI）归档到 [`_archive/2d-legacy/index.html`](./_archive/2d-legacy/index.html) | 根路由 `/` 改为直出 3D SPA（`app/static/3d/index.html`，见 `app/main.py` `index()` 注释 "Root: 直接返回 3D 咖啡厅（匿名可访问，不校验登录）"）。`POST /chat` 仍作为 JSON API 存在，被 3D 场景内嵌聊天消费 |
+| 2026-06-20 09:40 | **Colyseus 像素多人房间方案弃用**：`colyseus-server/` 整目录归档，当前外部归档位置见 [`docs/archive-manifest.md`](./docs/archive-manifest.md) | 可视化统一走后端 `/ws/visualization` 事件流 + 3D 办公室。`app/colyseus_bridge.py` 仍在仓库（启动时检查 `colyseus-server/` 目录存在性，目录已移走后 `_COLYSEUS_DIR.is_dir()=False` → 仅记 warning 跳过，`bridge_event_to_colyseus` 仅 debug 日志），属"可恢复的停用"。恢复方式见 archive manifest |
+| 2026-06-20 09:40 | **2D 原生对话页归档**：原 `app/static/index.html`（2D 聊天 UI）已移出活跃仓库，当前外部归档位置见 [`docs/archive-manifest.md`](./docs/archive-manifest.md) | 根路由 `/` 改为直出 3D SPA（`app/static/3d/index.html`，见 `app/main.py` `index()` 注释 "Root: 直接返回 3D 咖啡厅（匿名可访问，不校验登录）"）。`POST /chat` 仍作为 JSON API 存在，被 3D 场景内嵌聊天消费 |
 
 > 决策动因：3D 办公室方案（`frontend/src/office3d/`，移植自 Claw3D retro-office）的渲染表现力、Agent 表情/对话气泡/昼夜循环已全面覆盖像素风方案的能力，且事件流解耦使后端不依赖 Colyseus 权威状态同步。归档而非删除，保留可回溯与可恢复。21:30 删除 `/` 登录校验的动因：咖啡厅线下场景，顾客匿名消费，不该有账号密码门槛（用户明确要求"线下点咖啡不需要账号密码"）。
 
@@ -107,8 +107,7 @@
 graph TD
     Root["(根) coffee-ai-boss"] --> App["app/ 后端"]
     Root --> Frontend["frontend/ 3D前端"]
-    Root --> ArchiveColyseus["_archive/colyseus-server/ (已归档)"]
-    Root --> Archive2D["_archive/2d-legacy/ (已归档)"]
+    Root --> ArchiveManifest["docs/archive-manifest.md 外部归档索引"]
     Root --> Tests["tests/"]
     Root --> Scripts["scripts/"]
     Root --> Docs["docs/ 设计文档"]
@@ -122,7 +121,7 @@ graph TD
 
     click App "./app/CLAUDE.md" "查看后端模块文档"
     click Frontend "./frontend/CLAUDE.md" "查看 3D 前端模块文档"
-    click ArchiveColyseus "./_archive/colyseus-server/CLAUDE.md" "查看已归档 Colyseus 服务器文档"
+    click ArchiveManifest "./docs/archive-manifest.md" "查看外部归档位置与恢复方式"
 ```
 
 ---
@@ -133,8 +132,7 @@ graph TD
 |------|------|------|-----------|
 | [后端](./app/CLAUDE.md) | `app/` | Python (FastAPI) | 对话点单（匿名）、A2A Skill 点单、可视化事件、可选账户认证的 API 与业务逻辑 |
 | [3D 前端](./frontend/CLAUDE.md) | `frontend/` | TypeScript (React 19 + R3F) | 3D 办公室场景渲染 + 实时监控大屏 + 可选登录注册（**唯一活跃 UI**） |
-| [Colyseus 服务器（已归档）](./_archive/colyseus-server/CLAUDE.md) | `_archive/colyseus-server/` | TypeScript (Colyseus) | **已弃用归档**。原像素咖啡馆多人房间，权威状态同步。2026-06-20 09:40 归档 |
-| 2D 对话页（已归档） | `_archive/2d-legacy/` | HTML/CSS | **已弃用归档**。原 2D 聊天 UI（`index.html`），根 `/` 已改直出 3D SPA |
+| [外部归档索引](./docs/archive-manifest.md) | `docs/archive-manifest.md` | Markdown | 记录已移出活跃仓库的 Colyseus 像素房间和 2D 对话页归档位置与恢复方式 |
 | 测试 | `tests/` | Python (unittest) | LLM 配置、确认意图、Skill 支付、订单查看的单元测试 |
 | 脚本 | `scripts/` | Python | 建表/种子、订单来源迁移、账户表迁移 |
 | 设计文档 | `docs/` | Markdown | A2A 积分接入、像素/3D 集成、点单 SKILL、Agent API 设计 |
@@ -215,7 +213,7 @@ python .agents/skills/a2a-super-order/scripts/order.py --message "一杯拿铁" 
   - `test_chat_order_view.py` — "查看订单"意图与"下单"的区分
   - `test_skill_evomap_payment.py` — Skill 点单 / EvoMap 积分支付流程
   - `verify_quick_menu.py` — 快捷菜单验证脚本
-- **覆盖缺口**：缺少 `order_service.place_orders` 余额不足/并发、前端组件的自动化测试（Playwright 已装无测试）。Colyseus 房间逻辑已随源码归档（`_archive/colyseus-server/`），不再计入活跃覆盖目标。
+- **覆盖缺口**：缺少 `order_service.place_orders` 余额不足/并发、前端组件的自动化测试（Playwright 已装无测试）。Colyseus 房间逻辑已随源码移出活跃仓库，外部归档见 `docs/archive-manifest.md`，不再计入活跃覆盖目标。
 
 ---
 
@@ -237,7 +235,7 @@ python .agents/skills/a2a-super-order/scripts/order.py --message "一杯拿铁" 
 - **改可视化事件**：事件类型若新增，需同时更新前端 `frontend/src/sim/roleMap.ts` 的 `ACTION_BEHAVIOR` 映射，否则前端无法渲染（未知 action 兜底为 `walk_to_table`）。
 - **改 3D 渲染**：`office3d/` 全套移植自 Claw3D，坐标投影靠 `core/geometry.ts` 的 `toWorld` + `SCALE=0.018`；A\* 寻路在 `core/navigation.ts`（25px 网格，拐角裁剪）；改家具寻路行为调 `ITEM_METADATA.blocksNavigation/navPadding`。
 - **LLM 降级**：所有 LLM 调用都有 `_mock_chat` / 兜底词降级，改动 prompt 时注意保持 JSON 输出格式（`parse_intent` 会 `_strip_code_fence`）。
-- **Colyseus 已归档**：`app/colyseus_bridge.py` 保留但目标目录已移走，不要再依赖它做可视化；如需恢复像素方案，从 `_archive/colyseus-server/` 移回根目录即可。
+- **Colyseus 已归档**：`app/colyseus_bridge.py` 保留但目标目录已移走，不要再依赖它做可视化；如需恢复像素方案，按 `docs/archive-manifest.md` 中记录的外部归档路径恢复。
 - **uvicorn 启动**：根目录 `_mock_hub.py` 是临时 mock（NOT part of repo）会被 `--reload` 监听，用 `--reload-dir app` 限定 watch 范围规避；Windows 上若 `--reload` 仍卡死可去掉。
 - 不要修改 `.gitignore` 中忽略的生成物（`app/static/3d/assets/`、`node_modules/`、`__pycache__/`）。
 - 仓库已索引 CodeGraph（`.codegraph/`），定位代码优先用 `codegraph explore`。
@@ -253,4 +251,4 @@ python .agents/skills/a2a-super-order/scripts/order.py --message "一杯拿铁" 
 | `.env.example` | 环境变量模板 |
 | `AGENTS.md` / `GEMINI.md` | 各 AI 工具的项目说明 |
 | `docs/` | 设计文档（见上方"设计文档摘要"表） |
-| `_archive/` | 归档区：`colyseus-server/`（像素多人房间）、`2d-legacy/`（2D 对话页），可追溯可恢复 |
+| `docs/archive-manifest.md` | 外部归档索引：记录已移出活跃仓库的 Colyseus 像素房间与 2D 对话页恢复方式 |
