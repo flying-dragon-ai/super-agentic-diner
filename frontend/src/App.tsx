@@ -3,12 +3,28 @@ import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import { LoginPage, RegisterPage } from "./auth/AuthPages";
 import OfficeScene from "./screens/OfficeScene";
 import Dashboard from "./screens/Dashboard";
+import MachineShowcase from "./screens/MachineShowcase";
 
 function TopBar() {
   const { account, logout, loading } = useAuth();
   const nav = useNavigate();
+  const sceneRoute =
+    typeof window !== "undefined" && window.location.pathname.includes("/scene");
   return (
-    <div style={{ position: "fixed", top: 0, right: 0, zIndex: 50, display: "flex", gap: 8, alignItems: "center", padding: "8px 12px" }}>
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        right: 0,
+        zIndex: sceneRoute ? 5 : 50,
+        display: "flex",
+        gap: 8,
+        alignItems: "center",
+        padding: "8px 12px",
+        pointerEvents: sceneRoute ? "none" : "auto",
+        opacity: sceneRoute ? 0.45 : 1,
+      }}
+    >
       <Link to="/scene" style={navLink}>3D 咖啡厅</Link>
       <Link to="/dashboard" style={navLink}>大屏</Link>
       {loading ? null : account ? (
@@ -36,6 +52,7 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/scene" element={<OfficeScene />} />
+          <Route path="/machines" element={<MachineShowcase />} />
           <Route path="/dashboard" element={<Dashboard />} />
         </Routes>
       </BrowserRouter>

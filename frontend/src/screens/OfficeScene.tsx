@@ -421,7 +421,7 @@ export default function OfficeScene() {
               borderRadius: 6,
             }}
           >
-            {key === "overview" ? "全景" : key === "barCounter" ? "吧台" : "休闲"}
+            {key === "overview" ? "全景" : key === "machines" ? "机器" : key === "barCounter" ? "吧台" : "休闲"}
           </button>
         ))}
         <button

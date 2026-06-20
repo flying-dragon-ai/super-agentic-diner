@@ -2,6 +2,7 @@
 // (copied from Claw3D public/office-assets) with Claw3D's exact per-type scale,
 // tint, and rotation so the office renders faithfully instead of placeholder boxes.
 import { useGLTF } from "@react-three/drei";
+import { useThree } from "@react-three/fiber";
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 import { SCALE } from "../core/constants";
@@ -170,6 +171,41 @@ function CupProp({ item }: { item: FurnitureItem }) {
   const radius = isEspresso ? 0.028 : 0.04;
   const height = isEspresso ? 0.06 : 0.09;
   const ceramic = isEspresso ? "#efe8dc" : "#fafafa";
+  const { scene } = useThree();
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const toW = (cx: number, cy: number) => [cx * 0.018 - 16.2, cy * 0.018 - 6.48];
+      const tables = [[565, 165], [945, 165], [565, 420], [945, 420], [1530, 300], [100, 135]];
+      const tRes = tables.map(([cx, cy]) => {
+        const [wx, wz] = toW(cx, cy);
+        let vr = 0;
+        scene.traverse((o: any) => {
+          if (!o.isMesh || !o.geometry) return;
+          o.updateWorldMatrix(true, true);
+          const e = o.matrixWorld.elements;
+          if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+          const d = Math.hypot(e[12] - wx, e[14] - wz);
+          if (d > 0.3) return;
+          const sy = Math.abs(e[5]) || 1;
+          const my = e[13] + o.geometry.boundingBox.max.y * sy;
+          if (my < 0.1 || my > 0.5) return;
+          const sx = Math.abs(e[0]) || 1, sz = Math.abs(e[10]) || 1;
+          const lx = Math.max(Math.abs(o.geometry.boundingBox.max.x), Math.abs(o.geometry.boundingBox.min.x)) * sx;
+          const lz = Math.max(Math.abs(o.geometry.boundingBox.max.z), Math.abs(o.geometry.boundingBox.min.z)) * sz;
+          vr = Math.max(vr, Math.max(lx, lz));
+        });
+        let cd = 999;
+        for (const c of scene.children) {
+          if (!(c instanceof THREE.Group)) continue;
+          const dd = Math.hypot(c.position.x - wx, c.position.z - wz);
+          if (dd > 0.5 && dd < cd) cd = dd;
+        }
+        return { table: [cx, cy], visualR: +vr.toFixed(2), nearestChair: +cd.toFixed(2), overlap: vr > cd };
+      });
+      (window as any).__verify = { tables: tRes };
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [scene]);
   return (
     <group position={[wx, elev, wz]}>
       <mesh position={[0, height / 2, 0]} castShadow receiveShadow>

@@ -45,6 +45,8 @@ export const ITEM_FOOTPRINT: Record<string, [number, number]> = {
   beanbag: [40, 40],
   table_rect: [80, 40],
   coffee_machine: [32, 34],
+  coffee_machine_compact: [30, 28],
+  coffee_machine_grinder: [34, 32],
   fridge: [40, 80],
   water_cooler: [20, 54],
   atm: [42, 38],
@@ -109,6 +111,8 @@ export const ITEM_METADATA: Record<
   dishwasher: { blocksNavigation: true },
   sink: { blocksNavigation: true },
   coffee_machine: { blocksNavigation: false },
+  coffee_machine_compact: { blocksNavigation: false },
+  coffee_machine_grinder: { blocksNavigation: false },
   vending: { blocksNavigation: true },
   // cafe machines
   atm: { blocksNavigation: true },

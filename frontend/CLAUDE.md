@@ -6,6 +6,7 @@
 
 | 时间 | 动作 | 说明 |
 |------|------|------|
+| 2026-06-20 19:07 | 增量刷新 | **服务员团队编排的前端契约适配**（外部 commit "服务员团队编排/staff 智能模型"）：① **App.tsx 导航修正**：TopBar 链接 "3D 办公室"→"3D 咖啡厅"（漏改已修）。② **新增路由 `/machines`** → `MachineShowcase`（咖啡机展示页，独立 Canvas + `CoffeeMachinePreviewCluster`，路由段补全）。③ **OfficeScene.tsx onEvent 重写**（修 B1/B2/B3 契约错配）：`agent.action` 事件取 `payload.action_type` 作 action（外层 type 永远是 `agent.action`，真动作在 payload）；兼容 snake_case（`name = payload.display_name ?? payload.name`、`role = payload.role_type ?? payload.role`、`spriteSeed = payload.sprite_seed ?? payload.spriteSeed`）；`agent.registered` 事件转 `enter` 语义让人偶入座。④ **新增 onSnapshot 回调**：收 `scene.snapshot` 时遍历 `payload.agents`（4 staff + 活跃顾客，后端 2026-06-20 新增）预创建人偶，后连接/刷新页面也能看到服务员团队。⑤ **agentStore.ts `enter` 分支增强**：返回的服务员（re-enter/reset）从当前位置 routeTo 到工位，不再 teleport 跳变（isNew 才从 ENTRY_POINT 出生）。⑥ **roleMap.ts `waiter` 工位 y700→660 微调**（与后端 staff_service 工位表对齐）。详见「事件 → 渲染管线」「角色映射」「sim 层」小节 |
 | 2026-06-20 | 收尾修复+素材接入 | **移植残留清理 + cafe-extras 素材接入**：① roleMap 坐标超界真 bug 修复（`customer` y1080→580、`ENTRY/EXIT` y900→360，超出 `CANVAS_H=720`，从 Claw3D 1800×1800 抄来没适配；寻路目标曾塌缩到画布底边）+ 注释 1800x1800→1800x720；② 清理移植残留死代码（navigation `void ITEM_FOOTPRINT/snap`、agentStore `void NAV_ENTRY`、OfficeScene `roleDeskIndex`/`DESK_LOCS`/`ROLE_DESK`/`getDeskLocations` 整套 void 占位、main.py unused import `bridge_event_to_colyseus`、furnitureDefaults `void nextUid`）；③ **咖啡杯接入（曲折）**：先试 cafe-extras CC0 素材（ppCoffeeCup/ppEspresso），读 GLB bbox 发现俩模型原始尺寸差 3.5 万倍（ppCoffeeCup~3mm、ppEspresso~104m），任何单一 FURNITURE_SCALE 都调不对 → **弃用 PP 素材，改 `CupProp` 程序化画杯**（cylinder 杯身+咖啡液面：`coffee_cup` r4cm×h9cm 白陶瓷、`espresso` r2.8cm×h6cm 小杯）；elevation 按桌面高度（圆桌 0.31m、吧台 0.69m）；ppCoffeeMachine 保留二期储备（主线 kitchenCoffeeMachine 已在用） |
 | 2026-06-20 11:10 | 场景改造 | **office→咖啡厅**：① 修天气系统变暗 bug（`cameraLighting` 的 `DayNightCycle` 昼夜循环→`SceneLighting` 固定明亮白天：hemisphereLight 0.6+ambient 1.1+sun 1.8，根因是原 6 关键帧含 2 暗帧 sunIntensity 0.2-0.3 + 300s 周期）；② 重写 `furnitureDefaults` 为咖啡厅布局（吧台区 executive_desk+coffee_machine+3 高脚椅 / 客座区 4 组 round_table+chair 2×2 / 休闲区 couch+2 beanbag+单人椅 / 墙面 whiteboard 菜单板+bookshelf+lamp+plant）；③ `environment` 墙色 #8d6e63→#795548 暖棕、emissive 0.4→0.5；④ `furniture` FURNITURE_TINT 转暖咖啡色；⑤ `OfficeScene` 切 SceneLighting + 文案"3D 咖啡厅"；⑥ 下载 3 个 CC0 GLB 到 `cafe-extras/` 储备 |
 | 2026-06-20 10:05 | 增量对齐 | 第三次 init：精读 `screens/Dashboard.tsx` 全文，补全监控大屏布局（4 卡片 KPI + 最近订单 + 实时事件流）与 4s 轮询细节（`getRestaurantState` + `listEvents(30)` 双拉，事件流优先用本地 events 回退 `state.recent_events`）；同步根文档"唯一活跃 UI"定性 |
@@ -16,19 +17,22 @@
 
 ## 模块职责
 
-Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws/visualization` 事件流对接）。**2026-06-20 09:40 起，本模块是项目唯一活跃 UI**（像素 Colyseus 方案与独立 2D 对话页均已归档到 `_archive/`），后端根路由 `/` 已改为直出本前端构建产物。三大职责：
-1. **3D 咖啡厅场景**（`/3d/scene`）：用 React-Three-Fiber 渲染带真实 GLB 家具的咖啡厅（吧台/客座圆桌/沙发豆袋休闲区，2026-06-20 从办公室改造），Agent（咖啡师/收银/服务员/主管/访客）按可视化事件驱动行走、工作、说话。内嵌聊天消费后端 `POST /chat`。
+Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws/visualization` 事件流对接）。**2026-06-20 09:40 起，本模块是项目唯一活跃 UI**（像素 Colyseus 方案与独立 2D 对话页均已归档到 `_archive/`），后端根路由 `/` 已改为直出本前端构建产物。四大职责：
+1. **3D 咖啡厅场景**（`/3d/scene`）：用 React-Three-Fiber 渲染带真实 GLB 家具的咖啡厅（吧台/客座圆桌/沙发豆袋休闲区，2026-06-20 从办公室改造），Agent（**4 个固有服务员 barista/cashier/waiter/manager + 动态顾客**，2026-06-20 新增服务员团队）按可视化事件驱动行走、工作、说话。内嵌聊天消费后端 `POST /chat`。
 2. **监控大屏**（`/3d/dashboard`）：聚合 `/admin/restaurant-state`，展示今日订单/金额/来源分布/最近订单/事件流/在线员工。
-3. **账户登录**（`/3d/login`、`/3d/register`）：通过签名 Cookie 会话访问受保护页面。
+3. **咖啡机展示**（`/3d/machines`）：独立 Canvas 展示咖啡机模型簇（`CoffeeMachinePreviewCluster`，2026-06-20 新增）。
+4. **账户登录**（`/3d/login`、`/3d/register`）：通过签名 Cookie 会话访问受保护页面。
 
 > 来源标注：`office3d/` 与 `avatars/` 全套从 **Claw3D retro-office** 移植（文件头均注明 "Ported/Adapted from Claw3D"），去掉了 Claw3D 特有的 janitor/gym/qa/pingpong/district 逻辑，保留监控视图所需的最小子集。
 
 ## 入口与启动
 
 - **入口**：`src/main.tsx` → `src/App.tsx`（`<BrowserRouter basename="/3d">`）
+- **TopBar 导航**（`App.tsx`）：固定右上角浮层，链接 `3D 咖啡厅`（→`/scene`）、`大屏`（→`/dashboard`）+ 登录/登出/用户名；在 `/scene` 路由下 `pointerEvents:none` + opacity 0.45 半透明，避免遮挡 3D 交互（2026-06-20 已把链接文案从"3D 办公室"修正为"3D 咖啡厅"）。
 - **路由**（react-router-dom 7）：
   - `/` → 重定向到 `/scene`
   - `/scene` → `OfficeScene`
+  - `/machines` → `MachineShowcase`（咖啡机展示，2026-06-20 新增）
   - `/dashboard` → `Dashboard`
   - `/login`、`/register` → 登录/注册页
 - **开发**：`npm run dev`（Vite，端口 5174，代理 `/ws` `/api` 到 `localhost:8000`）
@@ -41,9 +45,9 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
 - `getJson` / `postJson` — 通用 fetch 封装（带 `credentials: "include"` 传 Cookie）
 - `listEvents(limit)` → GET `/visualization/events`
 - `getRestaurantState()` → GET `/admin/restaurant-state`
-- `connectVisualization({onEvent, onStatus})` → WS `/ws/visualization`，连接即收 `scene.snapshot`，之后实时收单条事件；断线 2 秒自动重连
+- `connectVisualization({onEvent, onSnapshot, onStatus})` → WS `/ws/visualization`，连接即收 `scene.snapshot`（**payload 含 `agents` 字段：4 staff + 活跃顾客，2026-06-20 新增**，由 `onSnapshot` 预创建人偶），之后实时收单条事件；断线 2 秒自动重连
 
-> **契约约束**（`api.ts` 顶部注释）：后端事件结构、role、action 是只读契约，前端不改；改后端需同步前端 `roleMap.ts`。
+> **契约约束**（`api.ts` 顶部注释）：后端事件结构、role、action 是只读契约，前端不改；改后端需同步前端 `roleMap.ts`。前端只做"读取适配"——兼容 snake_case payload、识别 `agent.action` 外壳取 `payload.action_type`，**不改契约语义**，编排逻辑全在后端。
 
 ## 关键依赖与配置
 
@@ -51,7 +55,7 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
 - **@react-three/fiber 9** + **@react-three/drei 10**（`useGLTF`、`Billboard`、`Text`、`OrbitControls`）+ **three 0.183**（3D 渲染）
 - **Vite 6** + **@vitejs/plugin-react**
 - **TypeScript 5.6**（strict）
-- **Playwright 1.61**（devDependency，E2E，但未见测试文件）
+- **Playwright 1.61**（devDependency，E2E，但无测试文件；`.playwright-mcp/` 有截图佐证渲染）
 - 构建产物 `app/static/3d/office-assets/` 含家具 GLB 模型与背景贴图
 
 ## 数据模型（前端运行时状态）
@@ -59,7 +63,7 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
 - **`VisEvent`**（`api.ts`）：`{event_id, type, agent_id, payload, correlation_id, created_at}`
 - **`OfficeAgent`** / **`RenderAgent`** / **`FurnitureItem`**（`office3d/core/types.ts`）：
   - `OfficeAgent.status`: `"working" | "idle" | "error"`
-  - `RenderAgent` 在 `OfficeAgent` 基础上扩展运行时字段：`x,y`（画布坐标）、`path`（A\* 路径点数组）、`facing`（朝向弧度）、`frame`（动画帧计数）、`walkSpeed`、`phaseOffset`（基于 spriteSeed，错峰动画）、`state`（`walking/sitting/standing/away/working_out/dancing`）、`targetX/targetY`、`awayUntil`、`bumpedUntil` 等
+  - `RenderAgent` 在 `OfficeAgent` 基础上扩展运行时字段：`x,y`（画布坐标）、`path`（A\* 路径点数组）、`facing`（朝向弧度）、`frame`（动画帧计数）、`walkSpeed`、`phaseOffset`（基于 spriteSeed，错峰动画）、`state`（`walking/sitting/standing/away/working_out/dancing`）、`targetX/targetY`、`awayUntil`、`bumpedUntil`、`lastSeenAt`、`danceUntil` 等
   - `FurnitureItem`：`{_uid, type, x, y, w?, h?, r?, color?, facing?, vertical?, elevation?}`
 - **`AgentAvatarProfile`**（`office3d/avatars/profile.ts`）：确定性头像档案（version 1，含 skinTone/hair/clothing/accessories/glasses/headset/hat/backpack），由 seed 字符串经 FNV-1a 哈希确定性派生
 - **`SimHandle`**（`sim/agentStore.ts`）：`{agents, furniture, speech, rebuildNav, setFurniture, _nav}` — 事件驱动 + tick 推进的状态机
@@ -73,26 +77,36 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
 /ws/visualization 事件 → sim/agentStore.applyEvent (推入意图)
                        → sim/tick.makeTick (A* 寻路推进移动)
                        → office3d/objects/agents.AgentModel (渲染)
+scene.snapshot (连接即收) → onSnapshot: 遍历 payload.agents 预创建人偶 (4 staff + 顾客)
 ```
 `OfficeScene` 用 `materializeDefaults()` 生成咖啡厅布局（吧台+客座+休闲，2026-06-20 从 Claw3D 办公室改造），`createSimStore().setFurniture()` 同时构建 nav grid；`GameLoop`（`useFrame`）每帧调用 `tick()`；事件经 `applyEvent` 转成行为意图（enter/walk_to_counter/work/deliver/...），`SpotlightEffect` 高亮被点击的 Agent。
 
+**onEvent 契约适配**（2026-06-20 重写，修 B1/B2/B3）：
+- **字段适配**（兼容后端 snake_case）：`name = payload.display_name ?? payload.name`、`role = payload.role_type ?? payload.role`、`spriteSeed = payload.sprite_seed ?? payload.spriteSeed`。
+- **事件分发**：
+  - `event.type === "agent.action"` → action = `payload.action_type`（外层 type 永远是 `agent.action`，真动作在 payload——这是修 B1 的关键）。
+  - `event.type === "agent.registered"` → 转 `enter` 语义让人偶入座对应工位（startup 广播的 4 条 staff `agent.registered` 由此预创建服务员）。
+- **onSnapshot**（2026-06-20 新增）：收 `scene.snapshot` 时遍历 `payload.agents`，按 `{agent_id, display_name, role_type, sprite_seed}` 预创建人偶（`name: a.display_name || "?? "+a.agent_id`），保证后连接/刷新页面也能看到服务员团队。
+
 ### 角色映射（`sim/roleMap.ts`）— 后端契约镜像
-- `ROLE_DESK`（画布像素坐标，`CANVAS_W=1800/CANVAS_H=720`；2026-06-20 已修复坐标超界：`customer` y1080→580、`ENTRY/EXIT` y900→360 压回画布内，注释同步为 1800x720）：
-  - `barista` {360,540}、`cashier` {620,320}、`waiter` {880,700}、`manager` {1180,320}、`customer` {880,1080}
-  - `ENTRY_POINT` {60,900}（左侧入口）、`EXIT_POINT` {60,900, facing -π/2}
+- `ROLE_DESK`（画布像素坐标，`CANVAS_W=1800/CANVAS_H=720`；2026-06-20 已修复坐标超界 + waiter 微调）：
+  - `barista` {360,540}、`cashier` {620,320}、`waiter` {880,**660**}（原 700，2026-06-20 微调对齐后端 staff 工位表）、`manager` {1180,320}、`customer` {880,**580**}（原 1080 超出画布，已修）
+  - `ENTRY_POINT` {60,**360**}（左侧入口，原 y900 超界已修）、`EXIT_POINT` {60,**360**, facing -π/2}
+  - 全部 `facing` 默认 `Math.PI`（朝向画面，customer 例外 facing 0）
 - `ROLE_COLOR` / `ROLE_LABEL`：颜色与中文名（咖啡师/收银员/服务员/主管/访客）
 - `ACTION_BEHAVIOR`：后端 `action_type` → 前端行为
   - `enter_scene→enter`、`walk_to_counter→walk_to_counter`、`walk_to_table→walk_to_table`
   - `take_order→work`、`prepare_coffee→work`、`deliver_order→deliver`
   - `show_message→show_message`、`leave_scene→leave`、`error→error`
   - 未知 action 兜底 → `walk_to_table`
-- `resolveRole`：未知 role 兜底为 `customer`
+- `resolveRole`：未知 role 兜底为 `customer`；`resolveAction`：未知 action 兜底 `walk_to_table`。
 
 ### sim 层
 - **`sim/agentStore.ts`** — 事件意图状态机：
   - `ensureAgent`：按 `meta.id` 复用或创建 agent（初始坐标=ENTRY_POINT，status=idle，state=standing，phaseOffset 由 spriteSeed%100）
   - `routeTo`：用 `astar()` 计算路径写入 `agent.path`，置 `state=walking`
-  - `applyEvent`：按 behavior 分派——`enter` 从入口走到角色桌位；`walk_to_counter` 走到收银桌；`work` 距桌>60 先寻路再 status=working；`show_message` 写入 `speech` Map（6 秒后由 OfficeScene 清除）；`leave` 走向 EXIT_POINT；`error` 置 status=error
+  - `applyEvent`：按 behavior 分派——`enter`（**2026-06-20 增强**：isNew 才从 ENTRY_POINT 出生；返回的服务员 re-enter 从当前位置 routeTo 到工位，不再 teleport 跳变）；`walk_to_counter` 走到收银桌；`work` 距桌>60 先寻路再 status=working；`show_message` 写入 `speech` Map（6 秒后由 OfficeScene 清除）；`leave` 走向 EXIT_POINT；`error` 置 status=error
+  - `triggerDance`：程序化舞蹈触发（非后端 action，Phase 6 UI/社交互动用），设 `danceUntil` 窗口，tick 翻 `state=dancing`
 - **`sim/tick.ts`** — 每帧推进（A\* 寻路推进逻辑）：
   - `moveAlongPath`：每帧 `frame++`，取 `path[0]` 作为下一个航点；距离 < `ARRIVAL_THRESHOLD=4` 则 shift 航点；否则按 `WALK_SPEED*60` 步长线性推进，`facing=atan2(dx,dy)`，`state=walking`
   - `makeTick`：路径走完后按"距桌位<50"判定坐下（working→sitting/standing），arrival 或 walking→standing
@@ -115,7 +129,7 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
   - `buildNavGrid`：遍历家具，对 `blocksNavigation=true` 的项按 `getItemBounds+navPadding` 标记阻塞格；四周边界格强制阻塞（防出界）
   - `astar(sx,sy,ex,ey,grid)`：8 方向 A\*（含对角线，对角 cost=1.414）；手写二叉堆优先队列（`pushOpen/popOpen`）；**拐角裁剪修正**（对角移动时检查两个正交邻格是否阻塞，避免穿墙角）；`findFree` 螺旋搜索起/终点的最近空闲格（防起终点卡在家具内）；返回画布像素坐标路径点数组，终点精确到目标像素
   - `getDeskLocations`：筛选 `desk_cubicle`，返回 `{x+40, y-5}` 桌前定位点
-  - `ENTRY_POINT={x:80,y:360,facing:π/2}`（注意：agentStore 实际用的是 roleMap 的 ENTRY_POINT {60,900}，这里的 navigation.ENTRY_POINT 被 `void NAV_ENTRY` 占位未用——两处入口常量不一致，属移植残留）
+  - `ENTRY_POINT={x:80,y:360,facing:π/2}`（注意：agentStore 实际用的是 roleMap 的 ENTRY_POINT {60,360}，这里的 navigation.ENTRY_POINT 是另一处常量——两处入口常量曾不一致属移植残留，现已统一到画布内 y=360）
   - `ROAM_POINTS`：7 个漫游点（未在当前 tick 中使用，预留）
 - **`core/furnitureDefaults.ts`** — **咖啡厅布局**（2026-06-20 从 Claw3D 办公室改造）：吧台区（executive_desk L 吧台 + coffee_machine + computer 收银 + cabinet 后柜 + fridge + 3 chair 高脚椅）/ 客座区（4 组 round_table r:55 + 每组 4 chair，2×2 错落）/ 休闲区（couch 长沙发 + table_rect 茶几 + 2 beanbag 红蓝豆袋 + couch_v 单人椅）/ 墙面装饰（3 whiteboard 菜单板 + bookshelf 展示柜 + clock + 3 lamp 落地灯 + 6 plant + 3 trash）；`materializeDefaults()` 返回 `FurnitureItem[]`
 - **`scene/environment.tsx`** — `FloorAndWalls`：三层地板（深色底+中等色+米色面 `#c8a97e` 咖啡馆木地板感）+ 18 条地板纹线 + 四面墙（`wallColor=#795548` 暖棕，`emissiveIntensity=0.5`）
@@ -141,6 +155,7 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
   - 眨眼：基于 `agentId` 字符码哈希做 seed，按 `blinkCycle`（idle 240/error 120/working 170/away 180）随机眨眼
   - 名牌 `Billboard`：状态点（working 绿/error 红/idle 橙）+ 角色色侧条 + 名字（>8 字缩小字号）+ subtitle（角色中文名）
   - 对话气泡：Markdown 扁平化（去代码块/图片/链接/标题/列表符号）+ 截断到 180 字 + 4 行；活跃气泡带尖角和边框，空闲时偶尔显示 "• • •" 环境气泡
+- **`objects/machines.tsx`** — 咖啡机渲染（`CoffeeMachinePreviewCluster` 等，供 `/machines` 展示页与场景内吧台 coffee_machine 复用）
 - **`avatars/profile.ts`** — 确定性头像生成：FNV-1a 哈希 seed → 派生肤色（6 种）/发型（4 种）/发色（8 种）/上装（tee/hoodie/jacket）/下装（pants/shorts/cuffed）/鞋色/帽子/眼镜/耳机/背包
 
 ### 监控大屏（`screens/Dashboard.tsx`）— 全文细节
@@ -154,6 +169,11 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
     - 右 `实时事件流`：`maxHeight:360` 滚动区，每行事件 type（金）+ 时间；按 `event_id`（String 化）做 key
 - **样式风格**：全内联 `React.CSSProperties`，卡片 `rgba(14,22,34,0.9)` + 蓝色细边框 `rgba(80,130,200,0.18)` + 圆角 10；标签大写 `letterSpacing:2` 蓝 `#7fa6d8`；数字米色 `#e8dfc0` 34px 粗体。
 
+### 咖啡机展示（`screens/MachineShowcase.tsx`，2026-06-20 新增）
+- 独立 `Canvas` + `OrbitControls` + `SceneLighting`，渲染 `CoffeeMachinePreviewCluster`（来自 `office3d/objects/machines`）。
+- `ShowcaseStage`：程序化搭展示台（米色地面 + 棕色台面 + 深色背板 + 顶部招牌条），单个 `coffee_machine` 家具置于台中央（elevation 0.22）。
+- 不接 ws 事件，纯静态展示页（路由 `/machines`）。
+
 ### 账户登录（`auth/`）
 - **`AuthProvider.tsx`** — React Context，封装 `login/register/logout/me`，签名 Cookie 会话
 - **`AuthPages.tsx`** — 登录/注册表单（全文已扫）：
@@ -164,8 +184,8 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
 
 ## 测试与质量
 
-- **Playwright** 已装但无测试文件（覆盖缺口）。
-- 类型检查：`npm run build` 会先跑 `tsc --noEmit`。
+- **Playwright** 已装但无测试文件（覆盖缺口；`.playwright-mcp/page-*.png` 有运行时截图佐证渲染）。
+- 类型检查：`npm run build` 会先跑 `tsc --noEmit`（2026-06-20 验证零错误）。
 - 无单元测试框架。
 - 移植残留（2026-06-20 已清理）：原 navigation `void ITEM_FOOTPRINT/snap`、agentStore `void NAV_ENTRY`、OfficeScene `roleDeskIndex`/`DESK_LOCS`/`ROLE_DESK`/`getDeskLocations` 整套 void 占位、main.py unused import `bridge_event_to_colyseus`、furnitureDefaults `void nextUid` 已全部清理；roleMap 坐标超界与注释不符已修。
 
@@ -174,6 +194,8 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
 - **Q: 3D 页面 404？** A: 需先 `npm run build` 把产物输出到 `app/static/3d/`，否则根 `/` 与 `/3d` 路由返回 "3D build not found"。
 - **Q: 开发模式如何连后端？** A: Vite 代理 `/ws`、`/api` 到 `localhost:8000`；`api.ts` 的 `base` 在 DEV 模式返回 `http://localhost:8000`。
 - **Q: 大屏数据多久刷新？** A: `Dashboard.tsx` 每 **4 秒**同时轮询 `/admin/restaurant-state`（KPI/最近订单/在线员工）和 `/visualization/events?limit=30`（事件流）。
+- **Q: 为什么服务员人偶动作不触发？** A: 2026-06-20 已修 B1——后端动作事件外层 `type` 永远是 `"agent.action"`，真动作在 `payload.action_type`；`OfficeScene.onEvent` 已重写取 `payload.action_type`。若仍不触发，检查后端是否广播了 `agent.action` 类型（而非旧的 `restaurant.*`/`order.*`）。
+- **Q: 刷新页面后服务员消失了？** A: 2026-06-20 已修——`scene.snapshot` 的 `payload.agents` 含 4 staff + 活跃顾客，`onSnapshot` 会预创建人偶。若消失，检查后端 `_snapshot_agents` 是否返回了 staff。
 - **Q: Agent 卡在家具里不动？** A: `astar` 的 `findFree` 会螺旋搜索最近空闲格，但若起终点都在大块家具内部且 10 格内无空闲格会返回空路径；检查 `ITEM_METADATA` 的 `blocksNavigation`/`navPadding` 配置。
 - **Q: GLB 加载失败？** A: 家具 GLB 必须存在于 `public/office-assets/models/furniture/`，构建后落到 `app/static/3d/office-assets/`；`FurnitureModel` 对未知类型兜底用 `table.glb`。
 
@@ -182,16 +204,17 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
 | 文件 | 说明 |
 |------|------|
 | `src/main.tsx` | React 挂载入口 |
-| `src/App.tsx` | 路由 + TopBar + AuthProvider |
-| `src/screens/OfficeScene.tsx` | 3D 咖啡厅主场景（装配 Canvas+灯具+家具+Agent+聚光灯+GameLoop） |
+| `src/App.tsx` | 路由 + TopBar（"3D 咖啡厅"导航，2026-06-20 修正）+ AuthProvider |
+| `src/screens/OfficeScene.tsx` | 3D 咖啡厅主场景（装配 Canvas+灯具+家具+Agent+聚光灯+GameLoop）；**onEvent 契约适配 + onSnapshot 预创建人偶（2026-06-20）** |
 | `src/screens/Dashboard.tsx` | 监控大屏（4s 双轮询 + 4 KPI 卡 + 最近订单 + 实时事件流） |
+| `src/screens/MachineShowcase.tsx` | 咖啡机展示页（独立 Canvas + ShowcaseStage，2026-06-20 新增） |
 | `src/auth/AuthProvider.tsx` | 账户 Context（login/register/logout/me） |
 | `src/auth/AuthPages.tsx` | 登录/注册表单（内联样式，支持匿名进入） |
 | `src/net/api.ts` | fetch 封装 + 事件契约类型 |
-| `src/net/visualizationSocket.ts` | WebSocket 客户端（自动重连） |
-| `src/sim/agentStore.ts` | 事件驱动状态机（applyEvent 意图分派） |
+| `src/net/visualizationSocket.ts` | WebSocket 客户端（自动重连 + onSnapshot 回调） |
+| `src/sim/agentStore.ts` | 事件驱动状态机（applyEvent 意图分派；**enter 分支 re-enter 不 teleport，2026-06-20**） |
 | `src/sim/tick.ts` | 每帧推进（A\* 航点跟随 + 坐/站判定） |
-| `src/sim/roleMap.ts` | 角色→桌位/颜色/行为映射（**后端契约镜像**） |
+| `src/sim/roleMap.ts` | 角色→桌位/颜色/行为映射（**后端契约镜像**；waiter y660 微调） |
 | `src/office3d/core/constants.ts` | 坐标系/动画/相机常量 |
 | `src/office3d/core/geometry.ts` | 画布→世界投影、家具包围盒、阻塞元数据 |
 | `src/office3d/core/navigation.ts` | A\* 寻路 + nav grid 构建 + 桌位定位 |
@@ -202,6 +225,7 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
 | `src/office3d/systems/sceneRuntime.tsx` | GameLoop + 聚光灯 |
 | `src/office3d/objects/furniture.tsx` | GLB 家具渲染（模板缓存+染色+阴影） |
 | `src/office3d/objects/agents.tsx` | 盒状人偶 AgentModel（骨骼动画+表情+气泡） |
+| `src/office3d/objects/machines.tsx` | 咖啡机渲染（CoffeeMachinePreviewCluster） |
 | `src/office3d/objects/types.ts` | AgentModelProps 等组件 props 类型 |
 | `src/office3d/avatars/profile.ts` | 确定性头像档案生成（FNV-1a） |
 | `vite.config.ts` | Vite 配置（base=/3d/，outDir=../app/static/3d） |

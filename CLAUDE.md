@@ -7,6 +7,7 @@
 
 | 时间 | 动作 | 说明 |
 |------|------|------|
+| 2026-06-20 19:07 | 增量刷新（第五次 init） | **服务员团队编排落地对齐**（外部 commit "服务员团队编排/staff 智能模型" 已合并，对应 `docs/smart-search-evidence/20260619-coffee-pixel-style/SKILL-VISUALIZATION-ROADMAP.md` 5 个 Phase 全部 ✅ 并经独立验证）。本次仅刷新文档、不改源码：① **重大新功能**——`app/services/staff_service.py`（新建）：4 个固有服务员 agent（`staff:barista/cashier/waiter/manager`，幂等创建、固定 sprite_seed 100001-100004）+ `ensure_web_customer_agent`（web 匿名用户也建顾客 agent，修 B4 `agent_anon`）+ `orchestrate_staff_node`（业务节点→服务员动作编排：intent_detected→waiter walk_to_counter / payment_completed→cashier take_order / preparation_progress→barista prepare_coffee / order_ready→barista enter_scene / order_delivered→waiter deliver_order / customer_left→waiter+cashier 复位）；编排挂载到 `main.py` lifespan startup（广播 4 条 `agent.registered`）+ `_publish_web/skill_completion_flow` 各节点。② 前端契约适配（修 B1/B2/B3）：`OfficeScene.tsx` `onEvent` 重写（`agent.action` 取 `payload.action_type`、兼容 snake_case `display_name/role_type/sprite_seed`）+ 新增 `onSnapshot` 按 `payload.agents` 预创建人偶；`scene.snapshot` 追加 `agents` 字段（4 staff + 活跃顾客）。③ **App.tsx 导航修正**：TopBar 链接 "3D 办公室"→"3D 咖啡厅"（漏改已修）。④ 新增路由 `/machines` → `MachineShowcase`（咖啡机展示页，frontend/CLAUDE.md 路由段补全）。⑤ `roleMap.ts` `waiter` 工位 y700→660 微调（frontend/CLAUDE.md 同步）。⑥ 忽略根目录 `_mock_hub.py`（临时 EvoMap Hub mock，文件头注明 NOT part of repo，会触发 uvicorn --reload 干扰，已用 `--reload-dir app` 规避）。详见 app/CLAUDE.md「服务员团队编排」与 frontend/CLAUDE.md。覆盖率 99% → 99% |
 | 2026-06-20 14:08 | 增量对齐（第四次 init） | **Skill 改造**：`.agents/skills/a2a-super-order/` 全量精读并**新建模块级 CLAUDE.md**（此前文档体系未覆盖该模块）。本次改动：① `scripts/order.py` 新增 `detect_username`（`getpass.getuser()`，跨平台系统账号名，修复旧 `platform.node()` 误用 hostname）/`detect_evomap_install`（只读检测 `~/.evomap/{node_id,node_secret}`，无副作用）/`load_evomap_credentials`（优先 `~/.evomap/` 文件 > `A2A_NODE_SECRET` > `EVOMAP_NODE_SECRET`）/`--check-evomap` 子命令；`register_if_needed` 接入凭证自动读取。② `SKILL.md` 新增 "EvoMap Installation Check"（未装→AI 引导用户二次确认后 `npx @evomap/evolver --loop`）+ NPX 安装说明 + 安全红线（只读检测安全；安装/注册/扣费必须用户明确确认；密钥 `redact_for_stdout` 脱敏）。③ `references/api.md` 同步 `--check-evomap` 文档。模块索引新增「A2A 超级点单 Skill」行，Mermaid 图补 `.agents/skills` 节点。覆盖率 98% → 99%。相关设计文档：`docs/EvoMap A2A Skill 脚本改造实施计划.md` |
 | 2026-06-20 10:05 | 增量对齐（第三次 init） | **架构变更对齐**：09:40 起 `colyseus-server/` 与 2D 对话页（`app/static/index.html`）整体归档到 `_archive/`（`_archive/colyseus-server/`、`_archive/2d-legacy/`）。根 `/` 改为直出 3D SPA，Colyseus 子进程拉起为 no-op（目标目录不存在）。根 CLAUDE.md / index.json 的 Colyseus 节点标注 `status: archived` 并改链到 `_archive/colyseus-server/CLAUDE.md`；新增「架构演进」小节。补扫 Dashboard.tsx 全文、evomap_payment_service.py（支付证明脱敏/order_id 抽取）、skill_order_service.py（`_resume_existing_order` 幂等三态恢复 + `_reject_unverified_payment_proof`）；并校正数据模型实际为 15 张表（新增 Product/ProductOptionGroup/ProductOption/OrderItem/OrderItemOption/UserWallet/BalanceTransaction）+ wallet_service/catalog_service。覆盖率 97% → 98% |
 | 2026-06-20 09:35 | 增量补扫 | 第二次 init：精读 office3d/ 全套 + sim/tick.ts + auth/AuthPages.tsx + docs/ 5 份设计文档全文，补全 A\*寻路/Agent 骨骼动画/表单实现/积分扣款链路细节，覆盖率 88% → 97% |
@@ -22,6 +23,8 @@
 2. **A2A Skill 点单**（`/skill/orders`）：EvoMap 消费者身份 + EvoMap 积分（service-order）扣款 + 免费额度账本。外部 AI 工具通过 `.agents/skills/a2a-super-order/` 的瘦客户端脚本（`order.py`）接入。
 
 可视化基于"事件流"架构：所有业务动作（进店、下单、支付、制作、出餐）都生成一条 `VisualizationEvent` 写入 MySQL，并通过 WebSocket `/ws/visualization` 实时推给前端；**当前唯一活跃渲染管线是 3D 咖啡厅（`frontend/`，React-Three-Fiber）**。早期的像素风 Colyseus 多人房间方案已于 2026-06-20 09:40 归档（见下「架构演进」）。
+
+> **2026-06-19 起，可视化是"事件流 + 后端编排服务员团队"模型**：餐厅启动即预创建 4 个固有服务员（barista/cashier/waiter/manager），顾客下单时由后端 `staff_service.orchestrate_staff_node` 在各业务节点追加 `agent.action` 广播，驱动服务员接单→收银→做咖啡→送餐→复位的完整联动（详见 app/CLAUDE.md「服务员团队编排」）。
 
 ---
 
@@ -51,7 +54,7 @@
 │  │  services/  chat_service · order_service                   │   │
 │  │             skill_order_service · evomap_payment_service   │   │
 │  │             visualization_service · wallet_service         │   │
-│  │             catalog_service                                │   │
+│  │             catalog_service · staff_service (服务员编排)    │   │
 │  │  llm/ client (OpenAI 兼容)   rag/ keywords · retrieval     │   │
 │  │  memory/ chat_history (Redis)  auth/ service (bcrypt)      │   │
 │  │  colyseus_bridge.py (目标已归档，启动为 no-op，仅 debug 日志) │   │
@@ -84,6 +87,7 @@
 - **幂等下单**：`request_id` 唯一约束 + Skill 账本幂等恢复（`_resume_existing_order` 三态：已完成直返 / 待支付可重试 / 不可恢复抛错）。
 - **支付证明不可客户端伪造**：后端拒绝客户端 `payment_proof`（`_reject_unverified_payment_proof`），必须由后端凭 `X-Evomap-Node-Secret` 发起官方 service order。
 - **Skill 是瘦客户端**：`.agents/skills/a2a-super-order/` 只拼请求 + 管本地凭证状态，业务逻辑全在后端。
+- **可视化编排是后端职责**：服务员团队（4 个固有 staff agent）在后端预创建并按业务节点编排动作（`staff_service.orchestrate_staff_node`），前端只做"读取适配 + 纯渲染"（契约只读铁律）。编排失败一律 swallow + rollback，**绝不阻断订单/支付业务**。
 
 ---
 
@@ -131,14 +135,14 @@ graph TD
 
 | 模块 | 路径 | 语言 | 一句话职责 |
 |------|------|------|-----------|
-| [后端](./app/CLAUDE.md) | `app/` | Python (FastAPI) | 对话点单、A2A Skill 点单、可视化事件、账户认证的 API 与业务逻辑 |
-| [3D 前端](./frontend/CLAUDE.md) | `frontend/` | TypeScript (React 19 + R3F) | 3D 咖啡厅场景渲染 + 实时监控大屏 + 登录注册（**唯一活跃 UI**） |
+| [后端](./app/CLAUDE.md) | `app/` | Python (FastAPI) | 对话点单、A2A Skill 点单、可视化事件、**服务员团队编排**、账户认证的 API 与业务逻辑 |
+| [3D 前端](./frontend/CLAUDE.md) | `frontend/` | TypeScript (React 19 + R3F) | 3D 咖啡厅场景渲染（含服务员团队人偶）+ 实时监控大屏 + 咖啡机展示 + 登录注册（**唯一活跃 UI**） |
 | [A2A 超级点单 Skill](./.agents/skills/a2a-super-order/CLAUDE.md) | `.agents/skills/a2a-super-order/` | Python (CLI, urllib) | 外部 AI 工具（Claude Code/Codex/Cursor/Trae）的**瘦客户端点单入口**：注册消费者、下点单、EvoMap 凭证自动读取、未装 EvoMap 时引导用户二次确认安装 |
 | [Colyseus 服务器（已归档）](./_archive/colyseus-server/CLAUDE.md) | `_archive/colyseus-server/` | TypeScript (Colyseus) | **已弃用归档**。原像素咖啡馆多人房间，权威状态同步。2026-06-20 09:40 归档 |
 | 2D 对话页（已归档） | `_archive/2d-legacy/` | HTML/CSS | **已弃用归档**。原 2D 聊天 UI（`index.html`），根 `/` 已改直出 3D SPA |
-| 测试 | `tests/` | Python (unittest) | LLM 配置、确认意图、Skill 支付、订单查看的单元测试 |
+| 测试 | `tests/` | Python (unittest) | LLM 配置、确认意图、Skill 支付、订单查看、商品钱包的单元测试 |
 | 脚本 | `scripts/` | Python | 建表/种子、订单来源迁移、账户表迁移 |
-| 设计文档 | `docs/` | Markdown | A2A 积分接入、像素/3D 集成、点单 SKILL、Agent API 设计、Skill 脚本改造计划 |
+| 设计文档 | `docs/` | Markdown | A2A 积分接入、像素/3D 集成、点单 SKILL、Agent API 设计、Skill 脚本改造计划、Skill 可视化联动 Roadmap |
 
 ---
 
@@ -148,10 +152,11 @@ graph TD
 
 | 文档 | 核心内容 | 与代码的对应关系 |
 |------|---------|----------------|
+| `smart-search-evidence/20260619-coffee-pixel-style/SKILL-VISUALIZATION-ROADMAP.md` | **Skill 接入可视化联动执行 Roadmap**（2026-06-20）。诊断 5 个致命契约错配（B1 前端把 `event.type` 当动作但真动作在 `payload.action_type` / B2 snake_case vs camelCase / B3 下单事件未驱动服务员 / B4 web 事件不带 agent_id + 无固有服务员 / B5 无编排层），定 A 方案角色模型（顾客动态 + 4 固有 staff），结论"后端编排"。5 个 Phase 全部 ✅ 完成并经第二执行 Agent 独立验证 | **已全部落地**：`app/services/staff_service.py`（Phase 2/3）、`OfficeScene.tsx` onEvent/onSnapshot 契约适配（Phase 1/4）、`scene.snapshot` 追加 `agents` 字段、`docs/点单SKILL生成.md`+`agent-integration-api.md` 文档漂移修正（Phase 5）。验证证据：真实 Skill 免费单 22 事件含 9 条 staff action；mock Hub 跑通付费单 28 事件。唯一未跑通项=真实 EvoMap Hub 凭证（运维配置，非代码缺陷） |
 | `EvoMap A2A Skill 脚本改造实施计划.md` | **2026-06-20 新增**。基于 EvoMap 官方 wiki 全文调研 + 现有代码审计，提出 Skill 脚本侧 4 项 gap（系统账号名误用 hostname / 不查 `~/.evomap/` / 未装无引导 / 不读标准凭证存储）与可直接执行的实施计划；后端无需改动 | **已落地**：`scripts/order.py` 的 `detect_username`/`detect_evomap_install`/`load_evomap_credentials`/`--check-evomap`；`SKILL.md` 的 "EvoMap Installation Check"。见 [`.agents/skills/a2a-super-order/CLAUDE.md`](./.agents/skills/a2a-super-order/CLAUDE.md) |
 | `EvoMap A2A 积分扣款接入调研与实现计划.md` | 把 `/chat` 的本地 `User.balance` 扣款改为通过 EvoMap 官方 `POST /a2a/service/order` 扣 Credits；价格模型默认"固定每单扣积分"；保留两段式确认；node_secret 只存本地 .env | 已落地：`app/services/evomap_payment_service.py`（`place_service_order` 用 stdlib `urllib` 调 Hub，`_extract_order_id` 多键兜底抽取，`_redact_response` 递归脱敏 secret/token/key/authorization；HTTP 401/402/429 透传，其余 ≥400 归 502）、`EVOMAP_*` 配置（`app/config.py`）。证据文件存 `C:\tmp\smart-search-evidence\20260619-evomap-a2a\` |
-| `点单SKILL生成.md`（A2A 超级点单 Skill） | 唯一对外 Skill `.agents/skills/a2a-super-order/`；前两单免费（按 evomap_node_id 统计），第三单起必须真实扣 EvoMap 积分；无网页也能点单，事件持久化可回放 | 已落地：`POST /skill/register`、`POST /skill/orders`、`SkillOrderLedger`（free_order_sequence/payment_status/payment_proof_json）、`skill_order_service.py`。免费额账本：`consumer.free_orders_used` 单调递增，`_complete_order` 用 `max()` 防回退；`order.py` 是 Skill 主入口 |
-| `agent-integration-api.md` | Agent 工具（Claude Code/Codex/Cursor/Trae）通过 REST 注册为餐厅角色，WS 实时新增像素人物+播动作；`agent_profile` 独立于 `user` 表 | 已落地：`POST /agents/register`（返回一次性 api_token，SHA-256 hash 存储）、`POST /agents/{id}/actions`、`/agents/{id}/heartbeat`、`GET /agents`。9 种 action_type / 8 种 target。**Schema Notes 强调**：MySQL 是唯一支持的 RDBMS；`order.source_type` 约束为 `web_dialog`/`skill`；`order.consumer_id/agent_id/ledger_id` 是物理外键；老库必须跑 `scripts/migrate_order_sources.py`（幂等）。**注意**：文档原写"实时像素人物"，实际渲染已切到 3D 咖啡厅 |
+| `点单SKILL生成.md`（A2A 超级点单 Skill） | 唯一对外 Skill `.agents/skills/a2a-super-order/`；前两单免费（按 evomap_node_id 统计），第三单起必须真实扣 EvoMap 积分；无网页也能点单，事件持久化可回放。**2026-06-20 已更新**消除"Skill 自己跑 evolver buy"的旧设计漂移 | 已落地：`POST /skill/register`、`POST /skill/orders`、`SkillOrderLedger`（free_order_sequence/payment_status/payment_proof_json）、`skill_order_service.py`。免费额账本：`consumer.free_orders_used` 单调递增，`_complete_order` 用 `max()` 防回退；`order.py` 是 Skill 主入口 |
+| `agent-integration-api.md` | Agent 工具（Claude Code/Codex/Cursor/Trae）通过 REST 注册为餐厅角色，WS 实时新增像素人物+播动作；`agent_profile` 独立于 `user` 表。**2026-06-20 已补充**：服务员团队 `staff:*` agent_id 约定、编排时序、snapshot `agents` 字段 | 已落地：`POST /agents/register`（返回一次性 api_token，SHA-256 hash 存储）、`POST /agents/{id}/actions`、`/agents/{id}/heartbeat`、`GET /agents`。9 种 action_type / 8 种 target。**Schema Notes 强调**：MySQL 是唯一支持的 RDBMS；`order.source_type` 约束为 `web_dialog`/`skill`；`order.consumer_id/agent_id/ledger_id` 是物理外键；老库必须跑 `scripts/migrate_order_sources.py`（幂等）。**注意**：文档原写"实时像素人物"，实际渲染已切到 3D 咖啡厅 |
 | `pixel-agents-integration.md` | 像素 Agent 集成方案（2D，已被 3D 取代的早期方案） | 仅作历史参考。像素 Colyseus 通道已整体归档（见「架构演进」）；当前可视化只走 3D 咖啡厅（`frontend/`）+ 后端 `/ws/visualization` |
 | `pixel-restaurant-reference-repos.md` / `smart-search-pixel-restaurant-repos.md` | 像素餐厅参考仓库调研（含 Claw3D 等） | `frontend/src/office3d/` 即从 Claw3D retro-office 移植（文件头均注明）；调研结论演化为 3D 方案 |
 
@@ -170,9 +175,9 @@ python -m venv .venv && .venv\Scripts\activate   # Windows
 pip install -r requirements.txt
 cp .env.example .env   # 填入 MySQL/Redis/LLM 配置
 python scripts/init_db.py          # 建表 + 灌种子数据
-uvicorn app.main:app --reload      # 启动 FastAPI
+uvicorn app.main:app --reload --reload-dir app      # 启动 FastAPI（--reload-dir app 规避根目录 _mock_hub.py 触发热重载）
 ```
-默认监听 `http://localhost:8000`。`COLYSEUS_PORT` 变量仍被 `colyseus_bridge.py` 读取，但因 `colyseus-server/` 已归档，启动为 no-op（仅 warning），不再占用端口。
+默认监听 `http://localhost:8000`。`COLYSEUS_PORT` 变量仍被 `colyseus_bridge.py` 读取，但因 `colyseus-server/` 已归档，启动为 no-op（仅 warning），不再占用端口。启动时 `_seed_and_broadcast_staff()` 会幂等创建 4 个服务员并广播 `agent.registered`。
 
 ### 3D 前端开发
 ```bash
@@ -206,13 +211,14 @@ python .agents/skills/a2a-super-order/scripts/order.py --message "一杯拿铁" 
 
 - 框架：`unittest` + `fastapi.testclient.TestClient`
 - 运行：`python -m pytest tests/` 或 `python -m unittest discover tests`
-- 现有测试（4 个文件）：
+- 现有测试（含 2026-06-20 新增 `test_product_wallet.py`，共 5 个文件 + 1 验证脚本，**34 passed**）：
   - `test_llm_configuration.py` — LLM key 多源别名与状态判定（placeholder 检测）
   - `test_chat_confirm.py` — `/chat` 两段式确认意图识别（长句确认 vs 修改/否定/提问）
   - `test_chat_order_view.py` — "查看订单"意图与"下单"的区分
   - `test_skill_evomap_payment.py` — Skill 点单 / EvoMap 积分支付流程
+  - `test_product_wallet.py` — 商品目录 + 钱包流水（2026-06-20 新增）
   - `verify_quick_menu.py` — 快捷菜单验证脚本
-- **覆盖缺口**：缺少 `order_service.place_orders` 余额不足/并发、前端组件的自动化测试（Playwright 已装无测试）、`.agents/skills/a2a-super-order/` 脚本的自动化测试（CLI 仅靠 SKILL.md/examples 手测）。Colyseus 房间逻辑已随源码归档（`_archive/colyseus-server/`），不再计入活跃覆盖目标。
+- **覆盖缺口**：缺少 `order_service.place_orders` 余额不足/并发、前端组件的自动化测试（Playwright 已装无测试，仅 `.playwright-mcp/` 截图佐证）、`.agents/skills/a2a-super-order/` 脚本的自动化测试（CLI 仅靠 SKILL.md/examples 手测）、`staff_service` 编排的单元测试（目前靠真实订单链 + mock Hub 验证）。Colyseus 房间逻辑已随源码归档（`_archive/colyseus-server/`），不再计入活跃覆盖目标。
 
 ---
 
@@ -224,6 +230,7 @@ python .agents/skills/a2a-super-order/scripts/order.py --message "一杯拿铁" 
 - 安全：Agent API token 用 SHA-256 hash 存储；账户密码用 bcrypt；会话 Cookie 用 `itsdangerous` 签名 + httponly + samesite-lax。
 - EvoMap 响应在日志/返回前会 `_redact_response` 递归脱敏（key 含 secret/token/key/authorization → `[REDACTED]`）；Skill 脚本 `order.py` 同样用 `redact_for_stdout` 脱敏（→ `[stored-in-state]`）；node_secret 只存本地 .env 或 `~/.evomap/`（后者由 Evolver CLI 写入），不进 `.env.example`/Git/日志；客户端传来的 `payment_proof` 一律拒绝（`_reject_unverified_payment_proof`）。
 - Skill 安全红线：`--check-evomap` 只读可自动运行；安装（`npx @evomap/evolver --loop`）/注册/扣 credits 必须用户明确确认。
+- 可视化编排容错：`staff_service` 所有广播函数（`publish_staff_action`/`publish_agent_action`/`ensure_*`/startup seeding/ws snapshot）全包 try/except + rollback，**可视化绝不阻断业务**。
 
 ---
 
@@ -233,9 +240,11 @@ python .agents/skills/a2a-super-order/scripts/order.py --message "一杯拿铁" 
 - **改点单/支付**：`order_service.place_orders` 用 `with_for_update()` 行锁防并发超扣；Skill 点单的幂等由 `SkillOrderLedger.request_id` 唯一约束保证，改流程时务必保留 `_resume_existing_order`（三态：FREE/PAID 直接成功重试；PAYMENT_REQUIRED/FAILED/PENDING 在有 node_secret 时重新扣款；其余抛 `ledger_not_resumable`）。
 - **改 Skill 脚本**：业务逻辑不要塞进 `.agents/skills/a2a-super-order/`，脚本只拼请求；凭证读取务必走 `load_evomap_credentials`（文件优先 > 环境变量），密钥务必过 `redact_for_stdout`；新增敏感动作（安装/扣费）必须在 `SKILL.md` 写明二次确认要求。
 - **改可视化事件**：事件类型若新增，需同时更新前端 `frontend/src/sim/roleMap.ts` 的 `ACTION_BEHAVIOR` 映射，否则前端无法渲染（未知 action 兜底为 `walk_to_table`）。
+- **改服务员编排**（`staff_service.orchestrate_staff_node`）：编排是后端职责，前端只读渲染；ws role/action 集合只增不删（新增 staff 编排走 `agent.action` 类型 + `payload.action_type`）；改时序时同步 `docs/.../SKILL-VISUALIZATION-ROADMAP.md` 的时序表与 app/CLAUDE.md「服务员团队编排」小节。staff agent_id 用固定约定（`staff:barista` 等），无"谁空闲"调度（YAGNI）。
 - **改 3D 渲染**：`office3d/` 全套移植自 Claw3D，坐标投影靠 `core/geometry.ts` 的 `toWorld` + `SCALE=0.018`；A\* 寻路在 `core/navigation.ts`（25px 网格，拐角裁剪）；改家具寻路行为调 `ITEM_METADATA.blocksNavigation/navPadding`。
 - **LLM 降级**：所有 LLM 调用都有 `_mock_chat` / 兜底词降级，改动 prompt 时注意保持 JSON 输出格式（`parse_intent` 会 `_strip_code_fence`）。
 - **Colyseus 已归档**：`app/colyseus_bridge.py` 保留但目标目录已移走，不要再依赖它做可视化；如需恢复像素方案，从 `_archive/colyseus-server/` 移回根目录即可。
+- **根目录 `_mock_hub.py` 是临时测试文件**（模拟 EvoMap Hub 测付费流程，文件头注明 NOT part of repo），不要提交、不要依赖；本地起后端用 `--reload-dir app` 规避它触发的 uvicorn 热重载干扰。
 - 不要修改 `.gitignore` 中忽略的生成物（`app/static/3d/assets/`、`node_modules/`、`__pycache__/`）。
 - 仓库已索引 CodeGraph（`.codegraph/`），定位代码优先用 `codegraph explore`。
 
@@ -252,3 +261,4 @@ python .agents/skills/a2a-super-order/scripts/order.py --message "一杯拿铁" 
 | `docs/` | 设计文档（见上方"设计文档摘要"表） |
 | `.agents/skills/a2a-super-order/` | A2A 超级点单 Skill（见模块级 CLAUDE.md） |
 | `_archive/` | 归档区：`colyseus-server/`（像素多人房间）、`2d-legacy/`（2D 对话页），可追溯可恢复 |
+| `_mock_hub.py` | **临时测试文件**（EvoMap Hub mock，NOT part of repo，勿提交/勿依赖） |

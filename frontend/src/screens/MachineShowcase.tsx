@@ -1,6 +1,7 @@
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Text } from "@react-three/drei";
 import { Suspense } from "react";
+import type { ReactNode } from "react";
 import { SceneLighting } from "../office3d/systems/cameraLighting";
 import {
   CoffeeMachineCompactModel,
@@ -9,98 +10,207 @@ import {
 } from "../office3d/objects/machines";
 import type { FurnitureItem } from "../office3d/core/types";
 
-const COMPACT_ITEM: FurnitureItem = {
-  _uid: "machine_compact_showcase",
-  type: "coffee_machine_compact",
-  x: 760,
-  y: 360,
-  elevation: 0.18,
-  facing: -4,
-};
-
-const HERO_ITEM: FurnitureItem = {
-  _uid: "machine_hero_showcase",
-  type: "coffee_machine",
+const makeItem = (
+  uid: string,
+  type: FurnitureItem["type"],
+  facing: number,
+): FurnitureItem => ({
+  _uid: uid,
+  type,
   x: 900,
   y: 360,
   elevation: 0.18,
-  facing: 0,
-};
+  facing,
+});
 
-const HOPPER_ITEM: FurnitureItem = {
-  _uid: "machine_hopper_showcase",
-  type: "coffee_machine_grinder",
-  x: 1040,
-  y: 360,
-  elevation: 0.18,
-  facing: 5,
-};
+const COMPACT_ITEM = makeItem("machine_compact_showcase", "coffee_machine_compact", 180);
+const HERO_ITEM = makeItem("machine_hero_showcase", "coffee_machine", 180);
+const HOPPER_ITEM = makeItem("machine_hopper_showcase", "coffee_machine_grinder", 180);
 
-function ShowcaseStage() {
+function ShowcasePedestal() {
   return (
     <>
       <mesh position={[0, -0.08, 0]} receiveShadow rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[18, 12]} />
-        <meshStandardMaterial color="#d8c59c" roughness={0.98} />
+        <planeGeometry args={[7.2, 5.4]} />
+        <meshStandardMaterial color="#d9c8a5" roughness={0.98} />
       </mesh>
       <mesh position={[0, 0.08, 0]} receiveShadow castShadow>
-        <boxGeometry args={[7.2, 0.16, 2.4]} />
-        <meshStandardMaterial color="#9a6033" roughness={0.72} metalness={0.06} />
+        <boxGeometry args={[3.35, 0.16, 1.8]} />
+        <meshStandardMaterial color="#9b6032" roughness={0.72} metalness={0.05} />
       </mesh>
-      <mesh position={[0, 0.64, -1.15]} castShadow receiveShadow>
-        <boxGeometry args={[7.8, 1.16, 0.3]} />
-        <meshStandardMaterial color="#7a4c2b" roughness={0.82} metalness={0.04} />
-      </mesh>
-      <mesh position={[0, 1.18, -1.28]}>
-        <boxGeometry args={[2.8, 0.28, 0.05]} />
-        <meshStandardMaterial color="#28160e" roughness={0.92} />
+      <mesh position={[0, 0.62, -0.86]} castShadow receiveShadow>
+        <boxGeometry args={[3.7, 1.06, 0.24]} />
+        <meshStandardMaterial color="#7a4c2a" roughness={0.82} metalness={0.04} />
       </mesh>
     </>
   );
 }
 
-function ShowcaseLabels() {
+function ShowcaseHeader({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle: string;
+}) {
   return (
     <>
-      <Text position={[-1.45, 1.92, 0.32]} fontSize={0.16} color="#f4e2bf" anchorX="center" anchorY="middle">
-        Compact
+      <Text
+        position={[0, 1.82, 0.24]}
+        fontSize={0.16}
+        color="#f2e4c7"
+        anchorX="center"
+        anchorY="middle"
+      >
+        {title}
       </Text>
-      <Text position={[0, 1.92, 0.32]} fontSize={0.16} color="#f4e2bf" anchorX="center" anchorY="middle">
-        Hero
-      </Text>
-      <Text position={[1.45, 1.92, 0.32]} fontSize={0.16} color="#f4e2bf" anchorX="center" anchorY="middle">
-        Hopper
-      </Text>
-      <Text position={[0, 2.22, 0.32]} fontSize={0.12} color="#dcc6a1" anchorX="center" anchorY="middle">
-        First-pass coffee machine family
+      <Text
+        position={[0, 1.58, 0.24]}
+        fontSize={0.085}
+        color="#d5bf98"
+        anchorX="center"
+        anchorY="middle"
+        maxWidth={2.5}
+      >
+        {subtitle}
       </Text>
     </>
+  );
+}
+
+function CompactStage() {
+  return (
+    <>
+      <ShowcasePedestal />
+      <CoffeeMachineCompactModel item={COMPACT_ITEM} />
+      <ShowcaseHeader title="Compact" subtitle="home-bar style, soft green body" />
+    </>
+  );
+}
+
+function HeroStage() {
+  return (
+    <>
+      <ShowcasePedestal />
+      <CoffeeMachineHeroModel item={HERO_ITEM} />
+      <ShowcaseHeader title="Hero" subtitle="main espresso machine for the cafe bar" />
+    </>
+  );
+}
+
+function HopperStage() {
+  return (
+    <>
+      <ShowcasePedestal />
+      <CoffeeMachineGrinderModel item={HOPPER_ITEM} />
+      <ShowcaseHeader title="Hopper" subtitle="grinder companion with visible beans" />
+    </>
+  );
+}
+
+function ShowcaseCard({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        position: "relative",
+        minHeight: 0,
+        borderRadius: 8,
+        overflow: "hidden",
+        background: "#18120d",
+        boxShadow: "0 14px 34px rgba(0,0,0,0.34)",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function ShowcaseCanvas({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  return (
+    <Canvas
+      shadows
+      camera={{ position: [0, 1.8, 4.9], fov: 22, near: 0.1, far: 100 }}
+      onCreated={({ camera }) => camera.lookAt(0, 0.76, 0)}
+    >
+      <Suspense fallback={null}>
+        <SceneLighting />
+        {children}
+      </Suspense>
+      <OrbitControls
+        target={[0, 0.76, 0]}
+        enablePan={false}
+        minDistance={4}
+        maxDistance={6.4}
+        minAzimuthAngle={-0.35}
+        maxAzimuthAngle={0.35}
+        minPolarAngle={0.95}
+        maxPolarAngle={1.38}
+      />
+    </Canvas>
   );
 }
 
 export default function MachineShowcase() {
   return (
-    <div style={{ width: "100vw", height: "100vh", background: "#18120d" }}>
-      <Canvas
-        shadows
-        camera={{ position: [0, 2.2, 8.8], fov: 24, near: 0.1, far: 100 }}
-        onCreated={({ camera }) => camera.lookAt(0, 0.88, 0)}
+    <div
+      style={{
+        width: "100vw",
+        minHeight: "100vh",
+        background: "#120d09",
+        color: "#f4ead8",
+        padding: "56px 28px 28px",
+        boxSizing: "border-box",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 1480,
+          margin: "0 auto",
+          display: "grid",
+          gridTemplateRows: "auto 1fr",
+          gap: 18,
+        }}
       >
-        <Suspense fallback={null}>
-          <SceneLighting />
-          <ShowcaseStage />
-          <CoffeeMachineCompactModel item={COMPACT_ITEM} />
-          <CoffeeMachineHeroModel item={HERO_ITEM} />
-          <CoffeeMachineGrinderModel item={HOPPER_ITEM} />
-          <ShowcaseLabels />
-        </Suspense>
-        <OrbitControls
-          target={[0, 0.88, 0]}
-          minDistance={5.6}
-          maxDistance={11.5}
-          maxPolarAngle={Math.PI / 2.15}
-        />
-      </Canvas>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 34, lineHeight: 1.1 }}>Coffee Machine First Pass</div>
+          <div style={{ marginTop: 8, fontSize: 14, color: "#cbb694" }}>
+            Three procedural cafe-machine directions for style and proportion review
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+            gap: 18,
+            minHeight: "calc(100vh - 170px)",
+          }}
+        >
+          <ShowcaseCard>
+            <ShowcaseCanvas>
+              <CompactStage />
+            </ShowcaseCanvas>
+          </ShowcaseCard>
+          <ShowcaseCard>
+            <ShowcaseCanvas>
+              <HeroStage />
+            </ShowcaseCanvas>
+          </ShowcaseCard>
+          <ShowcaseCard>
+            <ShowcaseCanvas>
+              <HopperStage />
+            </ShowcaseCanvas>
+          </ShowcaseCard>
+        </div>
+      </div>
     </div>
   );
 }

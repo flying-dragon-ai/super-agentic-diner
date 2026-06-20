@@ -83,3 +83,1228 @@ INFO:     connection open
 INFO:     connection closed
 INFO:     127.0.0.1:49189 - "WebSocket /ws/visualization" [accepted]
 INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:65128 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:59618 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\protocols\websockets\websockets_impl.py", line 317, in asgi_send
+    await self.send(data)  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 630, in send
+    await self.write_frame(True, opcode, data)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 1184, in write_frame
+    await self.drain()
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 1173, in drain
+    await self.ensure_open()
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 916, in ensure_open
+    raise self.connection_closed_exc()
+websockets.exceptions.ConnectionClosedError: no close frame received or sent
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\websockets.py", line 86, in send
+    await self._send(message)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 39, in sender
+    await send(message)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\protocols\websockets\websockets_impl.py", line 330, in asgi_send
+    raise ClientDisconnected from exc
+uvicorn.protocols.utils.ClientDisconnected
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\protocols\websockets\websockets_impl.py", line 239, in run_asgi
+    result = await self.app(self.scope, self.asgi_receive, self.asgi_send)  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 62, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\applications.py", line 1162, in __call__
+    await super().__call__(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\middleware\errors.py", line 151, in __call__
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 350, in handle
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 169, in app
+    await wrap_app_handling_exceptions(app, session)(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 166, in app
+    await func(session)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 773, in app
+    await dependant.call(**solved_result.values)
+  File "D:\temp\EVOMAP\coffee-ai-boss\app\main.py", line 1385, in visualization_websocket
+    await visualization_hub.connect(websocket, agents=snapshot_agents)
+  File "D:\temp\EVOMAP\coffee-ai-boss\app\services\visualization_service.py", line 97, in connect
+    await websocket.send_json(
+    ...<8 lines>...
+    )
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\websockets.py", line 176, in send_json
+    await self.send({"type": "websocket.send", "text": text})
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\websockets.py", line 89, in send
+    raise WebSocketDisconnect(code=1006)
+starlette.websockets.WebSocketDisconnect
+INFO:     connection closed
+INFO:     127.0.0.1:58550 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\protocols\websockets\websockets_impl.py", line 317, in asgi_send
+    await self.send(data)  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 630, in send
+    await self.write_frame(True, opcode, data)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 1184, in write_frame
+    await self.drain()
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 1173, in drain
+    await self.ensure_open()
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 916, in ensure_open
+    raise self.connection_closed_exc()
+websockets.exceptions.ConnectionClosedError: no close frame received or sent
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\websockets.py", line 86, in send
+    await self._send(message)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 39, in sender
+    await send(message)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\protocols\websockets\websockets_impl.py", line 330, in asgi_send
+    raise ClientDisconnected from exc
+uvicorn.protocols.utils.ClientDisconnected
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\protocols\websockets\websockets_impl.py", line 239, in run_asgi
+    result = await self.app(self.scope, self.asgi_receive, self.asgi_send)  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 62, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\applications.py", line 1162, in __call__
+    await super().__call__(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\middleware\errors.py", line 151, in __call__
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 350, in handle
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 169, in app
+    await wrap_app_handling_exceptions(app, session)(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 166, in app
+    await func(session)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 773, in app
+    await dependant.call(**solved_result.values)
+  File "D:\temp\EVOMAP\coffee-ai-boss\app\main.py", line 1385, in visualization_websocket
+    await visualization_hub.connect(websocket, agents=snapshot_agents)
+  File "D:\temp\EVOMAP\coffee-ai-boss\app\services\visualization_service.py", line 97, in connect
+    await websocket.send_json(
+    ...<8 lines>...
+    )
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\websockets.py", line 176, in send_json
+    await self.send({"type": "websocket.send", "text": text})
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\websockets.py", line 89, in send
+    raise WebSocketDisconnect(code=1006)
+starlette.websockets.WebSocketDisconnect
+INFO:     connection closed
+INFO:     127.0.0.1:53545 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\protocols\websockets\websockets_impl.py", line 317, in asgi_send
+    await self.send(data)  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 630, in send
+    await self.write_frame(True, opcode, data)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 1184, in write_frame
+    await self.drain()
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 1173, in drain
+    await self.ensure_open()
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 916, in ensure_open
+    raise self.connection_closed_exc()
+websockets.exceptions.ConnectionClosedError: no close frame received or sent
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\websockets.py", line 86, in send
+    await self._send(message)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 39, in sender
+    await send(message)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\protocols\websockets\websockets_impl.py", line 330, in asgi_send
+    raise ClientDisconnected from exc
+uvicorn.protocols.utils.ClientDisconnected
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\protocols\websockets\websockets_impl.py", line 239, in run_asgi
+    result = await self.app(self.scope, self.asgi_receive, self.asgi_send)  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 62, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\applications.py", line 1162, in __call__
+    await super().__call__(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\middleware\errors.py", line 151, in __call__
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 350, in handle
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 169, in app
+    await wrap_app_handling_exceptions(app, session)(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 166, in app
+    await func(session)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 773, in app
+    await dependant.call(**solved_result.values)
+  File "D:\temp\EVOMAP\coffee-ai-boss\app\main.py", line 1385, in visualization_websocket
+    await visualization_hub.connect(websocket, agents=snapshot_agents)
+  File "D:\temp\EVOMAP\coffee-ai-boss\app\services\visualization_service.py", line 97, in connect
+    await websocket.send_json(
+    ...<8 lines>...
+    )
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\websockets.py", line 176, in send_json
+    await self.send({"type": "websocket.send", "text": text})
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\websockets.py", line 89, in send
+    raise WebSocketDisconnect(code=1006)
+starlette.websockets.WebSocketDisconnect
+INFO:     connection closed
+INFO:     127.0.0.1:51162 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:62120 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:51283 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:51648 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:60934 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:55640 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:62803 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:60915 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:62993 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:64969 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:55187 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:54855 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:61538 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:52242 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:50802 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 834, in _write_bytes
+    self._sock.sendall(data)
+    ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\ssl.py", line 1263, in sendall
+    v = self.send(byte_view[count:])
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\ssl.py", line 1232, in send
+    return self._sslobj.write(data)
+           ~~~~~~~~~~~~~~~~~~^^^^^^
+ConnectionResetError: [WinError 10054] Զ������ǿ�ȹر���һ�����е����ӡ�
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1130, in _rollback_impl
+    self.engine.dialect.do_rollback(self.connection)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 712, in do_rollback
+    dbapi_connection.rollback()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 511, in rollback
+    self._execute_command(COMMAND.COM_QUERY, "ROLLBACK")
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 886, in _execute_command
+    self._write_bytes(packet)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 837, in _write_bytes
+    raise err.OperationalError(
+        CR.CR_SERVER_GONE_ERROR, f"MySQL server has gone away ({e!r})"
+    )
+pymysql.err.OperationalError: (2006, "MySQL server has gone away (ConnectionResetError(10054, 'Զ������ǿ�ȹر���һ�����е����ӡ�', None, 10054, None))")
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\protocols\websockets\websockets_impl.py", line 239, in run_asgi
+    result = await self.app(self.scope, self.asgi_receive, self.asgi_send)  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 62, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\applications.py", line 1162, in __call__
+    await super().__call__(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\middleware\errors.py", line 151, in __call__
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 350, in handle
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 169, in app
+    await wrap_app_handling_exceptions(app, session)(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 162, in app
+    async with AsyncExitStack() as request_stack:
+               ~~~~~~~~~~~~~~^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 768, in __aexit__
+    raise exc
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 751, in __aexit__
+    cb_suppress = await cb(*exc_details)
+                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 221, in __aexit__
+    await anext(self.gen)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\concurrency.py", line 39, in contextmanager_in_threadpool
+    await anyio.to_thread.run_sync(
+        cm.__exit__, None, None, None, limiter=exit_limiter
+    )
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\anyio\to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2592, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 1029, in run
+    result = context.run(func, *args)
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 148, in __exit__
+    next(self.gen)
+    ~~~~^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\app\db\database.py", line 23, in get_db
+    db.close()
+    ~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2529, in close
+    self._close_impl(invalidate=False)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2598, in _close_impl
+    transaction.close(invalidate)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "<string>", line 2, in close
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py", line 137, in _go
+    ret_value = fn(self, *arg, **kw)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 1422, in close
+    transaction.close()
+    ~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2599, in close
+    self._do_close()
+    ~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2737, in _do_close
+    self._close_impl()
+    ~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2723, in _close_impl
+    self._connection_rollback_impl()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2715, in _connection_rollback_impl
+    self.connection._rollback_impl()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1132, in _rollback_impl
+    self._handle_dbapi_exception(e, None, None, None, None)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2365, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1130, in _rollback_impl
+    self.engine.dialect.do_rollback(self.connection)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 712, in do_rollback
+    dbapi_connection.rollback()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 511, in rollback
+    self._execute_command(COMMAND.COM_QUERY, "ROLLBACK")
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 886, in _execute_command
+    self._write_bytes(packet)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 837, in _write_bytes
+    raise err.OperationalError(
+        CR.CR_SERVER_GONE_ERROR, f"MySQL server has gone away ({e!r})"
+    )
+sqlalchemy.exc.OperationalError: (pymysql.err.OperationalError) (2006, "MySQL server has gone away (ConnectionResetError(10054, 'Զ������ǿ�ȹر���һ�����е����ӡ�', None, 10054, None))")
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+INFO:     connection closed
+INFO:     connection closed
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 834, in _write_bytes
+    self._sock.sendall(data)
+    ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\ssl.py", line 1263, in sendall
+    v = self.send(byte_view[count:])
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\ssl.py", line 1232, in send
+    return self._sslobj.write(data)
+           ~~~~~~~~~~~~~~~~~~^^^^^^
+ConnectionResetError: [WinError 10054] Զ������ǿ�ȹر���һ�����е����ӡ�
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1130, in _rollback_impl
+    self.engine.dialect.do_rollback(self.connection)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 712, in do_rollback
+    dbapi_connection.rollback()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 511, in rollback
+    self._execute_command(COMMAND.COM_QUERY, "ROLLBACK")
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 886, in _execute_command
+    self._write_bytes(packet)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 837, in _write_bytes
+    raise err.OperationalError(
+        CR.CR_SERVER_GONE_ERROR, f"MySQL server has gone away ({e!r})"
+    )
+pymysql.err.OperationalError: (2006, "MySQL server has gone away (ConnectionResetError(10054, 'Զ������ǿ�ȹر���һ�����е����ӡ�', None, 10054, None))")
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\protocols\websockets\websockets_impl.py", line 239, in run_asgi
+    result = await self.app(self.scope, self.asgi_receive, self.asgi_send)  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 62, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\applications.py", line 1162, in __call__
+    await super().__call__(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\middleware\errors.py", line 151, in __call__
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 350, in handle
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 169, in app
+    await wrap_app_handling_exceptions(app, session)(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 162, in app
+    async with AsyncExitStack() as request_stack:
+               ~~~~~~~~~~~~~~^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 768, in __aexit__
+    raise exc
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 751, in __aexit__
+    cb_suppress = await cb(*exc_details)
+                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 221, in __aexit__
+    await anext(self.gen)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\concurrency.py", line 39, in contextmanager_in_threadpool
+    await anyio.to_thread.run_sync(
+        cm.__exit__, None, None, None, limiter=exit_limiter
+    )
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\anyio\to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2592, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 1029, in run
+    result = context.run(func, *args)
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 148, in __exit__
+    next(self.gen)
+    ~~~~^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\app\db\database.py", line 23, in get_db
+    db.close()
+    ~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2529, in close
+    self._close_impl(invalidate=False)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2598, in _close_impl
+    transaction.close(invalidate)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "<string>", line 2, in close
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py", line 137, in _go
+    ret_value = fn(self, *arg, **kw)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 1422, in close
+    transaction.close()
+    ~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2599, in close
+    self._do_close()
+    ~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2737, in _do_close
+    self._close_impl()
+    ~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2723, in _close_impl
+    self._connection_rollback_impl()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2715, in _connection_rollback_impl
+    self.connection._rollback_impl()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1132, in _rollback_impl
+    self._handle_dbapi_exception(e, None, None, None, None)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2365, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1130, in _rollback_impl
+    self.engine.dialect.do_rollback(self.connection)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 712, in do_rollback
+    dbapi_connection.rollback()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 511, in rollback
+    self._execute_command(COMMAND.COM_QUERY, "ROLLBACK")
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 886, in _execute_command
+    self._write_bytes(packet)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 837, in _write_bytes
+    raise err.OperationalError(
+        CR.CR_SERVER_GONE_ERROR, f"MySQL server has gone away ({e!r})"
+    )
+sqlalchemy.exc.OperationalError: (pymysql.err.OperationalError) (2006, "MySQL server has gone away (ConnectionResetError(10054, 'Զ������ǿ�ȹر���һ�����е����ӡ�', None, 10054, None))")
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 834, in _write_bytes
+    self._sock.sendall(data)
+    ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\ssl.py", line 1263, in sendall
+    v = self.send(byte_view[count:])
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\ssl.py", line 1232, in send
+    return self._sslobj.write(data)
+           ~~~~~~~~~~~~~~~~~~^^^^^^
+ConnectionResetError: [WinError 10054] Զ������ǿ�ȹر���һ�����е����ӡ�
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1130, in _rollback_impl
+    self.engine.dialect.do_rollback(self.connection)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 712, in do_rollback
+    dbapi_connection.rollback()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 511, in rollback
+    self._execute_command(COMMAND.COM_QUERY, "ROLLBACK")
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 886, in _execute_command
+    self._write_bytes(packet)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 837, in _write_bytes
+    raise err.OperationalError(
+        CR.CR_SERVER_GONE_ERROR, f"MySQL server has gone away ({e!r})"
+    )
+pymysql.err.OperationalError: (2006, "MySQL server has gone away (ConnectionResetError(10054, 'Զ������ǿ�ȹر���һ�����е����ӡ�', None, 10054, None))")
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\protocols\websockets\websockets_impl.py", line 239, in run_asgi
+    result = await self.app(self.scope, self.asgi_receive, self.asgi_send)  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 62, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\applications.py", line 1162, in __call__
+    await super().__call__(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\middleware\errors.py", line 151, in __call__
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 350, in handle
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 169, in app
+    await wrap_app_handling_exceptions(app, session)(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 162, in app
+    async with AsyncExitStack() as request_stack:
+               ~~~~~~~~~~~~~~^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 768, in __aexit__
+    raise exc
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 751, in __aexit__
+    cb_suppress = await cb(*exc_details)
+                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 221, in __aexit__
+    await anext(self.gen)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\concurrency.py", line 39, in contextmanager_in_threadpool
+    await anyio.to_thread.run_sync(
+        cm.__exit__, None, None, None, limiter=exit_limiter
+    )
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\anyio\to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2592, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 1029, in run
+    result = context.run(func, *args)
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 148, in __exit__
+    next(self.gen)
+    ~~~~^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\app\db\database.py", line 23, in get_db
+    db.close()
+    ~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2529, in close
+    self._close_impl(invalidate=False)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2598, in _close_impl
+    transaction.close(invalidate)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "<string>", line 2, in close
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py", line 137, in _go
+    ret_value = fn(self, *arg, **kw)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 1422, in close
+    transaction.close()
+    ~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2599, in close
+    self._do_close()
+    ~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2737, in _do_close
+    self._close_impl()
+    ~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2723, in _close_impl
+    self._connection_rollback_impl()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2715, in _connection_rollback_impl
+    self.connection._rollback_impl()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1132, in _rollback_impl
+    self._handle_dbapi_exception(e, None, None, None, None)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2365, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1130, in _rollback_impl
+    self.engine.dialect.do_rollback(self.connection)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 712, in do_rollback
+    dbapi_connection.rollback()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 511, in rollback
+    self._execute_command(COMMAND.COM_QUERY, "ROLLBACK")
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 886, in _execute_command
+    self._write_bytes(packet)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 837, in _write_bytes
+    raise err.OperationalError(
+        CR.CR_SERVER_GONE_ERROR, f"MySQL server has gone away ({e!r})"
+    )
+sqlalchemy.exc.OperationalError: (pymysql.err.OperationalError) (2006, "MySQL server has gone away (ConnectionResetError(10054, 'Զ������ǿ�ȹر���һ�����е����ӡ�', None, 10054, None))")
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+INFO:     connection closed
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 834, in _write_bytes
+    self._sock.sendall(data)
+    ~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\ssl.py", line 1263, in sendall
+    v = self.send(byte_view[count:])
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\ssl.py", line 1232, in send
+    return self._sslobj.write(data)
+           ~~~~~~~~~~~~~~~~~~^^^^^^
+ConnectionResetError: [WinError 10054] Զ������ǿ�ȹر���һ�����е����ӡ�
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1130, in _rollback_impl
+    self.engine.dialect.do_rollback(self.connection)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 712, in do_rollback
+    dbapi_connection.rollback()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 511, in rollback
+    self._execute_command(COMMAND.COM_QUERY, "ROLLBACK")
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 886, in _execute_command
+    self._write_bytes(packet)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 837, in _write_bytes
+    raise err.OperationalError(
+        CR.CR_SERVER_GONE_ERROR, f"MySQL server has gone away ({e!r})"
+    )
+pymysql.err.OperationalError: (2006, "MySQL server has gone away (ConnectionResetError(10054, 'Զ������ǿ�ȹر���һ�����е����ӡ�', None, 10054, None))")
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\protocols\websockets\websockets_impl.py", line 239, in run_asgi
+    result = await self.app(self.scope, self.asgi_receive, self.asgi_send)  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 62, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\applications.py", line 1162, in __call__
+    await super().__call__(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\middleware\errors.py", line 151, in __call__
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 350, in handle
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 169, in app
+    await wrap_app_handling_exceptions(app, session)(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 162, in app
+    async with AsyncExitStack() as request_stack:
+               ~~~~~~~~~~~~~~^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 768, in __aexit__
+    raise exc
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 751, in __aexit__
+    cb_suppress = await cb(*exc_details)
+                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 221, in __aexit__
+    await anext(self.gen)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\concurrency.py", line 39, in contextmanager_in_threadpool
+    await anyio.to_thread.run_sync(
+        cm.__exit__, None, None, None, limiter=exit_limiter
+    )
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\anyio\to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2592, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 1029, in run
+    result = context.run(func, *args)
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 148, in __exit__
+    next(self.gen)
+    ~~~~^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\app\db\database.py", line 23, in get_db
+    db.close()
+    ~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2529, in close
+    self._close_impl(invalidate=False)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2598, in _close_impl
+    transaction.close(invalidate)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "<string>", line 2, in close
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py", line 137, in _go
+    ret_value = fn(self, *arg, **kw)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 1422, in close
+    transaction.close()
+    ~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2599, in close
+    self._do_close()
+    ~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2737, in _do_close
+    self._close_impl()
+    ~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2723, in _close_impl
+    self._connection_rollback_impl()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2715, in _connection_rollback_impl
+    self.connection._rollback_impl()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1132, in _rollback_impl
+    self._handle_dbapi_exception(e, None, None, None, None)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2365, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1130, in _rollback_impl
+    self.engine.dialect.do_rollback(self.connection)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 712, in do_rollback
+    dbapi_connection.rollback()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 511, in rollback
+    self._execute_command(COMMAND.COM_QUERY, "ROLLBACK")
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 886, in _execute_command
+    self._write_bytes(packet)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 837, in _write_bytes
+    raise err.OperationalError(
+        CR.CR_SERVER_GONE_ERROR, f"MySQL server has gone away ({e!r})"
+    )
+sqlalchemy.exc.OperationalError: (pymysql.err.OperationalError) (2006, "MySQL server has gone away (ConnectionResetError(10054, 'Զ������ǿ�ȹر���һ�����е����ӡ�', None, 10054, None))")
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+INFO:     127.0.0.1:56596 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:53484 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:55991 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:60546 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:58098 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:62217 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     connection closed
+INFO:     127.0.0.1:62470 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:64613 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     connection closed
+INFO:     127.0.0.1:62434 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:55796 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:65004 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:53950 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     connection closed
+INFO:     127.0.0.1:52134 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:65296 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 810, in _read_bytes
+    data = self._rfile.read(num_bytes)
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\socket.py", line 725, in readinto
+    return self._sock.recv_into(b)
+           ~~~~~~~~~~~~~~~~~~~~^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\ssl.py", line 1304, in recv_into
+    return self.read(nbytes, buffer)
+           ~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\ssl.py", line 1138, in read
+    return self._sslobj.read(len, buffer)
+           ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+ConnectionAbortedError: [WinError 10053] ��������е������ֹ��һ���ѽ��������ӡ�
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1130, in _rollback_impl
+    self.engine.dialect.do_rollback(self.connection)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 712, in do_rollback
+    dbapi_connection.rollback()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 512, in rollback
+    self._read_ok_packet()
+    ~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 472, in _read_ok_packet
+    pkt = self._read_packet()
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 772, in _read_packet
+    packet_header = self._read_bytes(4)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 816, in _read_bytes
+    raise err.OperationalError(
+    ...<2 lines>...
+    )
+pymysql.err.OperationalError: (2013, 'Lost connection to MySQL server during query ([WinError 10053] ��������е������ֹ��һ���ѽ��������ӡ�)')
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\protocols\websockets\websockets_impl.py", line 239, in run_asgi
+    result = await self.app(self.scope, self.asgi_receive, self.asgi_send)  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 62, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\applications.py", line 1162, in __call__
+    await super().__call__(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\middleware\errors.py", line 151, in __call__
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 350, in handle
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 169, in app
+    await wrap_app_handling_exceptions(app, session)(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 162, in app
+    async with AsyncExitStack() as request_stack:
+               ~~~~~~~~~~~~~~^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 768, in __aexit__
+    raise exc
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 751, in __aexit__
+    cb_suppress = await cb(*exc_details)
+                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 221, in __aexit__
+    await anext(self.gen)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\concurrency.py", line 39, in contextmanager_in_threadpool
+    await anyio.to_thread.run_sync(
+        cm.__exit__, None, None, None, limiter=exit_limiter
+    )
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\anyio\to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2592, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 1029, in run
+    result = context.run(func, *args)
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 148, in __exit__
+    next(self.gen)
+    ~~~~^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\app\db\database.py", line 23, in get_db
+    db.close()
+    ~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2529, in close
+    self._close_impl(invalidate=False)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2598, in _close_impl
+    transaction.close(invalidate)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "<string>", line 2, in close
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py", line 137, in _go
+    ret_value = fn(self, *arg, **kw)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 1422, in close
+    transaction.close()
+    ~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2599, in close
+    self._do_close()
+    ~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2737, in _do_close
+    self._close_impl()
+    ~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2723, in _close_impl
+    self._connection_rollback_impl()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2715, in _connection_rollback_impl
+    self.connection._rollback_impl()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1132, in _rollback_impl
+    self._handle_dbapi_exception(e, None, None, None, None)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2365, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1130, in _rollback_impl
+    self.engine.dialect.do_rollback(self.connection)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 712, in do_rollback
+    dbapi_connection.rollback()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 512, in rollback
+    self._read_ok_packet()
+    ~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 472, in _read_ok_packet
+    pkt = self._read_packet()
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 772, in _read_packet
+    packet_header = self._read_bytes(4)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 816, in _read_bytes
+    raise err.OperationalError(
+    ...<2 lines>...
+    )
+sqlalchemy.exc.OperationalError: (pymysql.err.OperationalError) (2013, 'Lost connection to MySQL server during query ([WinError 10053] ��������е������ֹ��һ���ѽ��������ӡ�)')
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+INFO:     connection closed
+INFO:     127.0.0.1:60338 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 810, in _read_bytes
+    data = self._rfile.read(num_bytes)
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\socket.py", line 725, in readinto
+    return self._sock.recv_into(b)
+           ~~~~~~~~~~~~~~~~~~~~^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\ssl.py", line 1304, in recv_into
+    return self.read(nbytes, buffer)
+           ~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\ssl.py", line 1138, in read
+    return self._sslobj.read(len, buffer)
+           ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+ConnectionAbortedError: [WinError 10053] ��������е������ֹ��һ���ѽ��������ӡ�
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1130, in _rollback_impl
+    self.engine.dialect.do_rollback(self.connection)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 712, in do_rollback
+    dbapi_connection.rollback()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 512, in rollback
+    self._read_ok_packet()
+    ~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 472, in _read_ok_packet
+    pkt = self._read_packet()
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 772, in _read_packet
+    packet_header = self._read_bytes(4)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 816, in _read_bytes
+    raise err.OperationalError(
+    ...<2 lines>...
+    )
+pymysql.err.OperationalError: (2013, 'Lost connection to MySQL server during query ([WinError 10053] ��������е������ֹ��һ���ѽ��������ӡ�)')
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\protocols\websockets\websockets_impl.py", line 239, in run_asgi
+    result = await self.app(self.scope, self.asgi_receive, self.asgi_send)  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 62, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\applications.py", line 1162, in __call__
+    await super().__call__(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\middleware\errors.py", line 151, in __call__
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\routing.py", line 350, in handle
+    await self.app(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 169, in app
+    await wrap_app_handling_exceptions(app, session)(scope, receive, send)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\routing.py", line 162, in app
+    async with AsyncExitStack() as request_stack:
+               ~~~~~~~~~~~~~~^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 768, in __aexit__
+    raise exc
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 751, in __aexit__
+    cb_suppress = await cb(*exc_details)
+                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 221, in __aexit__
+    await anext(self.gen)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\fastapi\concurrency.py", line 39, in contextmanager_in_threadpool
+    await anyio.to_thread.run_sync(
+        cm.__exit__, None, None, None, limiter=exit_limiter
+    )
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\anyio\to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2592, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 1029, in run
+    result = context.run(func, *args)
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\contextlib.py", line 148, in __exit__
+    next(self.gen)
+    ~~~~^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\app\db\database.py", line 23, in get_db
+    db.close()
+    ~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2529, in close
+    self._close_impl(invalidate=False)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2598, in _close_impl
+    transaction.close(invalidate)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "<string>", line 2, in close
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py", line 137, in _go
+    ret_value = fn(self, *arg, **kw)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 1422, in close
+    transaction.close()
+    ~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2599, in close
+    self._do_close()
+    ~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2737, in _do_close
+    self._close_impl()
+    ~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2723, in _close_impl
+    self._connection_rollback_impl()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2715, in _connection_rollback_impl
+    self.connection._rollback_impl()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1132, in _rollback_impl
+    self._handle_dbapi_exception(e, None, None, None, None)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2365, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1130, in _rollback_impl
+    self.engine.dialect.do_rollback(self.connection)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 712, in do_rollback
+    dbapi_connection.rollback()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 512, in rollback
+    self._read_ok_packet()
+    ~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 472, in _read_ok_packet
+    pkt = self._read_packet()
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 772, in _read_packet
+    packet_header = self._read_bytes(4)
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\pymysql\connections.py", line 816, in _read_bytes
+    raise err.OperationalError(
+    ...<2 lines>...
+    )
+sqlalchemy.exc.OperationalError: (pymysql.err.OperationalError) (2013, 'Lost connection to MySQL server during query ([WinError 10053] ��������е������ֹ��һ���ѽ��������ӡ�)')
+(Background on this error at: https://sqlalche.me/e/20/e3q8)

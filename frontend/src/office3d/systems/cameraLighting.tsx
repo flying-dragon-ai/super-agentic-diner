@@ -59,17 +59,22 @@ export const CAMERA_PRESETS = {
   overview: {
     pos: DISTRICT_CAMERA_POSITION,
     target: DISTRICT_CAMERA_TARGET,
-    zoom: DISTRICT_CAMERA_ZOOM,
+    zoom: 1,
+  },
+  machines: {
+    pos: [-18.2, 2.45, -3.2],
+    target: [-13.95, 0.8, -3.78],
+    zoom: 2.1,
   },
   barCounter: {
-    pos: [-4.5, 6.5, 4.5],
-    target: [-6, 0, 0],
-    zoom: 70,
+    pos: [-17.2, 3.2, -0.9],
+    target: [-13.85, 0.72, -3.75],
+    zoom: 1.65,
   },
   lounge: {
     pos: [8.5, 6, -4.5],
     target: [6, 0, -2],
-    zoom: 62,
+    zoom: 1.45,
   },
 } satisfies Record<string, CameraPreset>;
 

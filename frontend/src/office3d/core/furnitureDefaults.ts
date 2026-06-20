@@ -62,8 +62,8 @@ export const DEFAULT_FURNITURE: FurnitureSeed[] = [
   { type: "beanbag", x: 1500, y: 150, color: "#1565c0" },
   { type: "couch_v", x: 1280, y: 280 },
   { type: "round_table", x: 1530, y: 300, r: 40 },
-  { type: "chair", x: 1558, y: 280, facing: 0 },
-  { type: "chair", x: 1558, y: 388, facing: 180 },
+  { type: "chair", x: 1530, y: 228, facing: 0 },
+  { type: "chair", x: 1530, y: 372, facing: 180 },
 
   // --- Wall props + decor ---
   // --- Cafe machines (Phase 5a): self-checkout, vending, jukebox ---
