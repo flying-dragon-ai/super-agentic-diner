@@ -1,4 +1,5 @@
 """FastAPI entrypoint for chat ordering and Agent visualization APIs."""
+import threading
 from datetime import datetime
 from typing import Any, Optional
 
@@ -44,6 +45,8 @@ from app.memory.chat_history import (
 from app.services.chat_service import extract_price, handle_message, match_by_price
 from app.services.agent_orchestrator import orchestrate as agent_orchestrate
 from app.services.agents.experience_agent import list_recent_experiences
+from app.services import evomap_evolution_service
+from app.services.agents.experience_agent import sync_community_experience as _sync_community_exp
 from app.rag.keywords import extract_keywords
 from app.rag.retrieval import retrieve
 from app.services.order_service import (
@@ -72,14 +75,37 @@ from app.colyseus_bridge import start_colyseus_server, stop_colyseus_server
 
 app = FastAPI(title="智能咖啡馆 AI 店长")
 
+# EvoMap 心跳定时器（群体进化：保持节点在线 + 定时拉取社区经验）
+_evomap_heartbeat_thread: threading.Thread | None = None
+_evomap_heartbeat_stop = threading.Event()
+
+
+def _evomap_heartbeat_loop() -> None:
+    """后台心跳线程：每 5 分钟发心跳 + 拉取社区经验缓存到 Redis。"""
+    import time as _time
+    while not _evomap_heartbeat_stop.is_set():
+        try:
+            evomap_evolution_service.heartbeat()
+            _sync_community_exp()
+        except Exception:
+            pass  # 心跳失败不阻塞服务
+        _evomap_heartbeat_stop.wait(300)  # 5 分钟
+
+
 @app.on_event("startup")
 async def _startup_colyseus() -> None:
     start_colyseus_server()
+    # 启动 EvoMap 心跳（仅当配置了节点身份）
+    if settings.evomap_node_id and settings.evomap_node_secret:
+        _evomap_heartbeat_stop.clear()
+        _evomap_heartbeat_thread = threading.Thread(target=_evomap_heartbeat_loop, daemon=True)
+        _evomap_heartbeat_thread.start()
 
 
 @app.on_event("shutdown")
 async def _shutdown_colyseus() -> None:
     stop_colyseus_server()
+    _evomap_heartbeat_stop.set()
 
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -1231,6 +1257,12 @@ def agent_collaboration_state(db: Session = Depends(get_db)):
         },
         "recent_experiences": experiences,
     }
+
+
+@app.get("/admin/evomap/status")
+def evomap_status():
+    """EvoMap 群体进化节点状态（供大屏展示节点在线/积分/进化圈/社区经验）。"""
+    return evomap_evolution_service.get_node_status()
 
 
 def _public_agent(agent: AgentProfile | None) -> dict[str, Any] | None:
