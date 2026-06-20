@@ -153,6 +153,51 @@
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-thumb { background: #4a3429; border-radius: 3px; }
   .typing { color: #8a7a6a; font-style: italic; }
+
+  /* 菜单图片卡片（水平滚动） */
+  .menu-cards {
+    display: flex; gap: 14px; overflow-x: auto; padding: 12px 4px;
+    scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
+  }
+  .menu-cards::-webkit-scrollbar { height: 5px; }
+  .menu-cards::-webkit-scrollbar-thumb { background: #6f4e37; border-radius: 3px; }
+  .menu-card {
+    flex: 0 0 160px; scroll-snap-align: start;
+    background: linear-gradient(135deg, #4a3429, #3d2f24);
+    border-radius: 14px; overflow: hidden; cursor: pointer;
+    border: 1px solid rgba(192,133,82,.25);
+    transition: transform .18s, border-color .18s;
+  }
+  .menu-card:hover {
+    transform: translateY(-4px);
+    border-color: #c08552;
+  }
+  .menu-card img {
+    width: 100%; height: 120px; object-fit: cover;
+    display: block; background: #2b2118;
+  }
+  .menu-card-body {
+    padding: 10px 12px 12px;
+  }
+  .menu-card-name {
+    font-size: 14px; font-weight: 600; color: #f5ebe0;
+    margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .menu-card-price {
+    font-size: 16px; font-weight: 700; color: #d49a66;
+  }
+  .menu-card-price::before { content: '¥'; font-size: 12px; margin-right: 1px; }
+  .menu-card-tags {
+    font-size: 11px; color: #8a7a6a; margin-top: 4px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .menu-card-btn {
+    display: block; width: 100%; margin-top: 8px;
+    padding: 6px 0; border-radius: 8px; border: none;
+    background: #c08552; color: #1a120b; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: background .15s;
+  }
+  .menu-card-btn:hover { background: #d49a66; }
 </style>
 </head>
 <body>
@@ -354,6 +399,56 @@ function addMsg(text, role) {
   return el;
 }
 
+// ===== 菜单图片卡片 =====
+let _menuCache = null;
+
+async function fetchMenu() {
+  if (_menuCache) return _menuCache;
+  try {
+    const r = await fetch('/menu', {credentials: 'include'});
+    if (!r.ok) return [];
+    _menuCache = await r.json();
+    return _menuCache;
+  } catch(e) { return []; }
+}
+
+function renderMenuCards(menuItems) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'msg bot';
+  wrapper.style.cssText = 'max-width:100%;padding:4px 0;background:transparent;border:none;';
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:13px;color:#8a7a6a;margin-bottom:8px;padding-left:4px;';
+  title.textContent = '以下是我们的全部咖啡，左右滑动浏览：';
+  wrapper.appendChild(title);
+  const cards = document.createElement('div');
+  cards.className = 'menu-cards';
+  menuItems.forEach(item => {
+    const card = document.createElement('div');
+    card.className = 'menu-card';
+    const tagsShort = (item.tags || '').split(',').slice(0, 3).join(' ');
+    card.innerHTML =
+      `<img src="${item.image}" alt="${item.name}" loading="lazy" onerror="this.style.display='none'">` +
+      `<div class="menu-card-body">` +
+        `<div class="menu-card-name">${item.name}</div>` +
+        `<div class="menu-card-price">${item.price.toFixed(2)}</div>` +
+        `<div class="menu-card-tags">${tagsShort}</div>` +
+        `<button class="menu-card-btn" onclick="fill('我要一杯${item.name}')">点这杯</button>` +
+      `</div>`;
+    cards.appendChild(card);
+  });
+  wrapper.appendChild(cards);
+  $('messages').appendChild(wrapper);
+  $('messages').scrollTop = $('messages').scrollHeight;
+}
+
+function isMenuRequest(text) {
+  const t = (text || '').toLowerCase();
+  const keywords = ['菜单', 'menu', '都有什么', '有什么', '都有什么咖啡',
+                     '全部咖啡', '所有咖啡', '看看菜单', '今天有什么',
+                     '列出', '看看有什么'];
+  return keywords.some(k => t.includes(k));
+}
+
 function fill(text){
   $('msgInput').value = text;
   $('msgInput').focus();
@@ -384,6 +479,11 @@ async function send() {
     typing.classList.remove('typing');
     typing.textContent = data.reply;
     renderQuickMenu({userText: text, botText: data.reply});
+    // 菜单请求：文字回复后追加图片卡片（水平滑动）
+    if (isMenuRequest(text)) {
+      const menu = await fetchMenu();
+      if (menu && menu.length) renderMenuCards(menu);
+    }
     if (data.order_id) {
       addMsg('✅ 已生成订单 #' + data.order_id, 'sys');
     }

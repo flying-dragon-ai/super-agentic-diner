@@ -150,6 +150,12 @@ if _3D_STATIC_DIR.is_dir():
     _3d_office_assets = _3D_STATIC_DIR / "office-assets"
     if _3d_office_assets.is_dir():
         app.mount("/3d/office-assets", StaticFiles(directory=_3d_office_assets), name="static-3d-office-assets")
+
+# 咖啡菜单图片（app/imag/ 下的 PNG）
+_IMAG_DIR = Path(__file__).resolve().parent / "imag"
+if _IMAG_DIR.is_dir():
+    app.mount("/imag", StaticFiles(directory=_IMAG_DIR), name="menu-images")
+
 from app.auth.router import router as auth_router  # noqa: E402
 
 app.include_router(auth_router)
@@ -1617,6 +1623,24 @@ async def visualization_websocket(websocket: WebSocket):
                     "created_at": datetime.utcnow().isoformat(),
                 }
             )
+
+
+@app.get("/menu")
+def get_menu(db: Session = Depends(get_db)):
+    """返回完整菜单（供前端图片卡片渲染），含名称、价格、标签、图片路径。"""
+    products = db.query(Product).order_by(Product.base_price).all()
+    return [
+        {
+            "name": p.name,
+            "price": float(p.base_price),
+            "tags": p.tags or "",
+            "category": p.category or "",
+            "description": (p.description or "")[:120],
+            "image": f"/imag/{p.name}.png",
+            "stock": p.stock,
+        }
+        for p in products
+    ]
 
 
 @app.get("/user/{user_id}")
