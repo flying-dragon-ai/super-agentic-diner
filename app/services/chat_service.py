@@ -115,13 +115,24 @@ def handle_message(db, user_id, user_msg):
 
     # 第2.5步：RAG 无结果 或 用户想看全部 → 加载所有真实产品，杜绝 LLM 幻觉
     # （不加载的话 LLM 会编造不存在的咖啡，如"危地马拉手冲""澳白"）
-    if not kb_rows or _is_browse_all(user_msg):
+    no_match = not kb_rows
+    if no_match or _is_browse_all(user_msg):
         kb_rows = get_all_products(db)
 
     # 第3步：把检索到的咖啡知识拼接成 context 字符串
-    context = "\n---\n".join(
+    # 当 RAG 无召回时，前置一段提示告诉 LLM："顾客想要的可能不在菜单，请婉拒并推荐相似替代"，
+    # 避免 LLM 闷头从全菜单里硬选，导致答非所问或像菜单广播器一样把全菜单列出来。
+    menu_text = "\n---\n".join(
         f"{r.name}（¥{r.base_price}）：{r.description}" for r in kb_rows
     )
+    if no_match and not _is_browse_all(user_msg):
+        context = (
+            "【RAG(检索) 注意】顾客描述的口味/品类没有精准命中菜单，下面是我们全部在售咖啡。"
+            "请先用一句话承认「我们没有顾客提到的那个」，再从下面挑 1-2 款风味最接近的主动推荐。"
+            "\n\n" + menu_text
+        )
+    else:
+        context = menu_text
 
     # 第4步：调 LLM 生成回复（传入对话历史 + RAG检索到的真实资料）
     reply = llm.chat(history, user_msg, context)
