@@ -1,8 +1,10 @@
 """FastAPI entrypoint for chat ordering and Agent visualization APIs."""
+import asyncio
 import threading
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
+import anyio
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -116,6 +118,10 @@ def _ensure_staff_seeded() -> None:
 async def _startup_colyseus() -> None:
     start_colyseus_server()
     _ensure_staff_seeded()
+    # Background sweep: drop Skill/CLI customer avatars once their heartbeat window
+    # expires (they can't push a leave signal — the order.py script already exited).
+    global _skill_sweep_task
+    _skill_sweep_task = asyncio.create_task(_skill_presence_sweep_loop())
     # 启动 EvoMap 心跳（仅当配置了节点身份）
     if settings.evomap_node_id and settings.evomap_node_secret:
         _evomap_heartbeat_stop.clear()
@@ -127,6 +133,10 @@ async def _startup_colyseus() -> None:
 async def _shutdown_colyseus() -> None:
     stop_colyseus_server()
     _evomap_heartbeat_stop.set()
+    global _skill_sweep_task
+    if _skill_sweep_task is not None:
+        _skill_sweep_task.cancel()
+        _skill_sweep_task = None
 
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -1459,26 +1469,88 @@ def _register_web_customer_presence(websocket: WebSocket) -> dict[str, Any] | No
         db.close()
 
 
+def _build_snapshot_agents_for_connect() -> list[dict[str, Any]]:
+    """DB-backed snapshot build run off the event loop (via anyio.to_thread)."""
+    db = SessionLocal()
+    try:
+        return _build_snapshot_agents(db)
+    finally:
+        db.close()
+
+
+# Skill/CLI customers can't push a go-offline signal (their script already exited),
+# so already-connected clients wouldn't drop the avatar when the heartbeat window
+# expires. This background sweep diffs the online set each interval and broadcasts
+# leave_scene for anyone who just fell out of the window, so avatars vanish live.
+# Web users are excluded (the WS disconnect handler handles them immediately).
+SKILL_SWEEP_INTERVAL_SECONDS = 30
+_prev_skill_online: set[int] = set()
+_skill_sweep_task: asyncio.Task | None = None
+
+
+async def _sweep_offline_skill_customers() -> None:
+    global _prev_skill_online
+    now_skill_online: set[int] = set()
+    try:
+        db = SessionLocal()
+        try:
+            cutoff = datetime.utcnow() - timedelta(seconds=ONLINE_WINDOW_SECONDS)
+            ws_online = visualization_hub.online_ws_agent_ids()
+            rows = (
+                db.query(AgentProfile)
+                .filter(
+                    AgentProfile.role_type == "customer",
+                    AgentProfile.status == IDENTITY_STATUS_ACTIVE,
+                )
+                .all()
+            )
+            for agent in rows:
+                if agent.agent_id in ws_online:
+                    continue  # web user — handled by the disconnect handler
+                if agent.last_seen_at and agent.last_seen_at >= cutoff:
+                    now_skill_online.add(agent.agent_id)
+        finally:
+            db.close()
+    except Exception:
+        return
+    newly_offline = _prev_skill_online - now_skill_online
+    _prev_skill_online = now_skill_online
+    for agent_id in newly_offline:
+        await visualization_hub.broadcast_transient(
+            {
+                "event_id": None,
+                "type": "agent.action",
+                "agent_id": agent_id,
+                "payload": {"agent_id": agent_id, "action_type": "leave_scene"},
+                "correlation_id": None,
+                "created_at": datetime.utcnow().isoformat(),
+            }
+        )
+
+
+async def _skill_presence_sweep_loop() -> None:
+    while True:
+        await asyncio.sleep(SKILL_SWEEP_INTERVAL_SECONDS)
+        try:
+            await _sweep_offline_skill_customers()
+        except Exception:
+            pass
+
+
 @app.websocket("/ws/visualization")
 async def visualization_websocket(websocket: WebSocket):
     # Identify the logged-in web user (login required) and register WS presence so the
     # snapshot includes them as an online customer. Anonymous visitors are skipped.
-    customer = _register_web_customer_presence(websocket)
+    # DB work runs off the event loop so concurrent connects don't block each other.
+    customer = await anyio.to_thread.run_sync(_register_web_customer_presence, websocket)
     if customer is not None:
         visualization_hub.register_ws_presence(websocket, customer["agent_id"])
-    # Build snapshot from DB: 4 fixed staff + online customers.
-    try:
-        db = SessionLocal()
-        try:
-            agents = _build_snapshot_agents(db)
-        finally:
-            db.close()
-    except Exception:
-        agents = []
+    agents = await anyio.to_thread.run_sync(_build_snapshot_agents_for_connect)
     await visualization_hub.connect(websocket, agents=agents)
-    # Real-time appear: tell other clients this customer just came online.
+    # Real-time appear: transient notice to OTHER clients (excludes self, not replayed).
     if customer is not None:
-        await visualization_hub.broadcast(
+        await visualization_hub.broadcast_others(
+            websocket,
             {
                 "event_id": None,
                 "type": "agent.registered",
@@ -1492,7 +1564,7 @@ async def visualization_websocket(websocket: WebSocket):
                 },
                 "correlation_id": None,
                 "created_at": datetime.utcnow().isoformat(),
-            }
+            },
         )
     presence_payload: dict[str, Any] | None = None
     try:
@@ -1516,9 +1588,10 @@ async def visualization_websocket(websocket: WebSocket):
                 await visualization_hub.broadcast(presence_message)
     except WebSocketDisconnect:
         visualization_hub.disconnect(websocket)
-        # Real-time disappear: tell other clients this customer left the scene.
+        # Real-time disappear: transient leave_scene (this ws is already gone from
+        # the connection set, so broadcast_transient reaches the remaining clients).
         if customer is not None:
-            await visualization_hub.broadcast(
+            await visualization_hub.broadcast_transient(
                 {
                     "event_id": None,
                     "type": "agent.action",

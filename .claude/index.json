@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
-  "generated_at": "2026-06-20T19:07:23+08:00",
-  "last_incremental_run": "2026-06-20T19:07:23+08:00",
+  "generated_at": "2026-06-20T21:30:20+08:00",
+  "last_incremental_run": "2026-06-20T21:30:20+08:00",
   "scanner": "init-architect-adaptive",
   "run_mode": "incremental",
   "truncated": false,
@@ -9,18 +9,26 @@
     "claude_md": "CLAUDE.md",
     "existing_claude_md": ".claude/CLAUDE.md",
     "project": "coffee-ai-boss",
-    "vision": "咖啡店 AI Boss 系统：LLM+RAG+Redis 对话点单 + A2A Skill 积分点单 + 3D 咖啡厅事件流可视化（含服务员团队编排）。2026-06-20 09:40 起，像素风 Colyseus 方案与独立 2D 对话页已归档到 _archive/，3D 咖啡厅 (frontend/) 为唯一活跃 UI。2026-06-20 19:07 起可视化为'事件流 + 后端编排服务员团队'模型（4 固有 staff agent + orchestrate_staff_node）。",
+    "vision": "咖啡店 AI Boss 系统：LLM+RAG+Redis 对话点单（匿名，无登录门槛）+ A2A Skill 积分点单 + 3D 咖啡厅事件流可视化（含服务员团队编排）。2026-06-20 09:40 起，像素风 Colyseus 方案与独立 2D 对话页已归档到 _archive/，3D 咖啡厅 (frontend/) 为唯一活跃 UI。2026-06-20 19:07 起可视化为'事件流 + 后端编排服务员团队'模型（4 固有 staff agent + orchestrate_staff_node）。2026-06-20 21:30 起，明确'咖啡厅匿名点单，无登录门槛'：根路由 /、/chat、3D 场景所有路由均匿名可访问，/auth/* 与登录页仅作可选增值。",
     "languages": {
       "Python": "app/, scripts/, tests/, .agents/skills/a2a-super-order/",
       "TypeScript": "frontend/",
       "HTML/CSS": "app/static/ (仅 3d/ 构建产物)"
     },
     "runtimes": {
-      "backend": "FastAPI + Uvicorn (port 8000, --reload-dir app 规避根 _mock_hub.py)",
+      "backend": "FastAPI + Uvicorn (port 8000, --reload-dir app 规避根 _mock_hub.py；或去掉 --reload 防 Windows 卡死)",
       "frontend_dev": "Vite (port 5174)",
-      "frontend_served": "FastAPI /3d + 根 / (app/static/3d)"
+      "frontend_served": "FastAPI /3d + 根 / (app/static/3d, 匿名直出)"
     },
     "databases": ["MySQL 8.0", "Redis 7"],
+    "anonymous_ordering": {
+      "established_at": "2026-06-20T21:30:20+08:00",
+      "principle": "咖啡厅线下场景，顾客匿名消费，不该有账号密码门槛",
+      "anonymous_routes": ["GET /", "POST /chat", "GET /3d", "GET /3d/{path}", "/3d/scene", "/3d/machines", "/3d/dashboard"],
+      "login_optional_routes": ["/3d/login", "/3d/register", "POST /auth/register", "POST /auth/login"],
+      "login_value_adds": ["个性化昵称（顾客人偶显示真实昵称）", "WS 在线顾客人偶 presence（_register_web_customer_presence 读签名 Cookie）"],
+      "ws_presence_caveat": "/ws/visualization 连接本身匿名，但 _register_web_customer_presence 匿名访客被跳过（不显示为在线顾客人偶）；不阻断匿名点单，事件流/服务员编排照常"
+    },
     "archived": {
       "note": "2026-06-20 09:40 归档：像素 Colyseus 多人房间 + 2D 原生对话页。归档而非删除，可恢复。",
       "items": [
@@ -44,14 +52,16 @@
       "tables": ["user", "user_account", "order", "order_item", "order_item_option", "product", "product_option_group", "product_option", "coffee_kb", "agent_profile", "evomap_consumer", "skill_order_ledger", "user_wallet", "balance_transaction", "visualization_event"],
       "table_count": 15,
       "endpoints": [
-        "POST /chat", "POST /agents/register", "POST /agents/{id}/heartbeat",
+        "GET / (匿名直出 3D SPA)", "POST /chat (匿名)", "POST /agents/register", "POST /agents/{id}/heartbeat",
         "POST /agents/{id}/actions", "GET /agents", "POST /skill/register",
         "POST /skill/orders", "GET /visualization/events", "GET /admin/restaurant-state",
         "WS /ws/visualization", "POST /auth/register", "POST /auth/login",
         "POST /auth/logout", "GET /auth/me", "GET /user/{id}", "GET /orders/{id}",
-        "GET /history/{id}", "DELETE /history/{id}", "GET /status", "GET /3d", "GET /3d/{path}", "GET /"
+        "GET /history/{id}", "DELETE /history/{id}", "GET /status", "GET /3d", "GET /3d/{path}"
       ],
-      "root_route": "GET / → 3D SPA (app/static/3d/index.html); 2D 对话页已归档",
+      "root_route": "GET / → 3D SPA (app/static/3d/index.html); index() main.py:1696 匿名直出、不校验登录（2026-06-20 21:30 删登录校验）；3D 未构建时 fallback 2D index.html",
+      "chat_auth": "POST /chat main.py:588 无 auth 依赖、匿名 req.user_id",
+      "ws_presence_auth": "/ws/visualization 连接匿名；_register_web_customer_presence main.py:1428 读签名 Cookie，匿名访客被跳过（不显示在线顾客人偶），不阻断点单",
       "staff_orchestration": {
         "service": "app/services/staff_service.py",
         "staff_roles": ["barista", "cashier", "waiter", "manager"],
@@ -110,7 +120,8 @@
       "framework": "React 19 + React-Three-Fiber + Vite",
       "origin_note": "office3d/ 与 avatars/ 全套从 Claw3D retro-office 移植（文件头均注明），去掉 janitor/gym/qa/pingpong/district。2026-06-20 09:40 起为项目唯一活跃 UI",
       "routes": ["/3d/scene", "/3d/machines", "/3d/dashboard", "/3d/login", "/3d/register"],
-      "topbar_nav": "3D 咖啡厅(→/scene) + 大屏(→/dashboard)（2026-06-20 文案从'3D 办公室'修正为'3D 咖啡厅'）",
+      "route_auth": "App.tsx 无 <ProtectedRoute> 守卫，所有路由（/ /scene /machines /dashboard）匿名可访问；/login /register 为可选（LoginPage 提供'匿名进入 3D'链接）",
+      "topbar_nav": "3D 咖啡厅(→/scene) + 大屏(→/dashboard)；未登录时仅显示'登录'按钮，不阻断浏览/点单",
       "key_files": [
         "frontend/src/main.tsx", "frontend/src/App.tsx",
         "frontend/src/screens/OfficeScene.tsx", "frontend/src/screens/Dashboard.tsx",
@@ -212,11 +223,11 @@
     "estimated_source_files": 56,
     "scanned_files": 56,
     "coverage_percent": 99,
-    "delta_this_run": "2026-06-20 19:07 第五次 init（刷新模式）：对齐外部 commit '服务员团队编排/staff 智能模型'。精读新文件 app/services/staff_service.py（4 固有服务员幂等创建 + ensure_web_customer_agent 修 B4 + orchestrate_staff_node 业务节点→动作分派 + best-effort 广播）、main.py lifespan _seed_and_broadcast_staff + completion_flow 编排挂载、skill_order_service.py 编排接线、visualization_service scene.snapshot agents 字段、OfficeScene.tsx onEvent/onSnapshot 契约适配、App.tsx 导航修正(3D 办公室→3D 咖啡厅)、MachineShowcase.tsx 新路由 /machines、roleMap.ts waiter y700→660、agentStore.ts enter 分支 re-enter 不 teleport。确认 SKILL-VISUALIZATION-ROADMAP.md 5 Phase 全 ✅ 并经独立验证（真实 Skill 单 22 事件 + mock Hub 付费单 28 事件含 9 条 staff action）",
+    "delta_this_run": "2026-06-20 21:30 第六次 init（刷新模式，仅文档不改源码）：对齐 app/main.py:1696 index() 根路由删登录校验——根 / 直接返回 3D SPA（匿名，不校验登录），3D 未构建时 fallback 2D index.html。确认匿名点单门槛：① main.py:588 /chat 无 auth 依赖、匿名 req.user_id；② frontend/src/App.tsx 路由 / /scene /machines /dashboard 无 ProtectedRoute 守卫（/login /register 可选）；③ LoginPage 提供'匿名进入 3D'链接。设计动因：咖啡厅线下场景顾客匿名消费。清除根/app/frontend CLAUDE.md 过时登录描述（'/ 未登录跳 /3d/login'、'消费需要登录账户'、'账户登录访问受保护页面'）。uvicorn 启动建议更新（--reload-dir app 或不带 --reload 防 Windows 卡死）。补唯一例外说明：/ws/visualization 的 _register_web_customer_presence main.py:1428 读签名 Cookie，匿名访客被跳过不显示在线顾客人偶，但不阻断匿名点单。新增设计原则'咖啡厅匿名点单，无登录门槛'。覆盖率 99% → 99%",
     "scanned_root": ["docker-compose.yml", "requirements.txt", ".gitignore", "_mock_hub.py (确认临时文件，标注忽略)"],
-    "scanned_app": ["app/main.py (lifespan + completion_flow 编排挂载)", "app/config.py", "app/domain_constants.py", "app/colyseus_bridge.py", "app/db/models.py (15 表)", "app/db/database.py", "app/db/seed.py", "app/services/*.py (8, 含新 staff_service.py)", "app/llm/client.py", "app/rag/*.py (2)", "app/memory/chat_history.py", "app/auth/*.py (2)"],
+    "scanned_app": ["app/main.py (index() main.py:1696 匿名直出 3D + /chat main.py:588 无 auth + ws presence main.py:1428 签名 Cookie 例外)", "app/config.py", "app/domain_constants.py", "app/colyseus_bridge.py", "app/db/models.py (15 表)", "app/db/database.py", "app/db/seed.py", "app/services/*.py (8, 含 staff_service.py)", "app/llm/client.py", "app/rag/*.py (2)", "app/memory/chat_history.py", "app/auth/*.py (2)"],
     "scanned_frontend": [
-      "package.json", "vite.config.ts", "src/main.tsx", "src/App.tsx (导航修正确认)",
+      "package.json", "vite.config.ts", "src/main.tsx", "src/App.tsx (无 ProtectedRoute 守卫确认)",
       "src/screens/OfficeScene.tsx (onEvent/onSnapshot 契约适配)", "src/screens/Dashboard.tsx (全文)",
       "src/screens/MachineShowcase.tsx (新路由 /machines)",
       "src/auth/AuthProvider.tsx", "src/auth/AuthPages.tsx",

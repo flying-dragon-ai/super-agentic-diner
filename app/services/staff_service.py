@@ -43,16 +43,17 @@ def _staff_tool_name(role: str) -> str:
 
 def ensure_staff_agents(db: Session) -> dict[str, AgentProfile]:
     """Idempotently create the four fixed staff agents, keyed by role."""
-    staff: dict[str, AgentProfile] = {}
+    tool_names = {role: _staff_tool_name(role) for role in STAFF_ROLES}
+    # One query for all four roles instead of one per role.
+    existing = {
+        a.tool_name: a
+        for a in db.query(AgentProfile)
+        .filter(AgentProfile.tool_name.in_(list(tool_names.values())))
+        .all()
+    }
     for role in STAFF_ROLES:
-        tool_name = _staff_tool_name(role)
-        agent = (
-            db.query(AgentProfile)
-            .filter(AgentProfile.tool_name == tool_name)
-            .order_by(AgentProfile.agent_id.asc())
-            .first()
-        )
-        if agent is None:
+        tool_name = tool_names[role]
+        if tool_name not in existing:
             agent = AgentProfile(
                 tool_name=tool_name,
                 display_name=STAFF_DISPLAY_NAME[role],
@@ -70,8 +71,18 @@ def ensure_staff_agents(db: Session) -> dict[str, AgentProfile]:
             db.add(agent)
             db.commit()
             db.refresh(agent)
-        staff[role] = agent
-    return staff
+            existing[tool_name] = agent
+        # Collapse any race-created duplicates for this deterministic tool_name.
+        _collapse_duplicate_agents(db, tool_name)
+    # Re-fetch survivors in one query (collapse may have swapped the kept row).
+    survivors = {
+        a.tool_name: a
+        for a in db.query(AgentProfile)
+        .filter(AgentProfile.tool_name.in_(list(tool_names.values())))
+        .order_by(AgentProfile.agent_id.asc())
+        .all()
+    }
+    return {role: survivors[tool_names[role]] for role in STAFF_ROLES}
 
 
 def ensure_web_customer_agent(db: Session, user_id: Any) -> AgentProfile:
@@ -82,41 +93,46 @@ def ensure_web_customer_agent(db: Session, user_id: Any) -> AgentProfile:
     """
     key = str(user_id)[:96]
     tool_name = f"web:customer:{key}"
-    agent = (
+    if (
+        db.query(AgentProfile)
+        .filter(AgentProfile.tool_name == tool_name)
+        .count()
+        == 0
+    ):
+        db.add(
+            AgentProfile(
+                tool_name=tool_name,
+                display_name=f"Web 用户 {key}",
+                role_type="customer",
+                capabilities_json=encode_json([]),
+                metadata_json=encode_json({"source": "web", "user_id": key}),
+                api_token_hash=hash_agent_token(f"web:{key}:internal"),
+                sprite_seed=make_sprite_seed(),
+                status=IDENTITY_STATUS_ACTIVE,
+                created_at=datetime.utcnow(),
+                last_seen_at=datetime.utcnow(),
+            )
+        )
+        db.commit()
+    _collapse_duplicate_agents(db, tool_name)
+    # Return the survivor — never a row collapse may have just deleted.
+    return (
         db.query(AgentProfile)
         .filter(AgentProfile.tool_name == tool_name)
         .order_by(AgentProfile.agent_id.asc())
         .first()
     )
-    if agent is None:
-        agent = AgentProfile(
-            tool_name=tool_name,
-            display_name=f"Web 用户 {key}",
-            role_type="customer",
-            capabilities_json=encode_json([]),
-            metadata_json=encode_json({"source": "web", "user_id": key}),
-            api_token_hash=hash_agent_token(f"web:{key}:internal"),
-            sprite_seed=make_sprite_seed(),
-            status=IDENTITY_STATUS_ACTIVE,
-            created_at=datetime.utcnow(),
-            last_seen_at=datetime.utcnow(),
-        )
-        db.add(agent)
-        db.commit()
-        db.refresh(agent)
-    _collapse_duplicate_customer_agents(db, tool_name)
-    return agent
 
 
-def _collapse_duplicate_customer_agents(db: Session, tool_name: str) -> None:
-    """Collapse any duplicate rows for a deterministic customer tool_name to one.
+def _collapse_duplicate_agents(db: Session, tool_name: str) -> None:
+    """Collapse any duplicate rows for a deterministic tool_name to one.
 
-    ``web:customer:{user_id}`` has no DB-level unique constraint (skill agents
-    legitimately share ``tool_name='codex'``, so a global unique index is wrong).
-    Two concurrent WS connects for the same user can each pass the
-    query-then-create check above and insert a duplicate, which would render twin
-    avatars. On every call we drop all but the oldest row for this tool_name so
-    the scene stays consistent. Best-effort: never raises into the caller.
+    ``agent_profile.tool_name`` has no unique constraint (skill agents legitimately
+    share ``tool_name='codex'``, so a global unique index is wrong). For
+    deterministic tool_names (``staff:{role}``, ``web:customer:{user_id}``) two
+    concurrent callers can each pass the query-then-create check and insert a
+    duplicate, which would render twin avatars. Drop all but the oldest row.
+    Best-effort: never raises into the caller.
     """
     try:
         dupes = (

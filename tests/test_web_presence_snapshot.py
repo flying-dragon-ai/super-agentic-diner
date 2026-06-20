@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import unittest
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
 
@@ -138,6 +138,93 @@ class WebCustomerDedupTests(unittest.TestCase):
             self.assertEqual(again.agent_id, first.agent_id)
         finally:
             db.close()
+
+
+class SkillOfflineSweepTests(unittest.IsolatedAsyncioTestCase):
+    """Skill/CLI customers can't signal departure (their script already exited); the
+    background sweep must broadcast leave_scene for any whose heartbeat window just
+    expired, so already-connected clients drop the avatar in real time.
+    """
+
+    def setUp(self):
+        import app.main as main_mod
+
+        self._main = main_mod
+        self._saved_prev = set(main_mod._prev_skill_online)
+        self.user_id = 950000 + int(uuid.uuid4().hex[:6], 16) % 49999
+        self.tool_name = f"web:customer:{self.user_id}"
+        db = SessionLocal()
+        try:
+            self.agent_id = ensure_web_customer_agent(db, self.user_id).agent_id
+        finally:
+            db.close()
+
+    def tearDown(self):
+        db = SessionLocal()
+        try:
+            db.query(AgentProfile).filter(AgentProfile.tool_name == self.tool_name).delete(
+                synchronize_session=False
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+        finally:
+            db.close()
+        self._main._prev_skill_online = self._saved_prev
+
+    async def test_expired_customer_emits_leave_scene(self):
+        from unittest.mock import AsyncMock, patch
+
+        main_mod = self._main
+        # Expire the heartbeat (older than the online window) and pretend the agent
+        # was online on the previous sweep.
+        db = SessionLocal()
+        try:
+            db.query(AgentProfile).filter(AgentProfile.agent_id == self.agent_id).update(
+                {
+                    AgentProfile.last_seen_at: datetime.utcnow()
+                    - timedelta(seconds=main_mod.ONLINE_WINDOW_SECONDS + 60)
+                }
+            )
+            db.commit()
+        finally:
+            db.close()
+        main_mod._prev_skill_online = {self.agent_id}
+
+        mock_broadcast = AsyncMock()
+        with patch.object(main_mod.visualization_hub, "broadcast_transient", mock_broadcast):
+            await main_mod._sweep_offline_skill_customers()
+
+        broadcast_ids = [
+            call.args[0]["agent_id"]
+            for call in mock_broadcast.call_args_list
+            if call.args[0].get("type") == "agent.action"
+        ]
+        self.assertIn(self.agent_id, broadcast_ids, "expired customer must get a leave_scene broadcast")
+        self.assertNotIn(self.agent_id, main_mod._prev_skill_online, "sweep must drop expired id from prev set")
+
+    async def test_still_online_customer_not_swept(self):
+        from unittest.mock import AsyncMock, patch
+
+        main_mod = self._main
+        # Agent is within the window → still online → must NOT be swept.
+        db = SessionLocal()
+        try:
+            db.query(AgentProfile).filter(AgentProfile.agent_id == self.agent_id).update(
+                {AgentProfile.last_seen_at: datetime.utcnow()}
+            )
+            db.commit()
+        finally:
+            db.close()
+        main_mod._prev_skill_online = {self.agent_id}
+
+        mock_broadcast = AsyncMock()
+        with patch.object(main_mod.visualization_hub, "broadcast_transient", mock_broadcast):
+            await main_mod._sweep_offline_skill_customers()
+
+        broadcast_ids = [call.args[0]["agent_id"] for call in mock_broadcast.call_args_list]
+        self.assertNotIn(self.agent_id, broadcast_ids, "still-online customer must not be swept")
+        self.assertIn(self.agent_id, main_mod._prev_skill_online, "still-online id stays in prev set")
 
 
 if __name__ == "__main__":

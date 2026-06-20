@@ -88,8 +88,6 @@ export default function OfficeScene() {
   const [ghostPos, setGhostPos] = useState<[number, number, number] | null>(null);
   const [wallDrawStart, setWallDrawStart] = useState<{ x: number; y: number } | null>(null);
   const [overlay, setOverlay] = useState<OverlayKind>(null);
-  // Phase 7 optional debug overlays + perf safety net.
-  const [debug, setDebug] = useState(false);
   const colorMap = useColorMap(agentsRef);
 
   useEffect(() => {
@@ -404,7 +402,11 @@ export default function OfficeScene() {
                   item={item}
                   isSelected={selectedUid === item._uid}
                   isHovered={hoverUid === item._uid}
-                  onClick={() => handleMachineActivate(item)}
+                  onClick={() =>
+                    editMode
+                      ? handleFurniturePointerDown(item._uid)
+                      : handleMachineActivate(item)
+                  }
                 />
               );
             }
@@ -415,11 +417,7 @@ export default function OfficeScene() {
                 editMode={editMode}
                 isSelected={selectedUid === item._uid}
                 isHovered={hoverUid === item._uid}
-                onPointerDown={() =>
-                  item.type === "coffee_machine" && !editMode
-                    ? handleMachineActivate(item)
-                    : handleFurniturePointerDown(item._uid)
-                }
+                onPointerDown={() => handleFurniturePointerDown(item._uid)}
                 onPointerOver={() => editMode && setHoverUid(item._uid)}
                 onPointerOut={() => setHoverUid(null)}
               />

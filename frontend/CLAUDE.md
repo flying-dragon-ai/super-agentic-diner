@@ -6,6 +6,8 @@
 
 | 时间 | 动作 | 说明 |
 |------|------|------|
+| 2026-06-20 21:30 | 增量刷新 | **匿名点单门槛确立（前端侧）**（仅文档刷新，不改源码）。对齐后端 `main.py:1696` `index()` 删登录校验：根路由 `/`（经 FastAPI）匿名直出 3D SPA，**前端 3D 场景无任何强制登录拦截**。确认 `App.tsx` 路由 `/` `/scene` `/machines` `/dashboard` 均**无 `<ProtectedRoute>` 守卫**，`/login` `/register` 为可选；`TopBar` 未登录时仅显示"登录"按钮（不阻断浏览/点单）。`LoginPage` 提供"匿名进入 3D"链接。内嵌聊天消费后端 `POST /chat`（匿名 user_id，无 auth）。设计动因：咖啡厅线下场景，顾客匿名消费不该有账号密码门槛。清除"账户登录访问受保护页面"过时措辞（实际无受保护页面）。详见「模块职责 #4」「账户登录」「FAQ」 |
+| 2026-06-20 | 编辑器完整度对齐 | **3D 编辑器与 Claw3D 完整度对齐**（修"编辑后不生效"）：① **P0 autosave**：`OfficeScene` 加 debounced(300ms) autosave effect，删 6 处手动 `saveFurniture`（键盘移动/旋转/抬升原先漏存→刷新丢失的根因）；② **P1 操作封装**：移植 Claw3D `updateSelectedItem/moveSelectedItem/rotateSelectedItem`（键盘+面板共用），带 `snap()` 吸附+`normalizeDegrees()` 规范化+elevation `[-0.4,2.5]`；③ **P1 可视化面板**：新建 `ui/SelectedObjectPanel.tsx`（Move 3×3 方向网格+Rotate ±15°+实时 rot/lift+关闭✕+删除/恢复默认），取代原纯文字提示面板；④ **P2**：选中面板关闭按钮、恢复默认 `window.confirm` 防误触；⑤ **Machine 编辑盲区修复**：`coffee_machine/atm/vending/jukebox`（走 `resolveMachine` 分支）编辑模式下 onClick 改走 `handleFurniturePointerDown`，现可选中/跟鼠标移动/编辑/删除（原 editMode 下点选无反应）；⑥ 清理死代码：删未用 `debug` state + FurnitureModel 的 coffee_machine 死特判。构建通过(tsc+vite)。详见 `docs/3D编辑器保存机制对齐.md` |
 | 2026-06-20 19:07 | 增量刷新 | **服务员团队编排的前端契约适配**（外部 commit "服务员团队编排/staff 智能模型"）：① **App.tsx 导航修正**：TopBar 链接 "3D 办公室"→"3D 咖啡厅"（漏改已修）。② **新增路由 `/machines`** → `MachineShowcase`（咖啡机展示页，独立 Canvas + `CoffeeMachinePreviewCluster`，路由段补全）。③ **OfficeScene.tsx onEvent 重写**（修 B1/B2/B3 契约错配）：`agent.action` 事件取 `payload.action_type` 作 action（外层 type 永远是 `agent.action`，真动作在 payload）；兼容 snake_case（`name = payload.display_name ?? payload.name`、`role = payload.role_type ?? payload.role`、`spriteSeed = payload.sprite_seed ?? payload.spriteSeed`）；`agent.registered` 事件转 `enter` 语义让人偶入座。④ **新增 onSnapshot 回调**：收 `scene.snapshot` 时遍历 `payload.agents`（4 staff + 活跃顾客，后端 2026-06-20 新增）预创建人偶，后连接/刷新页面也能看到服务员团队。⑤ **agentStore.ts `enter` 分支增强**：返回的服务员（re-enter/reset）从当前位置 routeTo 到工位，不再 teleport 跳变（isNew 才从 ENTRY_POINT 出生）。⑥ **roleMap.ts `waiter` 工位 y700→660 微调**（与后端 staff_service 工位表对齐）。详见「事件 → 渲染管线」「角色映射」「sim 层」小节 |
 | 2026-06-20 | 收尾修复+素材接入 | **移植残留清理 + cafe-extras 素材接入**：① roleMap 坐标超界真 bug 修复（`customer` y1080→580、`ENTRY/EXIT` y900→360，超出 `CANVAS_H=720`，从 Claw3D 1800×1800 抄来没适配；寻路目标曾塌缩到画布底边）+ 注释 1800x1800→1800x720；② 清理移植残留死代码（navigation `void ITEM_FOOTPRINT/snap`、agentStore `void NAV_ENTRY`、OfficeScene `roleDeskIndex`/`DESK_LOCS`/`ROLE_DESK`/`getDeskLocations` 整套 void 占位、main.py unused import `bridge_event_to_colyseus`、furnitureDefaults `void nextUid`）；③ **咖啡杯接入（曲折）**：先试 cafe-extras CC0 素材（ppCoffeeCup/ppEspresso），读 GLB bbox 发现俩模型原始尺寸差 3.5 万倍（ppCoffeeCup~3mm、ppEspresso~104m），任何单一 FURNITURE_SCALE 都调不对 → **弃用 PP 素材，改 `CupProp` 程序化画杯**（cylinder 杯身+咖啡液面：`coffee_cup` r4cm×h9cm 白陶瓷、`espresso` r2.8cm×h6cm 小杯）；elevation 按桌面高度（圆桌 0.31m、吧台 0.69m）；ppCoffeeMachine 保留二期储备（主线 kitchenCoffeeMachine 已在用） |
 | 2026-06-20 11:10 | 场景改造 | **office→咖啡厅**：① 修天气系统变暗 bug（`cameraLighting` 的 `DayNightCycle` 昼夜循环→`SceneLighting` 固定明亮白天：hemisphereLight 0.6+ambient 1.1+sun 1.8，根因是原 6 关键帧含 2 暗帧 sunIntensity 0.2-0.3 + 300s 周期）；② 重写 `furnitureDefaults` 为咖啡厅布局（吧台区 executive_desk+coffee_machine+3 高脚椅 / 客座区 4 组 round_table+chair 2×2 / 休闲区 couch+2 beanbag+单人椅 / 墙面 whiteboard 菜单板+bookshelf+lamp+plant）；③ `environment` 墙色 #8d6e63→#795548 暖棕、emissive 0.4→0.5；④ `furniture` FURNITURE_TINT 转暖咖啡色；⑤ `OfficeScene` 切 SceneLighting + 文案"3D 咖啡厅"；⑥ 下载 3 个 CC0 GLB 到 `cafe-extras/` 储备 |
@@ -18,23 +20,23 @@
 ## 模块职责
 
 Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws/visualization` 事件流对接）。**2026-06-20 09:40 起，本模块是项目唯一活跃 UI**（像素 Colyseus 方案与独立 2D 对话页均已归档到 `_archive/`），后端根路由 `/` 已改为直出本前端构建产物。四大职责：
-1. **3D 咖啡厅场景**（`/3d/scene`）：用 React-Three-Fiber 渲染带真实 GLB 家具的咖啡厅（吧台/客座圆桌/沙发豆袋休闲区，2026-06-20 从办公室改造），Agent（**4 个固有服务员 barista/cashier/waiter/manager + 动态顾客**，2026-06-20 新增服务员团队）按可视化事件驱动行走、工作、说话。内嵌聊天消费后端 `POST /chat`。
+1. **3D 咖啡厅场景**（`/3d/scene`）：用 React-Three-Fiber 渲染带真实 GLB 家具的咖啡厅（吧台/客座圆桌/沙发豆袋休闲区，2026-06-20 从办公室改造），Agent（**4 个固有服务员 barista/cashier/waiter/manager + 动态顾客**，2026-06-20 新增服务员团队）按可视化事件驱动行走、工作、说话。内嵌聊天消费后端 `POST /chat`（匿名 user_id，无登录门槛）。
 2. **监控大屏**（`/3d/dashboard`）：聚合 `/admin/restaurant-state`，展示今日订单/金额/来源分布/最近订单/事件流/在线员工。
 3. **咖啡机展示**（`/3d/machines`）：独立 Canvas 展示咖啡机模型簇（`CoffeeMachinePreviewCluster`，2026-06-20 新增）。
-4. **账户登录**（`/3d/login`、`/3d/register`）：通过签名 Cookie 会话访问受保护页面。
+4. **账户登录（可选增值）**（`/3d/login`、`/3d/register`）：通过签名 Cookie 会话提供个性化昵称 + WS 在线顾客人偶 presence。**2026-06-20 21:30 起，3D 场景无任何强制登录拦截**——所有路由（`/` `/scene` `/machines` `/dashboard`）匿名可访问，登录是增值而非点单前置。
 
 > 来源标注：`office3d/` 与 `avatars/` 全套从 **Claw3D retro-office** 移植（文件头均注明 "Ported/Adapted from Claw3D"），去掉了 Claw3D 特有的 janitor/gym/qa/pingpong/district 逻辑，保留监控视图所需的最小子集。
 
 ## 入口与启动
 
 - **入口**：`src/main.tsx` → `src/App.tsx`（`<BrowserRouter basename="/3d">`）
-- **TopBar 导航**（`App.tsx`）：固定右上角浮层，链接 `3D 咖啡厅`（→`/scene`）、`大屏`（→`/dashboard`）+ 登录/登出/用户名；在 `/scene` 路由下 `pointerEvents:none` + opacity 0.45 半透明，避免遮挡 3D 交互（2026-06-20 已把链接文案从"3D 办公室"修正为"3D 咖啡厅"）。
-- **路由**（react-router-dom 7）：
+- **TopBar 导航**（`App.tsx`）：固定右上角浮层，链接 `3D 咖啡厅`（→`/scene`）、`大屏`（→`/dashboard`）+ 登录/登出/用户名；在 `/scene` 路由下 `pointerEvents:none` + opacity 0.45 半透明，避免遮挡 3D 交互（2026-06-20 已把链接文案从"3D 办公室"修正为"3D 咖啡厅"）。**未登录时仅显示"登录"按钮，不阻断浏览/点单**。
+- **路由**（react-router-dom 7，**无 `<ProtectedRoute>` 守卫，全部匿名可访问**）：
   - `/` → 重定向到 `/scene`
-  - `/scene` → `OfficeScene`
+  - `/scene` → `OfficeScene`（匿名可访问，内嵌聊天消费 `/chat`）
   - `/machines` → `MachineShowcase`（咖啡机展示，2026-06-20 新增）
   - `/dashboard` → `Dashboard`
-  - `/login`、`/register` → 登录/注册页
+  - `/login`、`/register` → 登录/注册页（可选）
 - **开发**：`npm run dev`（Vite，端口 5174，代理 `/ws` `/api` 到 `localhost:8000`）
 - **构建**：`npm run build`（`tsc --noEmit && vite build`，产物输出到 `../app/static/3d`，由 FastAPI `/3d` 与根 `/` 托管）
 - **base path**：`/3d/`（见 `vite.config.ts`）
@@ -67,7 +69,7 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
   - `FurnitureItem`：`{_uid, type, x, y, w?, h?, r?, color?, facing?, vertical?, elevation?}`
 - **`AgentAvatarProfile`**（`office3d/avatars/profile.ts`）：确定性头像档案（version 1，含 skinTone/hair/clothing/accessories/glasses/headset/hat/backpack），由 seed 字符串经 FNV-1a 哈希确定性派生
 - **`SimHandle`**（`sim/agentStore.ts`）：`{agents, furniture, speech, rebuildNav, setFurniture, _nav}` — 事件驱动 + tick 推进的状态机
-- **`Account`**（`auth/AuthProvider.tsx`）：`{user_id, username, nickname}`
+- **`Account`**（`auth/AuthProvider.tsx`）：`{user_id, username, nickname}`（可选，未登录时为 null）
 - **大屏 `State`**（`screens/Dashboard.tsx`）：`{today:{order_count,total_amount,active_agent_count,active_consumer_count}, by_source:[{source_type,count,amount}], recent_orders:[{order_id,coffee_name,amount,status,source_type,created_at}], recent_events:VisEvent[], agents:[{display_name,role_type,status}]}`
 
 ## 核心架构
@@ -174,13 +176,15 @@ scene.snapshot (连接即收) → onSnapshot: 遍历 payload.agents 预创建人
 - `ShowcaseStage`：程序化搭展示台（米色地面 + 棕色台面 + 深色背板 + 顶部招牌条），单个 `coffee_machine` 家具置于台中央（elevation 0.22）。
 - 不接 ws 事件，纯静态展示页（路由 `/machines`）。
 
-### 账户登录（`auth/`）
-- **`AuthProvider.tsx`** — React Context，封装 `login/register/logout/me`，签名 Cookie 会话
+### 账户登录（`auth/`，可选增值）
+- **`AuthProvider.tsx`** — React Context，封装 `login/register/logout/me`，签名 Cookie 会话。**未登录时 `account` 为 null，前端照常渲染场景/大屏/聊天**（登录非前置条件）。
 - **`AuthPages.tsx`** — 登录/注册表单（全文已扫）：
   - 内联样式（无 CSS 文件），深色卡片 + 径向渐变背景，主题色 `#2a6ba8`（与收银员角色色一致）
-  - `LoginPage`：用户名+密码，`login()` 成功后 `nav("/scene")`；提供"注册"和"匿名进入 3D"链接（**匿名仍可进场景**，向后兼容 `/chat`）
+  - `LoginPage`：用户名+密码，`login()` 成功后 `nav("/scene")`；提供"注册"和"匿名进入 3D"链接（**匿名直接进 `/scene`，无任何拦截**——2026-06-20 21:30 起为咖啡厅匿名点单的正式路径，非"向后兼容"）
   - `RegisterPage`：用户名+昵称（可选）+密码，`register()` 成功后直接登录跳 `/scene`
   - 错误处理：`busy` 禁用按钮防重复提交，错误 message 红字展示
+
+> **登录增值点**（2026-06-20 21:30）：登录仅带来两件事——① 个性化昵称（顾客人偶显示真实昵称而非占位名）；② WS 在线顾客 presence（后端 `_register_web_customer_presence` 读签名 Cookie，登录用户的顾客人偶会出现在 `scene.snapshot`/presence 广播）。**匿名访客点单、看服务员动画、看大屏完全不受影响**。
 
 ## 测试与质量
 
@@ -191,6 +195,9 @@ scene.snapshot (连接即收) → onSnapshot: 遍历 payload.agents 预创建人
 
 ## 常见问题 (FAQ)
 
+- **Q: 进 3D 场景需要登录吗？** A: **不需要**。`App.tsx` 所有路由（`/` `/scene` `/machines` `/dashboard`）匿名可访问，无 `<ProtectedRoute>` 守卫；`LoginPage` 提供"匿名进入 3D"直接跳 `/scene`。2026-06-20 21:30 起这是咖啡厅匿名点单的正式路径。
+- **Q: 匿名能在 3D 场景里点单吗？** A: 能。`OfficeScene` 内嵌聊天消费后端 `POST /chat`（匿名 user_id，无 auth）；后端 `/chat` 无登录依赖。服务员编排（接单/收银/做咖啡/送餐动画）照常触发。唯一差别：匿名访客自身不会有"顾客人偶"在 snapshot 里（后端 presence 需签名 Cookie），但点单业务流和事件广播完全正常。
+- **Q: 那 `/login` `/register` 还有什么用？** A: 可选增值：个性化昵称 + WS 在线顾客人偶 presence（登录后顾客人偶出现在 snapshot）。不是浏览/点单前置。
 - **Q: 3D 页面 404？** A: 需先 `npm run build` 把产物输出到 `app/static/3d/`，否则根 `/` 与 `/3d` 路由返回 "3D build not found"。
 - **Q: 开发模式如何连后端？** A: Vite 代理 `/ws`、`/api` 到 `localhost:8000`；`api.ts` 的 `base` 在 DEV 模式返回 `http://localhost:8000`。
 - **Q: 大屏数据多久刷新？** A: `Dashboard.tsx` 每 **4 秒**同时轮询 `/admin/restaurant-state`（KPI/最近订单/在线员工）和 `/visualization/events?limit=30`（事件流）。
@@ -204,11 +211,11 @@ scene.snapshot (连接即收) → onSnapshot: 遍历 payload.agents 预创建人
 | 文件 | 说明 |
 |------|------|
 | `src/main.tsx` | React 挂载入口 |
-| `src/App.tsx` | 路由 + TopBar（"3D 咖啡厅"导航，2026-06-20 修正）+ AuthProvider |
+| `src/App.tsx` | 路由（**无 ProtectedRoute 守卫，全匿名**）+ TopBar（"3D 咖啡厅"导航）+ AuthProvider |
 | `src/screens/OfficeScene.tsx` | 3D 咖啡厅主场景（装配 Canvas+灯具+家具+Agent+聚光灯+GameLoop）；**onEvent 契约适配 + onSnapshot 预创建人偶（2026-06-20）** |
 | `src/screens/Dashboard.tsx` | 监控大屏（4s 双轮询 + 4 KPI 卡 + 最近订单 + 实时事件流） |
 | `src/screens/MachineShowcase.tsx` | 咖啡机展示页（独立 Canvas + ShowcaseStage，2026-06-20 新增） |
-| `src/auth/AuthProvider.tsx` | 账户 Context（login/register/logout/me） |
+| `src/auth/AuthProvider.tsx` | 账户 Context（login/register/logout/me；未登录 account=null，不阻断渲染） |
 | `src/auth/AuthPages.tsx` | 登录/注册表单（内联样式，支持匿名进入） |
 | `src/net/api.ts` | fetch 封装 + 事件契约类型 |
 | `src/net/visualizationSocket.ts` | WebSocket 客户端（自动重连 + onSnapshot 回调） |

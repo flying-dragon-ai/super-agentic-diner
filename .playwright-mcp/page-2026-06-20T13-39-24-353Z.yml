@@ -1,0 +1,101 @@
+- generic [ref=e2]:
+  - generic:
+    - link "3D 咖啡厅":
+      - /url: /3d/scene
+    - link "大屏":
+      - /url: /3d/dashboard
+    - button "登录"
+  - generic [ref=e3]:
+    - generic [ref=e7]:
+      - generic [ref=e8]: Coffee AI Boss · 3D 咖啡厅
+      - generic [ref=e9]: "WS: connecting · 在场员工 5 · 焦点 无"
+    - generic [ref=e10]:
+      - button "全景" [ref=e11] [cursor=pointer]
+      - button "机器" [ref=e12] [cursor=pointer]
+      - button "吧台" [ref=e13] [cursor=pointer]
+      - button "休闲" [ref=e14] [cursor=pointer]
+      - button "✏️ 编辑中" [active] [ref=e17] [cursor=pointer]
+    - generic [ref=e18]:
+      - button "🧱 Wall" [ref=e19] [cursor=pointer]:
+        - generic [ref=e20]: 🧱
+        - generic [ref=e21]: Wall
+      - button "🚪 Door" [ref=e22] [cursor=pointer]:
+        - generic [ref=e23]: 🚪
+        - generic [ref=e24]: Door
+      - button "📋 Bar Desk" [ref=e25] [cursor=pointer]:
+        - generic [ref=e26]: 📋
+        - generic [ref=e27]: Bar Desk
+      - button "🖥️ Desk" [ref=e28] [cursor=pointer]:
+        - generic [ref=e29]: 🖥️
+        - generic [ref=e30]: Desk
+      - button "⭕ Round Table" [ref=e31] [cursor=pointer]:
+        - generic [ref=e32]: ⭕
+        - generic [ref=e33]: Round Table
+      - button "🟫 Table" [ref=e34] [cursor=pointer]:
+        - generic [ref=e35]: 🟫
+        - generic [ref=e36]: Table
+      - button "🪑 Chair" [ref=e37] [cursor=pointer]:
+        - generic [ref=e38]: 🪑
+        - generic [ref=e39]: Chair
+      - button "🛋️ Couch" [ref=e40] [cursor=pointer]:
+        - generic [ref=e41]: 🛋️
+        - generic [ref=e42]: Couch
+      - button "🛋️ Armchair" [ref=e43] [cursor=pointer]:
+        - generic [ref=e44]: 🛋️
+        - generic [ref=e45]: Armchair
+      - button "🟠 Beanbag" [ref=e46] [cursor=pointer]:
+        - generic [ref=e47]: 🟠
+        - generic [ref=e48]: Beanbag
+      - button "☕ Coffee Machine" [ref=e49] [cursor=pointer]:
+        - generic [ref=e50]: ☕
+        - generic [ref=e51]: Coffee Machine
+      - button "🧊 Fridge" [ref=e52] [cursor=pointer]:
+        - generic [ref=e53]: 🧊
+        - generic [ref=e54]: Fridge
+      - button "🗄️ Cabinet" [ref=e55] [cursor=pointer]:
+        - generic [ref=e56]: 🗄️
+        - generic [ref=e57]: Cabinet
+      - button "📚 Bookshelf" [ref=e58] [cursor=pointer]:
+        - generic [ref=e59]: 📚
+        - generic [ref=e60]: Bookshelf
+      - button "🪴 Plant" [ref=e61] [cursor=pointer]:
+        - generic [ref=e62]: 🪴
+        - generic [ref=e63]: Plant
+      - button "💡 Lamp" [ref=e64] [cursor=pointer]:
+        - generic [ref=e65]: 💡
+        - generic [ref=e66]: Lamp
+      - button "📝 Menu Board" [ref=e67] [cursor=pointer]:
+        - generic [ref=e68]: 📝
+        - generic [ref=e69]: Menu Board
+      - button "🗑️ Trash" [ref=e70] [cursor=pointer]:
+        - generic [ref=e71]: 🗑️
+        - generic [ref=e72]: Trash
+      - button "💳 Register ATM" [ref=e73] [cursor=pointer]:
+        - generic [ref=e74]: 💳
+        - generic [ref=e75]: Register ATM
+      - button "🥤 Vending" [ref=e76] [cursor=pointer]:
+        - generic [ref=e77]: 🥤
+        - generic [ref=e78]: Vending
+      - button "🎵 Jukebox" [ref=e79] [cursor=pointer]:
+        - generic [ref=e80]: 🎵
+        - generic [ref=e81]: Jukebox
+      - button "🔥 Stove" [ref=e82] [cursor=pointer]:
+        - generic [ref=e83]: 🔥
+        - generic [ref=e84]: Stove
+      - button "🚰 Sink" [ref=e85] [cursor=pointer]:
+        - generic [ref=e86]: 🚰
+        - generic [ref=e87]: Sink
+      - button "☕ Coffee Cup" [ref=e88] [cursor=pointer]:
+        - generic [ref=e89]: ☕
+        - generic [ref=e90]: Coffee Cup
+    - generic [ref=e16]:
+      - generic [ref=e91]: order.failed 13:37:22
+      - generic [ref=e92]: order.payment_failed 13:37:22
+      - generic [ref=e93]: restaurant.order_failed 13:37:22
+      - generic [ref=e94]: restaurant.payment_failed 13:37:21
+      - generic [ref=e95]: restaurant.payment_processing 13:37:20
+      - generic [ref=e96]: agent.action 13:37:19
+      - generic [ref=e97]: order.intent_detected 13:37:19
+      - generic [ref=e98]: restaurant.order_ticketed 13:37:19
+      - generic [ref=e99]: message.received 13:37:18
+      - generic [ref=e100]: restaurant.customer_entered 13:37:18

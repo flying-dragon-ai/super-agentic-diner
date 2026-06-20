@@ -5,3 +5,6 @@ __pycache__/
 
 # 本地运行产物
 coffee.db
+
+# Local EvoMap consumer credentials for paid Skill testing.
+.local-consumer.env

@@ -121,17 +121,41 @@ class VisualizationHub:
         self._connections.discard(websocket)
         self._ws_agent.pop(websocket, None)
 
-    async def broadcast(self, message: dict[str, Any]) -> None:
-        self._recent_events.append(message)
-        self._recent_events = self._recent_events[-100:]
+    async def _send_to_all(
+        self,
+        message: dict[str, Any],
+        exclude: WebSocket | None = None,
+    ) -> None:
         disconnected: list[WebSocket] = []
         for websocket in list(self._connections):
+            if websocket is exclude:
+                continue
             try:
                 await websocket.send_json(message)
             except Exception:
                 disconnected.append(websocket)
         for websocket in disconnected:
             self.disconnect(websocket)
+
+    async def broadcast(self, message: dict[str, Any]) -> None:
+        """Persist to recent events (snapshot replay buffer) + push to all clients."""
+        self._recent_events.append(message)
+        self._recent_events = self._recent_events[-100:]
+        await self._send_to_all(message)
+
+    async def broadcast_others(
+        self, exclude: WebSocket, message: dict[str, Any]
+    ) -> None:
+        """Push to all clients except one, without persisting (transient presence)."""
+        await self._send_to_all(message, exclude=exclude)
+
+    async def broadcast_transient(self, message: dict[str, Any]) -> None:
+        """Push to all clients without persisting (transient presence notifications).
+
+        Used for come-online / go-offline signals so they don't pollute the snapshot
+        replay buffer (replaying a stale leave_scene would wrongly remove avatars).
+        """
+        await self._send_to_all(message)
 
     def broadcast_from_sync(self, message: dict[str, Any]) -> None:
         try:

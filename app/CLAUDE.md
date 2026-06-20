@@ -6,6 +6,7 @@
 
 | 时间 | 动作 | 说明 |
 |------|------|------|
+| 2026-06-20 21:30 | 增量刷新 | **匿名点单门槛确立**（仅文档刷新，不改源码）。核心对齐 `app/main.py:1696` `index()`：根路由 `/` **直接返回 3D 咖啡厅 SPA，匿名可访问、不校验登录**（3D 未构建时才 fallback 到 2D `index.html`）。确认点单全程无登录门槛：① `POST /chat`（`main.py:588`）无 auth 依赖、匿名 `req.user_id`；② `/skill/orders` 走 Agent token（非账户登录）。`/auth/*` 与 `/3d/login` `/3d/register` **改为可选增值**（个性化昵称 + WS 在线顾客 presence），不是点单前置。**唯一例外**：`/ws/visualization` 的 `_register_web_customer_presence`（`main.py:1428`）读签名 Cookie，**匿名访客被跳过、不显示为在线顾客人偶**，但**不阻断匿名点单**（事件流照常推、服务员编排照常跑）。uvicorn 启动建议 `--reload-dir app`（规避 `_mock_hub.py`）或不带 `--reload`（Windows 卡死兜底）。覆盖率维持 ~99% |
 | 2026-06-20 19:07 | 增量刷新 | **服务员团队编排落地**（外部 commit "服务员团队编排/staff 智能模型"）：① 新增 `services/staff_service.py`——4 个固有服务员 agent 幂等创建（`staff:barista/cashier/waiter/manager`，sprite_seed 100001-100004）+ `ensure_web_customer_agent`（web 匿名用户也建顾客 agent，修 B4 `agent_anon`）+ `orchestrate_staff_node`（业务节点→服务员动作编排）+ `publish_staff_action/publish_agent_action`（best-effort 广播，失败 swallow+rollback）。② 编排挂载点：`main.py` lifespan startup `_seed_and_broadcast_staff`（广播 4 条 `agent.registered`）+ `_publish_web_completion_flow`/`_publish_skill_completion_flow` 各业务节点（payment_completed/preparation_progress×3/order_ready/order_delivered/customer_left）+ intent_detected 节点。③ `visualization_service` 的 `scene.snapshot` 追加 `agents` 字段（4 staff + 活跃顾客），后连接页面也能看到服务员。④ 编排容错铁律：可视化编排绝不阻断订单/支付。详见新增「服务员团队编排」小节。覆盖率维持 ~99% |
 | 2026-06-20 10:05 | 增量对齐 | 第三次 init：① 2D 对话页归档——根 `/` 改直出 3D SPA（`index()` 注释 "2D archived to _archive/2d-legacy/"），`/static/index.html` 已不存在；`/chat` 仍作 JSON API 供 3D 场景内嵌聊天消费。② Colyseus 子进程拉起为 no-op（`colyseus_bridge.py` 检测 `colyseus-server/` 目录缺失 → 仅 warning 跳过）。③ 数据模型实际 15 表（新增 Product/ProductOptionGroup/ProductOption/OrderItem/OrderItemOption/UserWallet/BalanceTransaction）。④ 新增 services：wallet_service（credits 钱包流水）、catalog_service（库存递减）。⑤ 补扫 evomap_payment_service / skill_order_service 幂等恢复细节 |
 | 2026-06-20 | 创建 | 初始化架构师首次生成 |
@@ -15,17 +16,20 @@
 ## 模块职责
 
 Coffee AI Boss 的 Python 后端，提供：
-1. **对话式点单**（`/chat`）：LLM 意图分类 + RAG 推荐 + 两段式确认 + 余额扣款。
-2. **A2A Skill 点单**（`/skill/register`、`/skill/orders`）：EvoMap 消费者身份 + 积分支付 + 免费额度。
+1. **对话式点单**（`/chat`）：LLM 意图分类 + RAG 推荐 + 两段式确认 + 余额扣款。**匿名 user_id，无登录门槛**。
+2. **A2A Skill 点单**（`/skill/register`、`/skill/orders`）：EvoMap 消费者身份 + 积分支付 + 免费额度（走 Agent token，非账户登录）。
 3. **Agent 可视化 API**（`/agents/*`、`/agents/{id}/actions`）：外部 Agent 工具注册并上报动作，生成可视化事件。
 4. **实时可视化**（`/ws/visualization`、`/visualization/events`、`/admin/restaurant-state`）：事件流持久化 + WebSocket 广播。
 5. **服务员团队编排**（`services/staff_service.py`）：4 个固有服务员 + 业务节点→服务员动作编排（2026-06-20 新增）。
-6. **账户认证**（`/auth/*`）：3D 前端的注册/登录/登出/会话。
+6. **账户认证**（`/auth/*`）：3D 前端的注册/登录/登出/会话。**可选增值**（个性化昵称 + WS 在线顾客 presence），**非点单前置条件**。
 
 ## 入口与启动
 
 - **入口**：`app/main.py`（`app = FastAPI(title="智能咖啡馆 AI 店长")`）
-- **启动**：`uvicorn app.main:app --reload --reload-dir app`（端口 8000；`--reload-dir app` 规避根目录 `_mock_hub.py` 触发的热重载干扰）
+- **启动**（推荐二选一）：
+  - `uvicorn app.main:app --reload --reload-dir app`（`--reload-dir app` 规避根目录 `_mock_hub.py` 触发的热重载干扰）
+  - `uvicorn app.main:app`（不带 `--reload`，Windows + merge 频繁文件变化时 `--reload` 易卡死的兜底）
+  - 端口 8000，根路由 `/` **匿名直出 3D 咖啡厅**（无需登录）。
 - **生命周期**：
   - `startup` → `_startup_colyseus()`：① `start_colyseus_server()`（**目标目录已归档**，`colyseus_bridge.py` 检查 `_COLYSEUS_DIR = repo_root/"colyseus-server"` 不存在 → 记 warning 并 return None，**不拉子进程、不占端口**）；② `_seed_and_broadcast_staff()`（**2026-06-20 新增**）：幂等创建 4 个服务员 agent，对每个广播 `agent.registered` 让前端预创建人偶；全包 try/except，可视化 seeding 绝不 crash app boot。
   - `shutdown` → `stop_colyseus_server()`：`_proc=None` 时直接返回，no-op。
@@ -33,30 +37,33 @@ Coffee AI Boss 的 Python 后端，提供：
 - **静态托管**：
   - `/static` → `app/static/`（构建产物区，2D 原生 `index.html` 已删除）
   - `/3d/assets`、`/3d/office-assets` → `app/static/3d/`（Vite 构建产物）
-  - **`/` → 3D SPA**：`index()` 返回 `app/static/3d/index.html`（原 2D 对话页已归档到 `_archive/2d-legacy/`）；若 3D 未构建则 404 提示 `cd frontend && npm run build`
-  - `/3d`、`/3d/{path}` → 3D SPA（fallback 到 index.html，支持 `/3d/scene`、`/3d/login`、`/3d/dashboard`、`/3d/machines` 客户端路由）
+  - **`/` → 3D SPA（匿名，不校验登录）**：`index()`（`main.py:1696`）直接返回 `app/static/3d/index.html`，**无任何登录/会话校验**；若 3D 未构建则 fallback 到 2D `index.html`（已归档），再没有则 404 提示 `cd frontend && npm run build`。docstring 注释："Root: 直接返回 3D 咖啡厅（匿名可访问，不校验登录）"。
+  - `/3d`、`/3d/{path}` → 3D SPA（fallback 到 index.html，支持 `/3d/scene`、`/3d/login`、`/3d/dashboard`、`/3d/machines` 客户端路由；均匿名可访问）
 
 ## 对外接口
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| POST | `/chat` | 无（匿名 user_id） | 对话点单主入口；返回回复 + 可选 order_id。**当前由 3D 场景内嵌聊天消费**（独立 2D 页已归档）。下单成功会触发服务员编排（`_publish_web_completion_flow`） |
+| GET | `/` | **无（匿名）** | 根路由直出 3D 咖啡厅 SPA（`index()`，**不校验登录**，2026-06-20 21:30 删登录校验） |
+| POST | `/chat` | **无（匿名 user_id）** | 对话点单主入口；返回回复 + 可选 order_id。**无 auth 依赖**，匿名 `req.user_id`。**当前由 3D 场景内嵌聊天消费**（独立 2D 页已归档）。下单成功会触发服务员编排（`_publish_web_completion_flow`） |
 | POST | `/agents/register` | 无 | 注册 Agent，返回 api_token（明文一次性）+ sprite_seed |
 | POST | `/agents/{id}/heartbeat` | Agent token | 心跳，更新 last_seen_at |
 | POST | `/agents/{id}/actions` | Agent token | 上报动作（enter_scene/take_order/...） |
 | GET | `/agents` | 无 | 列出活跃 Agent（启动后含 4 个 `staff:*` 服务员） |
 | POST | `/skill/register` | 无 | 注册 EvoMap 消费者 + Agent，返回免费额度 |
-| POST | `/skill/orders` | Agent token + 可选 X-Evomap-Node-Secret | A2A 点单；返回 402 表示需积分支付。下单成功触发服务员编排（`_publish_skill_completion_flow`） |
+| POST | `/skill/orders` | Agent token + 可选 X-Evomap-Node-Secret | A2A 点单；返回 402 表示需积分支付。下单成功触发服务员编排（`_publish_skill_completion_flow`）。**走 Agent token，非账户登录** |
 | GET | `/visualization/events` | 无 | 拉取最近事件（limit ≤ 200） |
 | GET | `/admin/restaurant-state` | 无 | 大屏聚合状态（今日订单/金额/来源/最近订单/事件/Agent） |
-| WS | `/ws/visualization` | 无 | 实时事件流；连接即推 `scene.snapshot`（payload 含 `agents` 字段：4 staff + 活跃顾客，2026-06-20 新增）；支持 presence.move/leave + ping/pong |
-| POST | `/auth/register` `/login` `/logout` | Cookie | 账户会话（httpOnly 签名 Cookie） |
-| GET | `/auth/me` | Cookie | 当前登录账户 |
+| WS | `/ws/visualization` | 无（连接匿名） | 实时事件流；连接即推 `scene.snapshot`（payload 含 `agents` 字段：4 staff + 活跃顾客，2026-06-20 新增）；支持 presence.move/leave + ping/pong。**注**：连接本身匿名，但"在线顾客人偶 presence"需签名 Cookie（`_register_web_customer_presence` 匿名访客被跳过），不阻断匿名点单 |
+| POST | `/auth/register` `/login` `/logout` | Cookie | 账户会话（httpOnly 签名 Cookie）。**可选增值，非点单前置** |
+| GET | `/auth/me` | Cookie | 当前登录账户（可选） |
 | GET | `/user/{id}` `/orders/{id}` `/history/{id}` | 无 | 用户/订单/对话历史查询 |
 | DELETE | `/history/{id}` | 无 | 清空对话历史 |
 | GET | `/status` | 无 | 数据库/LLM 配置状态 |
 
 **Agent token 鉴权**：`_require_agent()` 校验 `Authorization: Bearer <token>` 或 `X-Agent-Token`，对比 `api_token_hash`（SHA-256）。**服务员 agent 无 token**（`staff:{role}:internal` 仅是满足 NOT NULL 的占位 hash，不做鉴权）。
+
+> **登录门槛说明**（2026-06-20 21:30 确立）：点单链路（`/`、`/chat`、`/skill/orders`、3D 场景）**全程匿名，无账号密码门槛**。`/auth/*` 与登录页仅作可选增值（个性化昵称 + WS 在线顾客人偶 presence）。唯一仍读会话 Cookie 的是 `_register_web_customer_presence`——匿名访客不会作为"在线顾客人偶"出现在 snapshot/presence 广播，但**匿名点单完全不受影响**。
 
 ## 关键依赖与配置
 
@@ -67,8 +74,8 @@ Coffee AI Boss 的 Python 后端，提供：
 - **LLM**：OpenAI 兼容协议，用 `httpx` 直连（**非** openai SDK，避免版本冲突）；429 自动重试 1 次
 - **EvoMap 支付**：用标准库 `urllib.request` 直连（`evomap_payment_service.py`，非 httpx），`x-correlation-id=request_id`
 - **分词**：jieba（中文关键词 RAG）
-- **认证**：passlib[bcrypt] + itsdangerous（签名 Cookie）
-- **配置**：`app/config.py` 用 `pydantic-settings` 从 `.env` 读取；`effective_llm_api_key` 按优先级选 `LLM_API_KEY > DEEPSEEK_API_KEY > OPENAI_API_KEY`，过滤 placeholder。
+- **认证**：passlib[bcrypt] + itsdangerous（签名 Cookie）——仅 `/auth/*` 与 WS presence 用，点单链路不依赖
+- **配置**：`app/config.py` 用 `pydantic-settings` 从 `.env` 读取；`effective_llm_api_key` 按优先级选 `LLM_API_KEY > DEEPSEEK_API_KEY > OPENAI_API_KEY`，过滤 placeholder。 
 
 ## 数据模型（`app/db/models.py`，15 张表）
 
@@ -158,7 +165,7 @@ _complete_order(落库 + 钱包镜像):
 
 **核心函数**：
 - `ensure_staff_agents(db)`：按 `tool_name=staff:{role}` 幂等查询/创建 4 个 agent（`metadata_json={"source":"staff"}`，`api_token_hash` 用 `staff:{role}:internal` 占位满足 NOT NULL 但不做鉴权）。
-- `ensure_web_customer_agent(db, user_id)`：为 web 匿名用户幂等建 `web:customer:{user_id}` 顾客 agent（修 B4——web 路径事件原本不带 agent_id 落 `agent_anon`，现携带真实 agent_id 与 skill 路径对齐）。
+- `ensure_web_customer_agent(db, user_id)`：为 web 匿名用户幂等建 `web:customer:{user_id}` 顾客 agent（修 B4——web 路径事件原本不带 agent_id 落 `agent_anon`，现携带真实 agent_id 与 skill 路径对齐）。**注**：仅当 WS 连接携带有效签名 Cookie（`_register_web_customer_presence`）时才触发——纯匿名访客的 WS 连接不会建顾客 agent（但点单链路照常）。
 - `publish_staff_action(db, staff, role, action_type, ...)` / `publish_agent_action(db, agent, action_type, ...)`：广播 `agent.action` 事件（payload 含 `agent_id/tool_name/display_name/role_type/sprite_seed/action_type`）；**best-effort**——失败 swallow + rollback，可视化绝不阻断业务。
 - `orchestrate_staff_node(db, staff, node, correlation_id)`：业务节点→服务员动作分派：
 
@@ -201,13 +208,17 @@ HTTP 错误映射: 401/402/429 原样透传；404/≥500 → 502；其余 → 40
 
 ## 常见问题 (FAQ)
 
+- **Q: 访问 `/` 需要登录吗？** A: **不需要**。`index()`（`main.py:1696`）直接返回 3D 咖啡厅 SPA，匿名可访问、不校验登录。2026-06-20 21:30 已删除原登录校验（咖啡厅线下场景，顾客匿名消费）。3D 未构建时才 fallback 到 2D `index.html`。
+- **Q: 点单（`/chat` / `/skill/orders`）需要登录账户吗？** A: **不需要**。`/chat` 无 auth 依赖、用匿名 `req.user_id`；`/skill/orders` 走 Agent token（非账户登录）。全程无账号密码门槛。
+- **Q: 那 `/auth/*` 和 `/3d/login` 还有什么用？** A: 可选增值：① 个性化昵称（登录后用真实昵称而非占位名）；② WS 在线顾客人偶 presence——`_register_web_customer_presence` 读签名 Cookie，登录用户的顾客人偶会出现在 snapshot/presence 广播里，匿名访客则被跳过。两者都不是点单前置。
+- **Q: 匿名访客的 `/chat` 下单会触发服务员编排吗？** A: 会。`_publish_web_completion_flow` 各节点照常追加 `orchestrate_staff_node`，服务员接单/收银/做咖啡/送餐动画不受登录状态影响。唯一差别：匿名访客自身不会有"顾客人偶"在 snapshot 里（因为 `ensure_web_customer_agent` 仅在 WS presence 成功时触发），但订单业务流和事件广播完全正常。
 - **Q: LLM 没配 key 会怎样？** A: `llm.has_real_key()=False`，`chat()` 走 `_mock_chat`（直接用 RAG 结果拼推荐），`parse_intent()` 走硬编码兜底词。`/status` 会显示 `llm_status_reason`。
 - **Q: 为什么 LLM 不用 openai SDK？** A: 见 `app/llm/client.py` 顶部注释——避免 SDK 与 httpx 版本冲突，改用 httpx 直连 `/chat/completions`。
 - **Q: 为什么 EvoMap 支付用 urllib 而非 httpx？** A: `evomap_payment_service.py` 用标准库 `urllib.request`，避免给支付链路引入额外异步/依赖耦合，错误映射集中在 `_message_for_status/_code_for_status/_http_status_for_upstream`。
 - **Q: 待确认订单怎么避免误下单？** A: `_is_confirming()` 三层判定：否定/疑问词优先否决 → 强确认词（确认/下单/扣钱）长句也算 → 弱确认词（好/对/行）仅纯短句 startswith。
 - **Q: Skill 点单的支付凭证能客户端传吗？** A: 不能。`_reject_unverified_payment_proof` 会拒绝客户端 payment_proof，要求传 `X-Evomap-Node-Secret` 由后端发起官方 service order。
-- **Q: Colyseus 启动会失败吗？** A: 不会报错。`colyseus-server/` 已归档到 `_archive/`，`colyseus_bridge.py` 检测目录缺失后仅记 warning 并跳过，FastAPI 正常启动。如需恢复像素方案，把 `_archive/colyseus-server/` 秹回根目录即可。
-- **Q: 访问 `/` 看到 3D 还是 2D？** A: 3D SPA。原 2D 对话页（`app/static/index.html`）已归档到 `_archive/2d-legacy/index.html`，根路由 `index()` 现直出 `app/static/3d/index.html`。
+- **Q: Colyseus 启动会失败吗？** A: 不会报错。`colyseus-server/` 已归档到 `_archive/`，`colyseus_bridge.py` 检测目录缺失后仅记 warning 并跳过，FastAPI 正常启动。如需恢复像素方案，把 `_archive/colyseus-server/` 移回根目录即可。
+- **Q: uvicorn 启动卡死 / 频繁重载？** A: 根目录 `_mock_hub.py`（临时 mock，NOT part of repo）会被 `--reload` 监听，用 `uvicorn app.main:app --reload --reload-dir app` 限定 watch 范围规避；Windows 上若 `--reload` 仍卡死可去掉 `--reload` 跑固定进程。
 - **Q: 服务员编排失败了会阻断下单吗？** A: 不会。`publish_staff_action`/`publish_agent_action`/`ensure_staff_agents`/`ensure_web_customer_agent`/startup seeding/ws snapshot 全包 try/except + rollback，编排是 best-effort，**可视化绝不阻断订单/支付业务**（Roadmap 铁律 #5/#7）。
 - **Q: 服务员 agent 需要鉴权吗？** A: 不需要。服务员是后端固有 agent，`api_token_hash` 用 `staff:{role}:internal` 占位仅满足 NOT NULL 列约束，不走 `_require_agent()` 鉴权；编排由后端直接引用固定 agent_id 触发。
 
@@ -215,7 +226,7 @@ HTTP 错误映射: 401/402/429 原样透传；404/≥500 → 502；其余 → 40
 
 | 文件 | 说明 |
 |------|------|
-| `main.py` | FastAPI 入口，所有路由 + `/chat` 决策树 + 静态/3D 托管 + Colyseus 生命周期挂载 + **lifespan `_seed_and_broadcast_staff` + `_publish_web_completion_flow` 服务员编排挂载** |
+| `main.py` | FastAPI 入口，所有路由 + `/chat` 决策树 + 静态/3D 托管（**`index()` 匿名直出 3D，不校验登录**）+ Colyseus 生命周期挂载 + **lifespan `_seed_and_broadcast_staff` + `_publish_web_completion_flow` 服务员编排挂载** |
 | `config.py` | pydantic-settings 配置 |
 | `domain_constants.py` | 订单/支付/身份/钱包状态枚举（数据库 CHECK 约束来源） |
 | `colyseus_bridge.py` | Colyseus 子进程生命周期管理（**目标已归档，启动为 no-op**） |
@@ -234,5 +245,5 @@ HTTP 错误映射: 401/402/429 原样透传；404/≥500 → 502；其余 → 40
 | `rag/keywords.py` | jieba 关键词提取（正向 + 负向 + 同义词） |
 | `rag/retrieval.py` | LIKE 召回 + NOT LIKE 过滤 |
 | `memory/chat_history.py` | Redis 对话历史 + 待确认订单 |
-| `auth/router.py` | /auth/* 路由 |
-| `auth/service.py` | bcrypt + itsdangerous 会话 |
+| `auth/router.py` | /auth/* 路由（可选增值） |
+| `auth/service.py` | bcrypt + itsdangerous 会话（仅 /auth/* + WS presence 用） |

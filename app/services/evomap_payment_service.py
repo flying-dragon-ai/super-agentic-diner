@@ -150,6 +150,7 @@ def _post_json(
             "Authorization": f"Bearer {node_secret}",
             "Content-Type": "application/json",
             "Accept": "application/json",
+            "User-Agent": "CoffeeAIBoss/1.0 (+https://evomap.ai; service-order-client)",
             "x-correlation-id": correlation_id,
         },
     )
