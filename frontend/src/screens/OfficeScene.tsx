@@ -95,6 +95,15 @@ export default function OfficeScene() {
     sim.setFurniture(furniture);
   }, [sim, furniture]);
 
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      saveFurniture(furniture);
+    }, 300);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [furniture]);
+
   useEffect(() => { setTick(() => makeTick(sim)); }, [sim]);
 
   useEffect(() => {
@@ -228,11 +237,7 @@ export default function OfficeScene() {
             return d;
           }
           const newWall = createWallItem(wallDrawStart, { x: cx, y: cy }, nextUid());
-          setFurniture((prev) => {
-            const next = [...prev, newWall];
-            saveFurniture(next);
-            return next;
-          });
+          setFurniture((prev) => [...prev, newWall]);
           setSelectedUid(newWall._uid);
           setDrag({ kind: "idle" });
           setGhostPos(null);
@@ -249,11 +254,7 @@ export default function OfficeScene() {
           ...(palEntry?.defaults as Partial<FurnitureItem>),
           ...(isCouch ? { vertical: true, w: 40, h: 80 } : {}),
         };
-        setFurniture((prev) => {
-          const next = [...prev, newItem];
-          saveFurniture(next);
-          return next;
-        });
+        setFurniture((prev) => [...prev, newItem]);
         setSelectedUid(newItem._uid);
         setDrag({ kind: "idle" });
         setGhostPos(null);
@@ -261,12 +262,11 @@ export default function OfficeScene() {
         return { kind: "idle" };
       }
       if (d.kind === "moving") {
-        saveFurniture(furniture);
         return { kind: "idle" };
       }
       return d;
     });
-  }, [wallDrawStart, worldToCanvas, furniture]);
+  }, [wallDrawStart, worldToCanvas]);
 
   const handleFurniturePointerDown = useCallback((uid: string) => {
     if (!editMode) return;
@@ -302,7 +302,7 @@ export default function OfficeScene() {
           setFurniture((prev) => prev.map((it) => it._uid === selectedUid ? { ...it, facing: ((it.facing ?? 0) + (e.key === "[" ? -ROTATION_STEP_DEG : ROTATION_STEP_DEG)) } : it));
           break;
         case "Delete": case "Backspace":
-          setFurniture((prev) => { const next = prev.filter((it) => it._uid !== selectedUid); saveFurniture(next); return next; });
+          setFurniture((prev) => prev.filter((it) => it._uid !== selectedUid));
           setSelectedUid(null);
           break;
         case "Escape": setSelectedUid(null); setDrag({ kind: "idle" }); setGhostPos(null); setWallDrawStart(null); break;
@@ -451,7 +451,7 @@ export default function OfficeScene() {
           <div style={{ marginTop: 4 }}>
             <button
               onClick={() => {
-                setFurniture((prev) => { const next = prev.filter((it) => it._uid !== selectedUid); saveFurniture(next); return next; });
+                setFurniture((prev) => prev.filter((it) => it._uid !== selectedUid));
                 setSelectedUid(null);
               }}
               style={{ cursor: "pointer", marginRight: 8, padding: "3px 8px", background: "rgba(239,68,68,0.18)", color: "#fca5a5", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 4 }}
@@ -461,7 +461,6 @@ export default function OfficeScene() {
             <button
               onClick={() => {
                 setFurniture(DEFAULT_FURNITURE);
-                saveFurniture(DEFAULT_FURNITURE);
                 setSelectedUid(null);
               }}
               style={{ cursor: "pointer", padding: "3px 8px", background: "rgba(96,165,250,0.18)", color: "#93c5fd", border: "1px solid rgba(96,165,250,0.4)", borderRadius: 4 }}

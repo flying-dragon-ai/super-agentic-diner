@@ -18,6 +18,7 @@ type MachineProps = {
   isSelected?: boolean;
   isHovered?: boolean;
   onClick?: () => void;
+  showLabel?: boolean;
 };
 
 export const COFFEE_MACHINE_TYPES = new Set([
@@ -230,6 +231,7 @@ export function CoffeeMachineHeroModel({
   isSelected = false,
   isHovered = false,
   onClick,
+  showLabel = true,
 }: MachineProps) {
   const { wx, wz, rotY, scaleX, scaleZ } = getMachineTransform(item, 0.72, 0.56);
   const active = isSelected || isHovered;
@@ -307,7 +309,7 @@ export function CoffeeMachineHeroModel({
       <SteamWand position={[0.33, 0.44, 0.16]} />
       <CupProp position={[-0.11, 0.19, 0.08]} scale={0.62} />
       <CupProp position={[0.11, 0.19, 0.08]} scale={0.62} fill={CUP_FILL_LIGHT} />
-      <MachineLabel text="Hero" position={[0, 1.02, 0]} />
+      {showLabel ? <MachineLabel text="Hero" position={[0, 1.02, 0]} /> : null}
       <SelectionRing active={isSelected} radius={0.56} />
     </group>
   );
@@ -318,6 +320,7 @@ export function CoffeeMachineCompactModel({
   isSelected = false,
   isHovered = false,
   onClick,
+  showLabel = true,
 }: MachineProps) {
   const { wx, wz, rotY, scaleX, scaleZ } = getMachineTransform(item, 0.52, 0.42);
   const active = isSelected || isHovered;
@@ -372,7 +375,7 @@ export function CoffeeMachineCompactModel({
       <Portafilter position={[0.06, 0.29, 0.12]} rotation={[0, 0.1, -0.05]} handleColor="#5f3523" />
       <SteamWand position={[0.24, 0.38, 0.12]} rotation={[0.2, 0, 0.24]} />
       <CupProp position={[0.02, 0.19, 0.04]} scale={0.56} fill={CUP_FILL_LIGHT} />
-      <MachineLabel text="Compact" position={[0, 0.92, 0]} />
+      {showLabel ? <MachineLabel text="Compact" position={[0, 0.92, 0]} /> : null}
       <SelectionRing active={isSelected} radius={0.42} />
     </group>
   );
@@ -383,6 +386,7 @@ export function CoffeeMachineGrinderModel({
   isSelected = false,
   isHovered = false,
   onClick,
+  showLabel = true,
 }: MachineProps) {
   const { wx, wz, rotY, scaleX, scaleZ } = getMachineTransform(item, 0.56, 0.46);
   const active = isSelected || isHovered;
@@ -442,7 +446,7 @@ export function CoffeeMachineGrinderModel({
       </mesh>
       <Portafilter position={[0.02, 0.15, 0.16]} rotation={[0, 0.06, 0]} handleColor="#6b422b" />
       <CupProp position={[0.02, 0.18, 0.02]} scale={0.52} fill={CUP_FILL_MAIN} />
-      <MachineLabel text="Hopper" position={[0, 1.06, 0]} />
+      {showLabel ? <MachineLabel text="Hopper" position={[0, 1.06, 0]} /> : null}
       <SelectionRing active={isSelected} radius={0.46} />
     </group>
   );

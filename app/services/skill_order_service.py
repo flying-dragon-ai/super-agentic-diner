@@ -900,6 +900,11 @@ def _complete_order(
                     allow_negative=True,
                 )
 
+    # Refresh the Skill/CLI agent heartbeat so the snapshot's online window keeps
+    # seeing them. Skill scripts can't hold a WebSocket, so last_seen_at is their
+    # presence signal (see main.py _build_snapshot_agents ONLINE_WINDOW_SECONDS).
+    agent.last_seen_at = datetime.utcnow()
+
     db.commit()
     db.refresh(ledger)
     for order in orders:

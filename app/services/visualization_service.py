@@ -86,6 +86,10 @@ class VisualizationHub:
     def __init__(self) -> None:
         self._connections: set[WebSocket] = set()
         self._recent_events: list[dict[str, Any]] = []
+        # Logged-in web customers with a live WS connection (websocket -> agent_id).
+        # Only web users land here — Skill/CLI scripts can't hold a WS, so they rely
+        # on the agent.last_seen_at heartbeat window in the snapshot builder instead.
+        self._ws_agent: dict[WebSocket, int] = {}
 
     async def connect(
         self,
@@ -105,8 +109,17 @@ class VisualizationHub:
             }
         )
 
+    def register_ws_presence(self, websocket: WebSocket, agent_id: int) -> None:
+        """Mark a websocket as carrying a logged-in web customer agent."""
+        self._ws_agent[websocket] = agent_id
+
+    def online_ws_agent_ids(self) -> set[int]:
+        """Customer agent_ids that currently have a live web WS connection."""
+        return set(self._ws_agent.values())
+
     def disconnect(self, websocket: WebSocket) -> None:
         self._connections.discard(websocket)
+        self._ws_agent.pop(websocket, None)
 
     async def broadcast(self, message: dict[str, Any]) -> None:
         self._recent_events.append(message)

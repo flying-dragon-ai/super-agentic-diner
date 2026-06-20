@@ -251,7 +251,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Order coffee through the A2A super order Skill.")
     parser.add_argument("--base-url", default=os.getenv("RESTAURANT_API_BASE", DEFAULT_BASE_URL))
     parser.add_argument("--tool-name", default=os.getenv("RESTAURANT_TOOL_NAME", "codex"))
-    parser.add_argument("--display-name", default=os.getenv("RESTAURANT_AGENT_NAME", "Codex Consumer"))
+    parser.add_argument("--display-name", default=os.getenv("RESTAURANT_AGENT_NAME") or detect_username())
     parser.add_argument("--evomap-node-id", default=os.getenv("EVOMAP_NODE_ID") or os.getenv("A2A_NODE_ID"))
     parser.add_argument("--evomap-did", default=os.getenv("EVOMAP_DID"))
     parser.add_argument(

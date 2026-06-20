@@ -1,5 +1,5 @@
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Text } from "@react-three/drei";
+import { OrbitControls } from "@react-three/drei";
 import { Suspense } from "react";
 import type { ReactNode } from "react";
 import { SceneLighting } from "../office3d/systems/cameraLighting";
@@ -23,9 +23,9 @@ const makeItem = (
   facing,
 });
 
-const COMPACT_ITEM = makeItem("machine_compact_showcase", "coffee_machine_compact", 180);
-const HERO_ITEM = makeItem("machine_hero_showcase", "coffee_machine", 180);
-const HOPPER_ITEM = makeItem("machine_hopper_showcase", "coffee_machine_grinder", 180);
+const COMPACT_ITEM = makeItem("machine_compact_showcase", "coffee_machine_compact", 0);
+const HERO_ITEM = makeItem("machine_hero_showcase", "coffee_machine", 0);
+const HOPPER_ITEM = makeItem("machine_hopper_showcase", "coffee_machine_grinder", 0);
 
 function ShowcasePedestal() {
   return (
@@ -46,44 +46,11 @@ function ShowcasePedestal() {
   );
 }
 
-function ShowcaseHeader({
-  title,
-  subtitle,
-}: {
-  title: string;
-  subtitle: string;
-}) {
-  return (
-    <>
-      <Text
-        position={[0, 1.82, 0.24]}
-        fontSize={0.16}
-        color="#f2e4c7"
-        anchorX="center"
-        anchorY="middle"
-      >
-        {title}
-      </Text>
-      <Text
-        position={[0, 1.58, 0.24]}
-        fontSize={0.085}
-        color="#d5bf98"
-        anchorX="center"
-        anchorY="middle"
-        maxWidth={2.5}
-      >
-        {subtitle}
-      </Text>
-    </>
-  );
-}
-
 function CompactStage() {
   return (
     <>
       <ShowcasePedestal />
-      <CoffeeMachineCompactModel item={COMPACT_ITEM} />
-      <ShowcaseHeader title="Compact" subtitle="home-bar style, soft green body" />
+      <CoffeeMachineCompactModel item={COMPACT_ITEM} showLabel={false} />
     </>
   );
 }
@@ -92,8 +59,7 @@ function HeroStage() {
   return (
     <>
       <ShowcasePedestal />
-      <CoffeeMachineHeroModel item={HERO_ITEM} />
-      <ShowcaseHeader title="Hero" subtitle="main espresso machine for the cafe bar" />
+      <CoffeeMachineHeroModel item={HERO_ITEM} showLabel={false} />
     </>
   );
 }
@@ -102,8 +68,7 @@ function HopperStage() {
   return (
     <>
       <ShowcasePedestal />
-      <CoffeeMachineGrinderModel item={HOPPER_ITEM} />
-      <ShowcaseHeader title="Hopper" subtitle="grinder companion with visible beans" />
+      <CoffeeMachineGrinderModel item={HOPPER_ITEM} showLabel={false} />
     </>
   );
 }
@@ -195,16 +160,34 @@ export default function MachineShowcase() {
           }}
         >
           <ShowcaseCard>
+            <div style={{ position: "absolute", inset: "18px 18px auto 18px", zIndex: 2, pointerEvents: "none" }}>
+              <div style={{ fontSize: 28, lineHeight: 1.1, color: "#f0dfc1" }}>Compact</div>
+              <div style={{ marginTop: 6, fontSize: 13, color: "#ceb894" }}>
+                home-bar style, soft green body
+              </div>
+            </div>
             <ShowcaseCanvas>
               <CompactStage />
             </ShowcaseCanvas>
           </ShowcaseCard>
           <ShowcaseCard>
+            <div style={{ position: "absolute", inset: "18px 18px auto 18px", zIndex: 2, pointerEvents: "none" }}>
+              <div style={{ fontSize: 28, lineHeight: 1.1, color: "#f0dfc1" }}>Hero</div>
+              <div style={{ marginTop: 6, fontSize: 13, color: "#ceb894" }}>
+                main espresso machine for the cafe bar
+              </div>
+            </div>
             <ShowcaseCanvas>
               <HeroStage />
             </ShowcaseCanvas>
           </ShowcaseCard>
           <ShowcaseCard>
+            <div style={{ position: "absolute", inset: "18px 18px auto 18px", zIndex: 2, pointerEvents: "none" }}>
+              <div style={{ fontSize: 28, lineHeight: 1.1, color: "#f0dfc1" }}>Hopper</div>
+              <div style={{ marginTop: 6, fontSize: 13, color: "#ceb894" }}>
+                grinder companion with visible beans
+              </div>
+            </div>
             <ShowcaseCanvas>
               <HopperStage />
             </ShowcaseCanvas>

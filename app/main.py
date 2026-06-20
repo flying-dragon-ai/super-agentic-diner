@@ -1,6 +1,6 @@
 """FastAPI entrypoint for chat ordering and Agent visualization APIs."""
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from pathlib import Path
@@ -10,11 +10,11 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket,
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db.database import get_db
+from app.db.database import SessionLocal, get_db
 from app.db.models import (
     AgentProfile,
     EvomapConsumer,
@@ -71,6 +71,8 @@ from app.services.visualization_service import (
     make_sprite_seed,
     visualization_hub,
 )
+from app.services import staff_service
+from app.auth import service as auth_service
 from app.colyseus_bridge import start_colyseus_server, stop_colyseus_server
 
 app = FastAPI(title="智能咖啡馆 AI 店长")
@@ -92,9 +94,28 @@ def _evomap_heartbeat_loop() -> None:
         _evomap_heartbeat_stop.wait(300)  # 5 分钟
 
 
+def _ensure_staff_seeded() -> None:
+    """幂等创建 4 个固有服务员 agent（启动时落库）。
+
+    不在 startup 广播 agent.registered：冷启动时无已连接客户端，--reload 时进程
+    重启、内存连接集合清空、客户端会断开重连并收到新的 scene.snapshot。服务员
+    由 _build_snapshot_agents 稳定返回，是客户端看到服务员团队的唯一可靠路径。
+    Best-effort：失败绝不阻断 app 启动。
+    """
+    try:
+        db = SessionLocal()
+        try:
+            staff_service.ensure_staff_agents(db)
+        finally:
+            db.close()
+    except Exception:
+        pass
+
+
 @app.on_event("startup")
 async def _startup_colyseus() -> None:
     start_colyseus_server()
+    _ensure_staff_seeded()
     # 启动 EvoMap 心跳（仅当配置了节点身份）
     if settings.evomap_node_id and settings.evomap_node_secret:
         _evomap_heartbeat_stop.clear()
@@ -1350,9 +1371,129 @@ def _presence_message_from_client(message: dict[str, Any]) -> dict[str, Any] | N
     }
 
 
+# Skill/CLI users can't hold a WebSocket (order.py exits after each request), so
+# their "online" window is defined by agent.last_seen_at recency instead of presence.
+ONLINE_WINDOW_SECONDS = 120
+
+
+def _agent_snapshot_dict(agent: AgentProfile) -> dict[str, Any]:
+    """Lean agent descriptor matching frontend SnapshotAgent (net/api.ts)."""
+    return {
+        "agent_id": agent.agent_id,
+        "tool_name": agent.tool_name,
+        "display_name": agent.display_name,
+        "role_type": agent.role_type,
+        "sprite_seed": agent.sprite_seed,
+        "status": agent.status,
+    }
+
+
+def _build_snapshot_agents(db: Session) -> list[dict[str, Any]]:
+    """Agents sent in scene.snapshot: 4 fixed staff (always on duty) + online customers.
+
+    A customer counts as online if they have a live web WS connection (presence) OR
+    their agent.last_seen_at falls within ONLINE_WINDOW_SECONDS (Skill/CLI heartbeat
+    window). Anonymous/not-logged-in visitors are not shown (login required).
+    """
+    agents: list[dict[str, Any]] = []
+    # 1) Fixed staff — always on duty.
+    try:
+        for agent in staff_service.ensure_staff_agents(db).values():
+            agents.append(_agent_snapshot_dict(agent))
+    except Exception:
+        pass
+    # 2) Online customers: WS presence ∪ last_seen_at heartbeat window.
+    online_ws_ids = visualization_hub.online_ws_agent_ids()
+    cutoff = datetime.utcnow() - timedelta(seconds=ONLINE_WINDOW_SECONDS)
+    query = db.query(AgentProfile).filter(
+        AgentProfile.role_type == "customer",
+        AgentProfile.status == IDENTITY_STATUS_ACTIVE,
+    )
+    if online_ws_ids:
+        query = query.filter(
+            or_(
+                AgentProfile.agent_id.in_(online_ws_ids),
+                AgentProfile.last_seen_at >= cutoff,
+            )
+        )
+    else:
+        query = query.filter(AgentProfile.last_seen_at >= cutoff)
+    for agent in query.order_by(AgentProfile.last_seen_at.desc()).limit(30):
+        agents.append(_agent_snapshot_dict(agent))
+    return agents
+
+
+def _register_web_customer_presence(websocket: WebSocket) -> dict[str, Any] | None:
+    """Identify the logged-in web user from the signed session cookie and (re)create
+    their customer agent, refreshing last_seen_at. Returns the agent snapshot dict
+    (for presence + online broadcast), or None if not logged in.
+
+    Anonymous visitors are intentionally not tracked/shown — login is required.
+    Best-effort: failures return None and never break the WS handshake.
+    """
+    token = websocket.cookies.get(settings.auth_cookie_name)
+    if not token:
+        return None
+    account_id = auth_service.read_session_token(token)
+    if account_id is None:
+        return None
+    db = SessionLocal()
+    try:
+        account = auth_service.get_account_by_id(db, account_id)
+        if account is None or account.status != IDENTITY_STATUS_ACTIVE:
+            return None
+        agent = staff_service.ensure_web_customer_agent(db, account.user_id)
+        # Reflect the real login name (nickname/username), not the placeholder.
+        agent.display_name = (account.nickname or account.username or agent.display_name)[:128]
+        agent.last_seen_at = datetime.utcnow()
+        db.commit()
+        db.refresh(agent)
+        return _agent_snapshot_dict(agent)
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return None
+    finally:
+        db.close()
+
+
 @app.websocket("/ws/visualization")
 async def visualization_websocket(websocket: WebSocket):
-    await visualization_hub.connect(websocket)
+    # Identify the logged-in web user (login required) and register WS presence so the
+    # snapshot includes them as an online customer. Anonymous visitors are skipped.
+    customer = _register_web_customer_presence(websocket)
+    if customer is not None:
+        visualization_hub.register_ws_presence(websocket, customer["agent_id"])
+    # Build snapshot from DB: 4 fixed staff + online customers.
+    try:
+        db = SessionLocal()
+        try:
+            agents = _build_snapshot_agents(db)
+        finally:
+            db.close()
+    except Exception:
+        agents = []
+    await visualization_hub.connect(websocket, agents=agents)
+    # Real-time appear: tell other clients this customer just came online.
+    if customer is not None:
+        await visualization_hub.broadcast(
+            {
+                "event_id": None,
+                "type": "agent.registered",
+                "agent_id": customer["agent_id"],
+                "payload": {
+                    "agent_id": customer["agent_id"],
+                    "tool_name": customer.get("tool_name"),
+                    "display_name": customer["display_name"],
+                    "role_type": customer["role_type"],
+                    "sprite_seed": customer["sprite_seed"],
+                },
+                "correlation_id": None,
+                "created_at": datetime.utcnow().isoformat(),
+            }
+        )
     presence_payload: dict[str, Any] | None = None
     try:
         while True:
@@ -1375,6 +1516,25 @@ async def visualization_websocket(websocket: WebSocket):
                 await visualization_hub.broadcast(presence_message)
     except WebSocketDisconnect:
         visualization_hub.disconnect(websocket)
+        # Real-time disappear: tell other clients this customer left the scene.
+        if customer is not None:
+            await visualization_hub.broadcast(
+                {
+                    "event_id": None,
+                    "type": "agent.action",
+                    "agent_id": customer["agent_id"],
+                    "payload": {
+                        "agent_id": customer["agent_id"],
+                        "tool_name": customer.get("tool_name"),
+                        "display_name": customer["display_name"],
+                        "role_type": customer["role_type"],
+                        "sprite_seed": customer["sprite_seed"],
+                        "action_type": "leave_scene",
+                    },
+                    "correlation_id": None,
+                    "created_at": datetime.utcnow().isoformat(),
+                }
+            )
         if presence_payload:
             await visualization_hub.broadcast(
                 {
@@ -1470,13 +1630,12 @@ def three_d_app_spa(full_path: str):
 
 @app.get("/")
 def index(request: Request, db: Session = Depends(get_db)):
-    """Root: 未登录 → 302 跳 /3d/login；已登录 → 2D 聊天页。"""
-    from app.auth.router import current_account
-
-    account = current_account(request, db)
-    if not account:
-        return RedirectResponse(url="/3d/login", status_code=302)
+    """Root: 直接返回 3D 咖啡厅（匿名可访问，不校验登录）。"""
+    three_d_index = _STATIC_DIR / "3d" / "index.html"
+    if three_d_index.is_file():
+        return FileResponse(three_d_index)
+    # fallback: 2D 聊天页
     chat_index = _STATIC_DIR / "index.html"
     if chat_index.is_file():
         return FileResponse(chat_index)
-    raise HTTPException(status_code=404, detail="chat page not found")
+    raise HTTPException(status_code=404, detail="index page not found")
