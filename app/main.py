@@ -154,6 +154,12 @@ if _3D_STATIC_DIR.is_dir():
     _3d_sounds = _3D_STATIC_DIR / "sounds"
     if _3d_sounds.is_dir():
         app.mount("/3d/sounds", StaticFiles(directory=_3d_sounds), name="static-3d-sounds")
+
+# 咖啡菜单图片（app/imag/ 下的 PNG）
+_IMAG_DIR = Path(__file__).resolve().parent / "imag"
+if _IMAG_DIR.is_dir():
+    app.mount("/imag", StaticFiles(directory=_IMAG_DIR), name="menu-images")
+
 from app.auth.router import router as auth_router  # noqa: E402
 
 app.include_router(auth_router)
@@ -883,7 +889,13 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     # ===== 非下单意图（recommend/chat）→ 多 Agent(智能体) 协作流程 =====
     # 编排器按序调用：店长(意图)→推荐(RAG+经验)→[纠正检测]→复盘→经验继承
     clear_pending_order(req.user_id)
-    orch = agent_orchestrate(db, req.user_id, req.message, correlation_id=req.request_id)
+    orch = agent_orchestrate(
+        db,
+        req.user_id,
+        req.message,
+        correlation_id=req.request_id,
+        precomputed_intent=intent,
+    )
     # 发布编排器产生的所有 Agent 协作事件
     for evt in orch.events:
         _try_publish_visualization_event(
@@ -1627,6 +1639,24 @@ async def visualization_websocket(websocket: WebSocket):
                     "created_at": datetime.utcnow().isoformat(),
                 }
             )
+
+
+@app.get("/menu")
+def get_menu(db: Session = Depends(get_db)):
+    """返回完整菜单（供前端图片卡片渲染），含名称、价格、标签、图片路径。"""
+    products = db.query(Product).order_by(Product.base_price).all()
+    return [
+        {
+            "name": p.name,
+            "price": float(p.base_price),
+            "tags": p.tags or "",
+            "category": p.category or "",
+            "description": (p.description or "")[:120],
+            "image": f"/imag/{p.name}.png",
+            "stock": p.stock,
+        }
+        for p in products
+    ]
 
 
 @app.get("/user/{user_id}")

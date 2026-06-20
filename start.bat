@@ -66,12 +66,13 @@ echo .env OK.
 echo.
 
 echo [3/6] Installing Python dependencies...
-"%PYTHON_CMD%" -m pip install --upgrade pip
+set "PIP_MIRROR=-i https://pypi.tuna.tsinghua.edu.cn/simple --default-timeout=30"
+"%PYTHON_CMD%" -m pip install --upgrade pip %PIP_MIRROR%
+"%PYTHON_CMD%" -m pip install -r requirements.txt %PIP_MIRROR%
 if errorlevel 1 (
-    echo [ERROR] Failed to upgrade pip.
-    goto fail
+    echo [WARN] Mirror install failed, retrying default source ^(may be slow^)...
+    "%PYTHON_CMD%" -m pip install -r requirements.txt
 )
-"%PYTHON_CMD%" -m pip install -r requirements.txt
 if errorlevel 1 (
     echo [ERROR] Failed to install requirements.
     goto fail

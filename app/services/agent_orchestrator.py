@@ -18,10 +18,24 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.db.models import Product
 from app.memory.chat_history import add_message, get_history
 from app.services.agents import manager_agent, recommender_agent, reviewer_agent
 
 logger = logging.getLogger(__name__)
+
+
+def _detect_exact_product(db: Session, user_msg: str) -> str | None:
+    """检测用户消息是否包含精确的咖啡商品名。
+
+    如"我要一杯柑橘冷萃" → 返回 "柑橘冷萃"。
+    用于跳过推荐 Agent，直接走下单流程（更快，且不会输出菜单列表）。
+    """
+    all_names = [p.name for p in db.query(Product).all()]
+    for name in all_names:
+        if name in user_msg:
+            return name
+    return None
 
 
 @dataclass
@@ -43,16 +57,34 @@ def orchestrate(
     user_msg: str,
     *,
     correlation_id: str | None = None,
+    precomputed_intent: dict | None = None,
 ) -> OrchestratorResult:
     """多 Agent(智能体) 协作主入口。
 
+    参数 precomputed_intent：如果 main.py 已经调过 parse_intent，传入结果避免重复 LLM 调用。
     副作用：会写 Redis 对话历史（add_message），与原 /chat 行为一致。
     """
     result = OrchestratorResult()
     history = get_history(user_id)
 
+    # ===== 快速检测：消息含精确商品名 → 直接 order，跳过所有 LLM 调用 =====
+    exact_product = _detect_exact_product(db, user_msg)
+    if exact_product:
+        result.intent = "order"
+        result.events.append(
+            {
+                "type": "agent.manager.intent",
+                "payload": {"user_id": user_id, "intent": "order", "reason": f"exact_product:{exact_product}"},
+            }
+        )
+        return result
+
     # ===== 第1步：店长 Agent 意图分析 =====
-    intent_data = manager_agent.parse_intent(history, user_msg)
+    # 如果 main.py 已经分析过意图，直接复用（省掉一次 LLM 调用，加速响应）
+    if precomputed_intent:
+        intent_data = precomputed_intent
+    else:
+        intent_data = manager_agent.parse_intent(history, user_msg)
     intent = intent_data.get("intent", "chat")
     result.intent = intent
     result.events.append(
