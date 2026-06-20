@@ -472,10 +472,16 @@ async function send() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({user_id: USER_ID, message: text, consumer_url: consumerUrl})
     });
-    const data = await r.json();
+    // 先检查响应是否正常，再安全解析 JSON（防止 500 返回纯文本导致 JSON.parse 崩溃）
     if (!r.ok) {
-      throw new Error(data.detail || data.message || '请求失败');
+      let errMsg = '请求失败 (' + r.status + ')';
+      try {
+        const errData = await r.json();
+        errMsg = errData.detail || errData.message || errMsg;
+      } catch(_) {}
+      throw new Error(errMsg);
     }
+    const data = await r.json();
     typing.classList.remove('typing');
     typing.textContent = data.reply;
     renderQuickMenu({userText: text, botText: data.reply});

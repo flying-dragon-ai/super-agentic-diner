@@ -879,7 +879,13 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     # ===== 非下单意图（recommend/chat）→ 多 Agent(智能体) 协作流程 =====
     # 编排器按序调用：店长(意图)→推荐(RAG+经验)→[纠正检测]→复盘→经验继承
     clear_pending_order(req.user_id)
-    orch = agent_orchestrate(db, req.user_id, req.message, correlation_id=req.request_id)
+    orch = agent_orchestrate(
+        db,
+        req.user_id,
+        req.message,
+        correlation_id=req.request_id,
+        precomputed_intent=intent,
+    )
     # 发布编排器产生的所有 Agent 协作事件
     for evt in orch.events:
         _try_publish_visualization_event(
