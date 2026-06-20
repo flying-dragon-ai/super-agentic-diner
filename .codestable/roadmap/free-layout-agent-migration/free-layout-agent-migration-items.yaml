@@ -1,0 +1,59 @@
+roadmap: free-layout-agent-migration
+created: 2026-06-19
+
+items:
+  - slug: layout-engine-minimal-loop
+    description: "在静态前端引入 RestaurantLayout、tile 渲染、blocked tiles、BFS path，把现有 WebSocket 事件映射到新引擎移动"
+    depends_on: []
+    status: in-progress
+    feature: 2026-06-19-layout-engine-minimal-loop
+    minimal_loop: true
+    notes: "最小闭环：/screen 使用默认布局渲染，并让现有 restaurant/agent 事件沿 walkable tile 移动"
+
+  - slug: layout-persistence-api
+    description: "新增 MySQL layout/actor state 表、幂等迁移、GET/PUT /visualization/layout 和增强 scene.snapshot"
+    depends_on: [layout-engine-minimal-loop]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "必须通过 scripts/migrate_order_sources.py 做既有 MySQL 升级"
+
+  - slug: scene-command-protocol
+    description: "后端把 restaurant、agent、presence 事件转换为 scene.command，并维护 scene_actor_state 当前事实状态"
+    depends_on: [layout-persistence-api]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "旧事件继续广播，scene.command 作为布局感知的新协议"
+
+  - slug: pixel-asset-catalog
+    description: "迁移 floors/walls/furniture/characters 的最小资产集和 catalog loader，替换固定家具绘制为 sprite 与 z-sort"
+    depends_on: [layout-engine-minimal-loop]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "只抽取 Web 静态资产和 manifest，不迁移 VS Code 扩展生态"
+
+  - slug: layout-editor-admin
+    description: "提供 tile/wall/furniture 编辑、拖拽移动、撤销重做和保存布局的 admin 入口"
+    depends_on: [layout-persistence-api, pixel-asset-catalog]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "保存时调用 PUT /visualization/layout，冲突用 revision_conflict 处理"
+
+  - slug: agent-entrypoint-upgrade
+    description: "扩展 Agent action payload、A2A Skill 视觉事件和 station/target_tile 映射，保持 Skill 单入口与 token 红线"
+    depends_on: [scene-command-protocol]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: "普通点单仍只通过 .agents/skills/a2a-super-order/scripts/order.py"
+
+  - slug: visualization-regression-suite
+    description: "补 API、迁移、WebSocket 回放、Playwright canvas 像素和交互验证，并更新使用文档"
+    depends_on: [scene-command-protocol, pixel-asset-catalog, layout-editor-admin, agent-entrypoint-upgrade]
+    status: planned
+    feature: null
+    minimal_loop: false
+    notes: null

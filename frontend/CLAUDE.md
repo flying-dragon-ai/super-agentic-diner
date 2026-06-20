@@ -1,0 +1,194 @@
+[根目录](../CLAUDE.md) > **frontend** (3D 前端)
+
+# frontend/ — 3D 办公室 + 监控大屏
+
+## 变更记录 (Changelog)
+
+| 时间 | 动作 | 说明 |
+|------|------|------|
+| 2026-06-20 | 增量补扫 | 第二次 init：逐一精读 office3d/ 子模块（navigation/geometry/constants/agents/furniture/cameraLighting/sceneRuntime/environment/avatars）、sim/tick.ts 全文、auth/AuthPages.tsx 全文，补全坐标投影/A\*寻路/昼夜循环/Agent骨骼动画/表单实现细节 |
+| 2026-06-20 | 创建 | 初始化架构师首次生成 |
+
+---
+
+## 模块职责
+
+Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws/visualization` 事件流对接）：
+1. **3D 办公室场景**（`/3d/scene`）：用 React-Three-Fiber 渲染带真实 GLB 家具的办公室，Agent（咖啡师/收银/服务员/主管/访客）按可视化事件驱动行走、工作、说话。
+2. **监控大屏**（`/3d/dashboard`）：聚合 `/admin/restaurant-state`，展示今日订单/金额/来源分布/最近订单/事件流/在线员工。
+3. **账户登录**（`/3d/login`、`/3d/register`）：通过签名 Cookie 会话访问受保护页面。
+
+> 来源标注：`office3d/` 与 `avatars/` 全套从 **Claw3D retro-office** 移植（文件头均注明 "Ported/Adapted from Claw3D"），去掉了 Claw3D 特有的 janitor/gym/qa/pingpong/district 逻辑，保留监控视图所需的最小子集。
+
+## 入口与启动
+
+- **入口**：`src/main.tsx` → `src/App.tsx`（`<BrowserRouter basename="/3d">`）
+- **路由**（react-router-dom 7）：
+  - `/` → 重定向到 `/scene`
+  - `/scene` → `OfficeScene`
+  - `/dashboard` → `Dashboard`
+  - `/login`、`/register` → 登录/注册页
+- **开发**：`npm run dev`（Vite，端口 5174，代理 `/ws` `/api` 到 `localhost:8000`）
+- **构建**：`npm run build`（`tsc --noEmit && vite build`，产物输出到 `../app/static/3d`，由 FastAPI `/3d` 托管）
+- **base path**：`/3d/`（见 `vite.config.ts`）
+
+## 对外接口（与后端的契约）
+
+通过 `src/net/api.ts` 和 `src/net/visualizationSocket.ts` 调用后端：
+- `getJson` / `postJson` — 通用 fetch 封装（带 `credentials: "include"` 传 Cookie）
+- `listEvents(limit)` → GET `/visualization/events`
+- `getRestaurantState()` → GET `/admin/restaurant-state`
+- `connectVisualization({onEvent, onStatus})` → WS `/ws/visualization`，连接即收 `scene.snapshot`，之后实时收单条事件；断线 2 秒自动重连
+
+> **契约约束**（`api.ts` 顶部注释）：后端事件结构、role、action 是只读契约，前端不改；改后端需同步前端 `roleMap.ts`。
+
+## 关键依赖与配置
+
+- **React 19.2** + **react-router-dom 7**
+- **@react-three/fiber 9** + **@react-three/drei 10**（`useGLTF`、`Billboard`、`Text`、`OrbitControls`）+ **three 0.183**（3D 渲染）
+- **Vite 6** + **@vitejs/plugin-react**
+- **TypeScript 5.6**（strict）
+- **Playwright 1.61**（devDependency，E2E，但未见测试文件）
+- 构建产物 `app/static/3d/office-assets/` 含家具 GLB 模型与背景贴图
+
+## 数据模型（前端运行时状态）
+
+- **`VisEvent`**（`api.ts`）：`{event_id, type, agent_id, payload, correlation_id, created_at}`
+- **`OfficeAgent`** / **`RenderAgent`** / **`FurnitureItem`**（`office3d/core/types.ts`）：
+  - `OfficeAgent.status`: `"working" | "idle" | "error"`
+  - `RenderAgent` 在 `OfficeAgent` 基础上扩展运行时字段：`x,y`（画布坐标）、`path`（A\* 路径点数组）、`facing`（朝向弧度）、`frame`（动画帧计数）、`walkSpeed`、`phaseOffset`（基于 spriteSeed，错峰动画）、`state`（`walking/sitting/standing/away/working_out/dancing`）、`targetX/targetY`、`awayUntil`、`bumpedUntil` 等
+  - `FurnitureItem`：`{_uid, type, x, y, w?, h?, r?, color?, facing?, vertical?, elevation?}`
+- **`AgentAvatarProfile`**（`office3d/avatars/profile.ts`）：确定性头像档案（version 1，含 skinTone/hair/clothing/accessories/glasses/headset/hat/backpack），由 seed 字符串经 FNV-1a 哈希确定性派生
+- **`SimHandle`**（`sim/agentStore.ts`）：`{agents, furniture, speech, rebuildNav, setFurniture, _nav}` — 事件驱动 + tick 推进的状态机
+- **`Account`**（`auth/AuthProvider.tsx`）：`{user_id, username, nickname}`
+
+## 核心架构
+
+### 事件 → 渲染管线（`OfficeScene.tsx`）
+```
+/ws/visualization 事件 → sim/agentStore.applyEvent (推入意图)
+                       → sim/tick.makeTick (A* 寻路推进移动)
+                       → office3d/objects/agents.AgentModel (渲染)
+```
+`OfficeScene` 用 `materializeDefaults()` 生成 Claw3D 完整默认布局，`createSimStore().setFurniture()` 同时构建 nav grid；`GameLoop`（`useFrame`）每帧调用 `tick()`；事件经 `applyEvent` 转成行为意图（enter/walk_to_counter/work/deliver/...），`SpotlightEffect` 高亮被点击的 Agent。
+
+### 角色映射（`sim/roleMap.ts`）— 后端契约镜像
+- `ROLE_DESK`（画布像素坐标，注意注释写 "1800x1800" 但实际常量 `CANVAS_W=1800/CANVAS_H=720`，customer 的 y=1080 超出画布高度，疑似历史遗留/已知问题）：
+  - `barista` {360,540}、`cashier` {620,320}、`waiter` {880,700}、`manager` {1180,320}、`customer` {880,1080}
+  - `ENTRY_POINT` {60,900}（左侧入口）、`EXIT_POINT` {60,900, facing -π/2}
+- `ROLE_COLOR` / `ROLE_LABEL`：颜色与中文名（咖啡师/收银员/服务员/主管/访客）
+- `ACTION_BEHAVIOR`：后端 `action_type` → 前端行为
+  - `enter_scene→enter`、`walk_to_counter→walk_to_counter`、`walk_to_table→walk_to_table`
+  - `take_order→work`、`prepare_coffee→work`、`deliver_order→deliver`
+  - `show_message→show_message`、`leave_scene→leave`、`error→error`
+  - 未知 action 兜底 → `walk_to_table`
+- `resolveRole`：未知 role 兜底为 `customer`
+
+### sim 层
+- **`sim/agentStore.ts`** — 事件意图状态机：
+  - `ensureAgent`：按 `meta.id` 复用或创建 agent（初始坐标=ENTRY_POINT，status=idle，state=standing，phaseOffset 由 spriteSeed%100）
+  - `routeTo`：用 `astar()` 计算路径写入 `agent.path`，置 `state=walking`
+  - `applyEvent`：按 behavior 分派——`enter` 从入口走到角色桌位；`walk_to_counter` 走到收银桌；`work` 距桌>60 先寻路再 status=working；`show_message` 写入 `speech` Map（6 秒后由 OfficeScene 清除）；`leave` 走向 EXIT_POINT；`error` 置 status=error
+- **`sim/tick.ts`** — 每帧推进（A\* 寻路推进逻辑）：
+  - `moveAlongPath`：每帧 `frame++`，取 `path[0]` 作为下一个航点；距离 < `ARRIVAL_THRESHOLD=4` 则 shift 航点；否则按 `WALK_SPEED*60` 步长线性推进，`facing=atan2(dx,dy)`，`state=walking`
+  - `makeTick`：路径走完后按"距桌位<50"判定坐下（working→sitting/standing），arrival 或 walking→standing
+  - 注意：`WALK_SPEED=0.3`（constants），步长=18 像素/帧 @60fps；不做对角线提速或避障重规划（去掉了 Claw3D 的 bump/separation 完整逻辑，相关字段保留但未在 tick 中使用）
+
+### office3d 层（详细）
+- **`core/constants.ts`** — 坐标系常量：
+  - 画布 `CANVAS_W=1800` × `CANVAS_H=720`，`SCALE=0.018`（画布像素→three.js 世界单位），`WORLD_W/H = CANVAS*SCALE`
+  - 移动/动画：`WALK_SPEED=0.3`、`WALK_ANIM_SPEED=0.15`、`AGENT_SCALE=1.75`、`AGENT_RADIUS=20`、`SEPARATION_STRENGTH=3`、`BUMP_FREEZE_MS=1500`
+  - 建模：`SNAP_GRID=10`、`WALL_THICKNESS=8`、`ELEVATION_STEP=0.08`、`DESK_STICKY_MS=10000`
+  - 概览相机：`DISTRICT_CAMERA_POSITION=[14,16,18]`、`TARGET=[0,0,1]`、`ZOOM=34`（3/4 透视，非俯视）
+- **`core/geometry.ts`** — 画布→世界投影与家具几何：
+  - `toWorld(cx,cy) → [cx*SCALE - CANVAS_W*SCALE*0.5, 0, cy*SCALE - CANVAS_H*SCALE*0.5]`（画布中心对齐世界原点，y=0 地平面）
+  - `ITEM_FOOTPRINT`：每种家具类型的 `[width,height]` 基础尺寸（desk_cubicle 100×55、round_table 120×120、couch 100×40 等）
+  - `ITEM_METADATA`：每种家具是否阻塞寻路（`blocksNavigation`）+ `navPadding`（默认 `GRID_CELL*0.6`）
+  - `getItemBounds`：考虑 `facing` 旋转后的轴对齐包围盒（用于 nav grid 标记）
+  - `createWallItem`：由两端点生成水平/垂直墙
+- **`core/navigation.ts`** — **A\* 寻路核心**（自包含，25px 网格）：
+  - `GRID_CELL=25`，`GRID_COLS=ceil(CANVAS_W/25)=72`，`GRID_ROWS=ceil(CANVAS_H/25)=29`（共 2088 格）
+  - `buildNavGrid`：遍历家具，对 `blocksNavigation=true` 的项按 `getItemBounds+navPadding` 标记阻塞格；四周边界格强制阻塞（防出界）
+  - `astar(sx,sy,ex,ey,grid)`：8 方向 A\*（含对角线，对角 cost=1.414）；手写二叉堆优先队列（`pushOpen/popOpen`）；**拐角裁剪修正**（对角移动时检查两个正交邻格是否阻塞，避免穿墙角）；`findFree` 螺旋搜索起/终点的最近空闲格（防起终点卡在家具内）；返回画布像素坐标路径点数组，终点精确到目标像素
+  - `getDeskLocations`：筛选 `desk_cubicle`，返回 `{x+40, y-5}` 桌前定位点
+  - `ENTRY_POINT={x:80,y:360,facing:π/2}`（注意：agentStore 实际用的是 roleMap 的 ENTRY_POINT {60,900}，这里的 navigation.ENTRY_POINT 被 `void NAV_ENTRY` 占位未用——两处入口常量不一致，属移植残留）
+  - `ROAM_POINTS`：7 个漫游点（未在当前 tick 中使用，预留）
+- **`core/furnitureDefaults.ts`** — Claw3D 默认办公室布局（8 工位/厨房/沙发/机房/健身房/QA/美术室），`materializeDefaults()` 返回 `FurnitureItem[]`
+- **`scene/environment.tsx`** — `FloorAndWalls`：三层地板（深色底+中等色+米色面）+ 18 条地板纹线 + 四面墙（`wallColor=#8d6e63`，`emissive` 弱发光）
+- **`systems/cameraLighting.tsx`**：
+  - `DayNightCycle`：300 秒一个昼夜周期，6 个关键帧（黎明/白天/白天/黄昏/夜晚/深夜），每帧用 `useFrame` 在相邻关键帧间 lerp 环境光与方向光的颜色和强度；方向光带阴影（mapSize 1024，shadow-bias -0.0002）
+  - `OVERVIEW_CAMERA/TARGET/ZOOM` 复用 `DISTRICT_CAMERA_*` 常量
+- **`systems/sceneRuntime.tsx`**：
+  - `GameLoop`：`useFrame(() => tick())`，纯驱动器
+  - `SpotlightEffect`：跟随指定 `agentId` 的聚光灯，淡入 0.4s/淡出 0.6s，强度按 `sin(progress*π)` 钟形曲线（最高 6），用 `toWorld` 把灯和 target 投到 agent 当前世界坐标
+- **`objects/furniture.tsx`** — GLB 家具渲染：
+  - `FURNITURE_GLB`：每种家具类型→`/3d/office-assets/models/furniture/*.glb`（desk/deskCorner/chairDesk/tableRound/loungeSofa/...）
+  - `FURNITURE_SCALE` / `FURNITURE_Y_OFFSET` / `FURNITURE_TINT`：每类型专属缩放、Y 偏移（computer 抬高 0.61）、染色（lerp 0.8 到 MeshStandardMaterial，roughness 0.65/metalness 0.08）
+  - `SHADOW_CASTING`：仅大件家具（桌/沙发/书架/柜/冰箱）投射阴影
+  - `resolveTemplate`：按 `glbPath:type:color` 缓存克隆的模板（避免重复解析 GLB）；`FurnitureModel` 用三层 group 实现绕家具中心旋转+缩放
+- **`objects/agents.tsx`** — **盒状人偶 AgentModel**（核心渲染，~690 行）：
+  - 由 `RenderAgent` ref 驱动每帧姿态：`groupRef.position.lerp(toWorld(x,y), 0.15)` 平滑跟随；`rotation.y` 朝 `facing`（0.12 系数缓动，处理 ±π 回绕）
+  - 走路动画：`walkPhase=sin(frame*WALK_ANIM_SPEED)`，手臂 ±0.4、腿 ±0.35 摆动，身体 bounce 0.04
+  - 状态驱动表情（眼/眉/嘴/嘴角）：
+    - working：眯眼（0.48-0.84）、皱眉、小嘴、绿色脉冲环、绿色状态点
+    - error：红眼（0.28）、怒眉、扁嘴、红色脉冲环（更大更不透明）、红色状态点
+    - standing：正常眼+微笑嘴角+呼吸起伏 0.01
+    - away：半透明（opacity 0.45）+ "z z z" 气泡
+  - 眨眼：基于 `agentId` 字符码哈希做 seed，按 `blinkCycle`（idle 240/error 120/working 170/away 180）随机眨眼
+  - 名牌 `Billboard`：状态点（working 绿/error 红/idle 橙）+ 角色色侧条 + 名字（>8 字缩小字号）+ subtitle（角色中文名）
+  - 对话气泡：Markdown 扁平化（去代码块/图片/链接/标题/列表符号）+ 截断到 180 字 + 4 行；活跃气泡带尖角和边框，空闲时偶尔显示 "• • •" 环境气泡
+- **`avatars/profile.ts`** — 确定性头像生成：FNV-1a 哈希 seed → 派生肤色（6 种）/发型（4 种）/发色（8 种）/上装（tee/hoodie/jacket）/下装（pants/shorts/cuffed）/鞋色/帽子/眼镜/耳机/背包
+
+### 账户登录（`auth/`）
+- **`AuthProvider.tsx`** — React Context，封装 `login/register/logout/me`，签名 Cookie 会话
+- **`AuthPages.tsx`** — 登录/注册表单（全文已扫）：
+  - 内联样式（无 CSS 文件），深色卡片 + 径向渐变背景，主题色 `#2a6ba8`（与收银员角色色一致）
+  - `LoginPage`：用户名+密码，`login()` 成功后 `nav("/scene")`；提供"注册"和"匿名进入 3D"链接（**匿名仍可进场景**，向后兼容 `/chat`）
+  - `RegisterPage`：用户名+昵称（可选）+密码，`register()` 成功后直接登录跳 `/scene`
+  - 错误处理：`busy` 禁用按钮防重复提交，错误 message 红字展示
+
+## 测试与质量
+
+- **Playwright** 已装但无测试文件（覆盖缺口）。
+- 类型检查：`npm run build` 会先跑 `tsc --noEmit`。
+- 无单元测试框架。
+- 已知移植残留（非阻断）：navigation.ts 的 `ENTRY_POINT/ROAM_POINTS/ITEM_FOOTPRINT/snap` 用 `void` 占位未实际使用；roleMap 注释 "1800x1800" 与实际 `CANVAS_H=720` 不符，customer 桌位 y=1080 超界。
+
+## 常见问题 (FAQ)
+
+- **Q: 3D 页面 404？** A: 需先 `npm run build` 把产物输出到 `app/static/3d/`，否则 `/3d` 路由返回 "3D build not found"。
+- **Q: 开发模式如何连后端？** A: Vite 代理 `/ws`、`/api` 到 `localhost:8000`；`api.ts` 的 `base` 在 DEV 模式返回 `http://localhost:8000`。
+- **Q: 大屏数据多久刷新？** A: `Dashboard.tsx` 每 4 秒轮询一次 `/admin/restaurant-state`。
+- **Q: Agent 卡在家具里不动？** A: `astar` 的 `findFree` 会螺旋搜索最近空闲格，但若起终点都在大块家具内部且 10 格内无空闲格会返回空路径；检查 `ITEM_METADATA` 的 `blocksNavigation`/`navPadding` 配置。
+- **Q: GLB 加载失败？** A: 家具 GLB 必须存在于 `public/office-assets/models/furniture/`，构建后落到 `app/static/3d/office-assets/`；`FurnitureModel` 对未知类型兜底用 `table.glb`。
+
+## 相关文件清单
+
+| 文件 | 说明 |
+|------|------|
+| `src/main.tsx` | React 挂载入口 |
+| `src/App.tsx` | 路由 + TopBar + AuthProvider |
+| `src/screens/OfficeScene.tsx` | 3D 办公室主场景（装配 Canvas+灯具+家具+Agent+聚光灯+GameLoop） |
+| `src/screens/Dashboard.tsx` | 监控大屏 |
+| `src/auth/AuthProvider.tsx` | 账户 Context（login/register/logout/me） |
+| `src/auth/AuthPages.tsx` | 登录/注册表单（内联样式，支持匿名进入） |
+| `src/net/api.ts` | fetch 封装 + 事件契约类型 |
+| `src/net/visualizationSocket.ts` | WebSocket 客户端（自动重连） |
+| `src/sim/agentStore.ts` | 事件驱动状态机（applyEvent 意图分派） |
+| `src/sim/tick.ts` | 每帧推进（A\* 航点跟随 + 坐/站判定） |
+| `src/sim/roleMap.ts` | 角色→桌位/颜色/行为映射（**后端契约镜像**） |
+| `src/office3d/core/constants.ts` | 坐标系/动画/相机常量 |
+| `src/office3d/core/geometry.ts` | 画布→世界投影、家具包围盒、阻塞元数据 |
+| `src/office3d/core/navigation.ts` | A\* 寻路 + nav grid 构建 + 桌位定位 |
+| `src/office3d/core/furnitureDefaults.ts` | Claw3D 默认办公室布局 |
+| `src/office3d/core/types.ts` | OfficeAgent/RenderAgent/FurnitureItem 类型 |
+| `src/office3d/scene/environment.tsx` | 地板与墙体 |
+| `src/office3d/systems/cameraLighting.tsx` | 昼夜循环 + 概览相机 |
+| `src/office3d/systems/sceneRuntime.tsx` | GameLoop + 聚光灯 |
+| `src/office3d/objects/furniture.tsx` | GLB 家具渲染（模板缓存+染色+阴影） |
+| `src/office3d/objects/agents.tsx` | 盒状人偶 AgentModel（骨骼动画+表情+气泡） |
+| `src/office3d/objects/types.ts` | AgentModelProps 等组件 props 类型 |
+| `src/office3d/avatars/profile.ts` | 确定性头像档案生成（FNV-1a） |
+| `vite.config.ts` | Vite 配置（base=/3d/，outDir=../app/static/3d） |
+| `index.html` | HTML 模板 |
+| `public/office-assets/` | 3D 资源（GLB 模型、背景贴图） |

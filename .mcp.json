@@ -1,0 +1,32 @@
+{
+  "mcpServers": {
+    "codegraph": {
+      "type": "stdio",
+      "command": "codegraph",
+      "args": [
+        "serve",
+        "--mcp"
+      ]
+    },
+    "coffee-mysql": {
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        ".agents/scripts/start-coffee-mysql-mcp.ps1"
+      ]
+    },
+    "coffee-redis": {
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        ".agents/scripts/start-coffee-redis-mcp.ps1"
+      ]
+    }
+  }
+}

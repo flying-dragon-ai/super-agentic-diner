@@ -110,7 +110,7 @@ def _resolve_coffees_from_history(db, history, max_messages=1):
     max_messages=1：只看最近1条assistant消息（默认，避免前面聊过5杯就全选）
     max_messages=3：看最近3条（用户说"这两杯了"时用，跨多轮提取）
     """
-    all_coffees = [c.coffee_name for c in db.query(CoffeeKB).all()]
+    all_coffees = [c.name for c in db.query(Product).all()]
     found = []
     msg_count = 0
     for msg in reversed(history):
@@ -124,10 +124,10 @@ def _resolve_coffees_from_history(db, history, max_messages=1):
     return found
 
 
-def _lookup_price_from_kb(db, coffee_name):
-    """从知识库查价格，查不到返回 0"""
-    kb = db.query(CoffeeKB).filter(CoffeeKB.coffee_name == coffee_name).first()
-    return float(kb.price) if kb else 0.0
+def _lookup_price_from_product(db, coffee_name):
+    """从商品目录查价格，查不到返回 0"""
+    product = db.query(Product).filter(Product.name == coffee_name).first()
+    return float(product.base_price) if product else 0.0
 
 
 # 待确认订单时，用户确认的触发词。分两组使用：
@@ -641,19 +641,23 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                         "stage": "payment",
                         **web_source_payload,
                     },
-                    correlation_id=req.request_id,
-                )
+                   correlation_id=req.request_id,
+               )
                 return ChatResponse(reply=reply)
 
-            clear_pending_order(req.user_id)
+           clear_pending_order(req.user_id)
             user = db.query(User).filter(User.user_id == req.user_id).first()
-            balance = user.balance if user else "?"
+            balance = (
+                wallet_service.get_balance(db, req.user_id, WALLET_CURRENCY_CNY)
+                if user
+                else "?"
+            )
             if len(orders) == 1:
-                reply = (
-                    f"好嘞！已为您下单「{orders[0].coffee_name}」，扣款 ¥{orders[0].amount}，"
-                    f"当前余额 ¥{balance}。祝您品尝愉快~"
-                )
-            else:
+               reply = (
+                   f"好嘞！已为您下单「{orders[0].coffee_name}」，扣款 ¥{orders[0].amount}，"
+                   f"当前余额 ¥{balance}。祝您品尝愉快~"
+               )
+           else:
                 order_lines = "\n".join(f"  • {o.coffee_name} ¥{o.amount}" for o in orders)
                 total = sum(o.amount for o in orders)
                 reply = (
@@ -704,7 +708,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         # 第3.1路：价格匹配（"来个28元的"→ 按价格查 MySQL CoffeeKB）
         price = extract_price(req.message)
         if price is not None:
-            coffees = [c.coffee_name for c in match_by_price(db, price)]
+            coffees = [c.name for c in match_by_price(db, price)]
 
         # 第3.2路：LLM 显式给出了咖啡名（它能理解"一开始说的""刚才那杯"等引用）
         # 信任 LLM 的引用理解能力，排在历史盲扫之前
@@ -712,7 +716,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             coffee = intent.get("coffee_name")
             if coffee:
                 # 处理 LLM 可能返回合并名 "柑橘冷萃和美式咖啡"
-                valid_names = [c.coffee_name for c in db.query(CoffeeKB).all()]
+                valid_names = [c.name for c in db.query(Product).all()]
                 parts = [p.strip() for p in coffee.replace("和", ",").replace("、", ",").split(",") if p.strip()]
                 matched = [p for p in parts if p in valid_names]
                 if matched:
@@ -722,7 +726,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         if not coffees:
             positive, negative = extract_keywords(req.message)
             if positive or negative:
-                coffees = [r.coffee_name for r in retrieve(db, positive, negative)]
+                coffees = [r.name for r in retrieve(db, positive, negative)]
 
         # 第3.4路：以上都没命中 → 从 Redis 历史提取（最弱信号，兜底）
         # 默认只看最近1条消息（1杯）；用户说「两杯/这些/都」时跨轮提取3条
@@ -769,7 +773,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         # 把选中的咖啡名+价格存入 Redis，等用户回复"确认"后才执行扣款
         items = []
         for name in coffees:
-            p = _lookup_price_from_kb(db, name)
+            p = _lookup_price_from_product(db, name)
             items.append({"name": name, "price": p})
         total = sum(i["price"] for i in items)
         set_pending_order(req.user_id, {"coffees": items, "total": total})
@@ -1303,15 +1307,15 @@ async def visualization_websocket(websocket: WebSocket):
 
 @app.get("/user/{user_id}")
 def get_user(user_id: int, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.user_id == user_id).first()
-    if not user:
-        raise HTTPException(404, "用户不存在")
-    return {
-        "user_id": user.user_id,
-        "nickname": user.nickname,
-        "balance": float(user.balance),
-        "taste_preference": user.taste_preference,
-    }
+   user = db.query(User).filter(User.user_id == user_id).first()
+   if not user:
+       raise HTTPException(404, "用户不存在")
+   return {
+       "user_id": user.user_id,
+       "nickname": user.nickname,
+        "balance": float(wallet_service.get_balance(db, user_id, WALLET_CURRENCY_CNY)),
+       "taste_preference": user.taste_preference,
+   }
 
 
 @app.get("/history/{user_id}")

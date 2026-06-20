@@ -1,0 +1,78 @@
+feature: 2026-06-19-layout-engine-minimal-loop
+created: 2026-06-19
+
+steps:
+  - action: "静态结构：建立默认 layout 和 layout runtime，页面加载后能画出 tile grid、墙/地面、默认 station 标记"
+    exit_signal: "不连接 WebSocket 也能在 canvas 上看到默认布局"
+    status: done
+  - action: "计算节点：实现 walkable/blocked tile、station target、4 邻接 BFS 和 tile/pixel 转换"
+    exit_signal: "正常路径、被墙阻断、站点缺失三类输入都有可观察结果"
+    status: done
+  - action: "移动编排：把现有 actor queue 接到 path 段移动，保持同一 actor 串行执行"
+    exit_signal: "同一角色连续收到两个移动事件时按顺序走完，不瞬移、不插队"
+    status: done
+  - action: "状态接入：把 restaurant.customer_entered、agent.action、presence.customer_moved 等旧事件映射到 station/tile"
+    exit_signal: "snapshot replay 和实时 WebSocket 事件都能驱动同一套移动逻辑"
+    status: done
+  - action: "渲染收尾：根据 layout 绘制背景/家具层，并保留现有面板、ticket、timeline、Agent 列表"
+    exit_signal: "首页和 /screen 页面原有可视化周边 UI 仍正常显示"
+    status: done
+  - action: "验收验证：覆盖正常、边界和反向范围守护"
+    exit_signal: "第 3 节验收场景都有命令、页面或浏览器证据"
+    status: done
+
+checks:
+  - item: "RestaurantSceneCore 提供 createDefaultLayout、buildRuntime、findPath、stationTarget、tileToPoint 等布局计算能力"
+    source: 名词契约
+    status: pending
+  - item: "window.OrderVisualization.create 继续可用，既有 emit、subscribe、handleChatResult、isRealtimeConnected 方法保持兼容"
+    source: 名词契约
+    status: pending
+  - item: "旧 scene.snapshot.payload.events 继续 replay，不依赖后端 snapshot 自带 layout"
+    source: 编排骨架
+    status: pending
+  - item: "station 缺失、tile 不可达、BFS 无路径只影响可视化，不阻断订单、聊天或 Skill 点单"
+    source: 流程级约束
+    status: pending
+  - item: "同一 actor 串行消费 queue，path 拆段不能导致后续事件插队"
+    source: 流程级约束
+    status: pending
+  - item: "index.html 与 screen.html 在 order-visualization.js 前加载 RestaurantSceneCore 静态脚本"
+    source: 挂载点
+    status: pending
+  - item: "现有 scene.snapshot、agent.action、restaurant.*、presence.* 处理链能把事件目标转换为 station/tile path"
+    source: 挂载点
+    status: pending
+  - item: "前端内置 default-restaurant layout 作为当前最小闭环默认值"
+    source: 挂载点
+    status: pending
+  - item: "不新增 /visualization/layout 或 /visualization/assets/catalog 路由"
+    source: 范围守护
+    status: pending
+  - item: "不新增 restaurant_layout 或 scene_actor_state 表，不写 MySQL 迁移脚本"
+    source: 范围守护
+    status: pending
+  - item: "不新增 React、Vite 或 TypeScript 前端构建依赖"
+    source: 范围守护
+    status: pending
+  - item: "不修改 .agents/skills/a2a-super-order 的点单或支付主流程"
+    source: 范围守护
+    status: pending
+  - item: "打开 /screen 时 canvas 显示默认 tile grid、墙/地面、默认家具/station，右侧指标面板仍渲染"
+    source: 验收场景
+    status: pending
+  - item: "首页聊天页面中 window.OrderVisualization 存在，聊天发送和订单 fallback 不因新增脚本报错"
+    source: 验收场景
+    status: pending
+  - item: "收到 restaurant.customer_entered 时顾客沿 walkable path 移动到 table 或当前阶段 station，不直线穿越 wall/blocked tile"
+    source: 验收场景
+    status: pending
+  - item: "收到 agent.action walk_to_counter 时 agent 沿 BFS path 到达 counter station，message 仍显示为 bubble/timeline"
+    source: 验收场景
+    status: pending
+  - item: "本地 presence 点击墙或 void 时不会落到不可通行 tile"
+    source: 验收场景
+    status: pending
+  - item: "不可达目标让 actor 保持当前位置并显示路径失败，业务请求和 WebSocket 连接不中断"
+    source: 验收场景
+    status: pending
