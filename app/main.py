@@ -1630,11 +1630,12 @@ def three_d_app_spa(full_path: str):
 
 @app.get("/")
 def index(request: Request, db: Session = Depends(get_db)):
-    """Root: 直接返回 3D 咖啡厅（匿名可访问，不校验登录）。"""
-    three_d_index = _STATIC_DIR / "3d" / "index.html"
-    if three_d_index.is_file():
-        return FileResponse(three_d_index)
-    # fallback: 2D 聊天页
+    """Root: 未登录 → 302 跳 /3d/login；已登录 → 2D 聊天页。"""
+    from app.auth.router import current_account
+
+    account = current_account(request, db)
+    if not account:
+        return RedirectResponse(url="/3d/login", status_code=302)
     chat_index = _STATIC_DIR / "index.html"
     if chat_index.is_file():
         return FileResponse(chat_index)
