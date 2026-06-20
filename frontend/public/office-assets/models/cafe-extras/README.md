@@ -5,11 +5,19 @@
 
 ## 素材清单
 
-| 文件 | 来源模型页 | 作者 | 用途 |
-|------|-----------|------|------|
-| ppCoffeeMachine.glb | https://poly.pizza/m/7kKSsnCcNC | J-Toastie | 咖啡机（增强版，57KB） |
-| ppEspresso.glb | https://poly.pizza/m/1PH31usRIi8 | Google (Poly) | 意式咖啡，170KB |
-| ppCoffeeCup.glb | https://poly.pizza/m/K5bW4LiHUg | Zsky | 咖啡杯，15KB |
+| 文件 | 来源模型页 | 作者 | 用途 | 状态 |
+|------|-----------|------|------|------|
+| ppCoffeeMachine.glb | https://poly.pizza/m/7kKSsnCcNC | J-Toastie | 咖啡机（增强版，57KB） | 📦 储备 |
+| ppEspresso.glb | https://poly.pizza/m/1PH31usRIi8 | Google (Poly) | 意式咖啡，170KB | ❌ 弃用 |
+| ppCoffeeCup.glb | https://poly.pizza/m/K5bW4LiHUg | Zsky | 咖啡杯，15KB | ❌ 弃用 |
+
+## ⚠️ ppCoffeeCup / ppEspresso 弃用说明
+
+2026-06-20 实测发现：这两个模型原始 bounding box 尺寸单位严重不统一——`ppCoffeeCup` 约 3mm、`ppEspresso` 约 104m，差 **~3.5 万倍**。任何单一 `FURNITURE_SCALE` 都无法让两者同时渲染成合理大小（接入尝试失败 5 次）。
+
+**已改用程序化绘制**：`objects/furniture.tsx` 的 `CupProp` 组件用 `cylinderGeometry` 直接画杯子（`coffee_cup` r4cm×h9cm 白陶瓷、`espresso` r2.8cm×h6cm 小杯），尺寸 100% 可控。这两个 GLB 文件保留在目录里仅作历史归档，**不再被代码引用**（`FURNITURE_GLB` 映射已移除）。
+
+`ppCoffeeMachine` 尺寸正常，仍作二期储备。
 
 ## License
 

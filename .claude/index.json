@@ -9,7 +9,7 @@
     "claude_md": "CLAUDE.md",
     "existing_claude_md": ".claude/CLAUDE.md",
     "project": "coffee-ai-boss",
-    "vision": "咖啡店 AI Boss 系统：LLM+RAG+Redis 对话点单 + A2A Skill 积分点单 + 3D 办公室事件流可视化。2026-06-20 09:40 起，像素风 Colyseus 方案与独立 2D 对话页已归档到 _archive/，3D 办公室 (frontend/) 为唯一活跃 UI。",
+    "vision": "咖啡店 AI Boss 系统：LLM+RAG+Redis 对话点单 + A2A Skill 积分点单 + 3D 咖啡厅事件流可视化。2026-06-20 09:40 起，像素风 Colyseus 方案与独立 2D 对话页已归档到 _archive/，3D 咖啡厅 (frontend/) 为唯一活跃 UI。",
     "languages": {
       "Python": "app/, scripts/, tests/",
       "TypeScript": "frontend/",
@@ -24,7 +24,7 @@
     "archived": {
       "note": "2026-06-20 09:40 归档：像素 Colyseus 多人房间 + 2D 原生对话页。归档而非删除，可恢复。",
       "items": [
-        {"path": "_archive/colyseus-server/", "original": "colyseus-server/", "reason": "像素风方案被 3D 办公室取代"},
+        {"path": "_archive/colyseus-server/", "original": "colyseus-server/", "reason": "像素风方案被 3D 咖啡厅取代"},
         {"path": "_archive/2d-legacy/", "original": "app/static/index.html", "reason": "2D 对话页被 3D 场景内嵌聊天取代；根 / 改直出 3D SPA"}
       ],
       "lingering_code": "app/colyseus_bridge.py 仍在仓库（检测 colyseus-server/ 目录缺失即跳过启动，仅 warning；bridge_event_to_colyseus 仅 debug 日志），属可恢复的停用"
@@ -132,7 +132,7 @@
         "_archive/colyseus-server/src/schema/CoffeeState.ts",
         "_archive/colyseus-server/package.json"
       ],
-      "archive_reason": "像素风多人房间方案被 3D 办公室 (frontend/) 取代；可视化统一走后端 /ws/visualization 事件流。源码+node_modules 完整保留，可恢复（移回根 colyseus-server/ 即重新生效）",
+      "archive_reason": "像素风多人房间方案被 3D 咖啡厅 (frontend/) 取代；可视化统一走后端 /ws/visualization 事件流。源码+node_modules 完整保留，可恢复（移回根 colyseus-server/ 即重新生效）",
       "coverage": "high (历史快照)",
       "gaps": ["place_order handler 为 TODO stub（历史）", "无测试（历史）", "bridge_event_to_colyseus 从未真正打通（历史）"]
     },

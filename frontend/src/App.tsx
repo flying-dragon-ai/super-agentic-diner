@@ -9,7 +9,7 @@ function TopBar() {
   const nav = useNavigate();
   return (
     <div style={{ position: "fixed", top: 0, right: 0, zIndex: 50, display: "flex", gap: 8, alignItems: "center", padding: "8px 12px" }}>
-      <Link to="/scene" style={navLink}>3D 办公室</Link>
+      <Link to="/scene" style={navLink}>3D 咖啡厅</Link>
       <Link to="/dashboard" style={navLink}>大屏</Link>
       {loading ? null : account ? (
         <>

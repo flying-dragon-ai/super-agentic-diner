@@ -298,6 +298,30 @@
 > 状态图例：⬜ 待执行 ｜ 🔄 进行中 ｜ ✅ 完成 ｜ ⚠️ 阻塞
 
 ---
+ 
+## 10. 独立验证记录（2026-06-20，第二执行 Agent）
+
+> 本节为另一位执行 Agent 对上述产物的**独立运行时验证**，未改动上述 5 个 Phase 的代码或文档产物，仅补充证据。
+
+**验证环境**：远程 MySQL/Redis（47.93.176.175）可达，后端 `uvicorn app.main:app --port 8000` 启动成功，`/status` 报 `database=mysql, memory=redis, llm_active=true`。
+
+| Phase | 验证手段 | 结果 |
+|-------|---------|------|
+| 1 前端契约适配 | `cd frontend && npx tsc --noEmit` 零错误；构建产物 `app/static/3d/assets/index-fAfYXGA4.js` 含 `onSnapshot` / `action_type` 解包 / `display_name`+`role_type` 适配；`index.html` 引用哈希与磁盘唯一 bundle 一致 | ✅ PASS |
+| 2 服务员团队 | 启动后 `GET /agents` 含 `staff:barista(100001)` / `staff:cashier(100002)` / `staff:waiter(100003)` / `staff:manager(100004)`；`scene.snapshot.payload.agents` 经 `/ws/visualization` 实测含 4 个 staff + 在线顾客 | ✅ PASS |
+| 3 下单编排联动 | `orchestrate_staff_node` 对 5 个业务节点（payment_completed/preparation_progress/order_ready/order_delivered/customer_left）确定性地产生恰好 7 条预期 staff `agent.action`（waiter→walk_to_counter, cashier→take_order, barista→prepare_coffee, barista→enter_scene, waiter→deliver_order, waiter→enter_scene, cashier→enter_scene），correlation_id 一致，8s 后无剪裁；实测 WS 实时收到 `restaurant.*`/`agent.*` 广播 | ✅ PASS（编排） |
+| 4 snapshot 完整性 | `_snapshot_agents` 在 `/ws/visualization` 连接时返回 staff + 最近 active 顾客；前端 `onSnapshot` 预创建人偶链路经 bundle 验证存在 | ✅ PASS |
+| B4 web 路径 agent_id | 最近 web 事件（event_id 398/402，correlation_id `roadmap-live-*`）已带真实 `agent_id`（web:customer agent），旧事件（≤387）仍为 None | ✅ PASS |
+
+**守恒核查**：`ws` role/action 集合（`visualization_service.py:16-26`）未删减；`/chat`、订单、支付链路未被改动（diff 仅在事件广播节点追加 `orchestrate_staff_node`）；后端业务表零结构变更，staff 走 `AgentProfile`。
+
+-**已补跑（复核后）**：经临时抬高 `SKILL_FREE_ORDER_LIMIT=2`（仅环境变量覆盖，未改 `.env`）跑通真实 Skill 端到端单。CLI `order.py --message "一杯拿铁"` 成功下单（`order_ids:[17]`，`payment_status:free`），按 `request_id` 拉取完整事件链得到 **22 条事件**，确认 `_publish_skill_completion_flow` 在真实订单中按序触发 9 条 staff `agent.action`（waiter→walk_to_counter、cashier→take_order、barista×3→prepare_coffee、barista→enter_scene、waiter→deliver_order、waiter→enter_scene、cashier→enter_scene），correlation_id 与 request_id 一致，staff agent_id 正确（barista=8/cashier=9/waiter=10）。**编排接线自此由"仅函数级验证"升级为"真实订单链验证"，PASS。**
+
+-**仍未覆盖项（受环境配置限制，非代码缺陷）**：
+- 付费 Skill 单（第 3 单起）端到端：`EVOMAP_SERVICE_LISTING_ID=unconfigured`（Owner MCP 配置里 `EVOMAP_API_KEY` 仍为占位符），服务订单扣费链无法完成。属运维配置（见第 7.5 节），需 Owner 填真值。前 2 单免费链路已验证通过。
+- 3D 页面人工目视 4 staff 同时活动：已确认页面加载、bundle 含 onSnapshot、snapshot 后端含 4 staff；并发执行 Agent 另有 Playwright 截图（`.playwright-mcp/page-2026-06-20T05-41-21-274Z.png`）佐证渲染。LLM 意图识别对测试话术未触发自动确认下单，故未在单次 `/chat` 内同时捕到 staff 动作实时广播（编排层已单独验证）。
+
+ > 结论（复核后）：5 个 Phase 的产物已通过独立验证，含真实 Skill 端到端单（免费链路）；唯一未跑通的是依赖 Owner 真实 EvoMap 凭证的付费 Skill 单，属配置项而非实现缺口。
 
 **执行 Agent 自检**：开工前确认已读完第 0.2 节的 10 个必读文件，并理解第 0.3 节的 10 条铁律。任何歧义先问 Owner，不要猜。
 
@@ -313,3 +337,5 @@
 - **守恒**：`pytest tests/`（chat_confirm / chat_order_view / skill_evomap_payment / product_wallet / llm_configuration）34 passed；`/chat` 回复结构与订单/支付逻辑零破坏；ws role/action 集合未删减（仅新增 staff 编排的 `agent.action` 事件）。
 - **免费单**：当前环境 `skill_free_order_limit=0`，免费链路需 Owner 填真值后端到端验证（属运维配置，见风险 #5）。
 - **编排容错**：`ensure_staff_agents` / `ensure_web_customer_agent` / startup seeding / ws snapshot 全部包 try/except，可视化编排绝不阻断 `/chat`、订单或支付。
+- **?????2026-06-20?**?? ?? `order.intent_detected` ??????? 196 ???????? waiter `walk_to_counter` ????? payment_completed???? intent ?????web ? order ???skill ?????? order ??????? waiter walk_to_counter?? ? `enter_scene` ?? bug??? order_ready/customer_left ? enter_scene ?????????????????? ensureAgent ?????????????????????????????????????????? ???? WS ????? `/ws/visualization` ?? scene.snapshot ? 4 staff?
+- **???????2026-06-20?**?? ?? bug?????? WS ??? 5 ? staff ?????????? DB ???????? 8 ? staff ???WS ??????DB ? single source of truth??? ???????????? `agent.action enter_scene`??????? 1 ????????? customer ?????? `publish_agent_action` ? `restaurant.customer_entered` ?????? enter_scene?????????? ?? enter_scene ? cashier take_order ? barista prepare?3 ? barista enter ? waiter deliver ? waiter/cashier enter?? 9 ?????????? ????????`web_customer` ??? except ???????? UnboundLocalError????????34 ?????tsc ????

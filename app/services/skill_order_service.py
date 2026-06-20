@@ -491,6 +491,11 @@ def process_skill_order(
         agent_id=agent.agent_id,
         correlation_id=correlation_id,
     )
+    try:
+        _staff = ensure_staff_agents(db)
+    except Exception:
+        _staff = {}
+    orchestrate_staff_node(db, _staff, "intent_detected", correlation_id)
 
     ledger = SkillOrderLedger(
         consumer_id=consumer.consumer_id,

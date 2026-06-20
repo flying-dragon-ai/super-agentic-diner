@@ -33,9 +33,6 @@ export const FURNITURE_GLB: Record<string, string> = {
   cabinet: "/3d/office-assets/models/furniture/kitchenCabinet.glb",
   computer: "/3d/office-assets/models/furniture/computerScreen.glb",
   lamp: "/3d/office-assets/models/furniture/lampRoundFloor.glb",
-  // Cafe extras (Poly Pizza CC0) — desktop props, see cafe-extras/README.md
-  coffee_cup: "/3d/office-assets/models/cafe-extras/ppCoffeeCup.glb",
-  espresso: "/3d/office-assets/models/cafe-extras/ppEspresso.glb",
 };
 
 export const FURNITURE_SCALE: Record<string, [number, number, number]> = {
@@ -58,8 +55,6 @@ export const FURNITURE_SCALE: Record<string, [number, number, number]> = {
   cabinet: [2.6, 1.2, 1],
   computer: [1.1, 1.1, 1.1],
   lamp: [1.2, 1.2, 1.2],
-  coffee_cup: [96, 96, 96],
-  espresso: [0.0019, 0.0019, 0.0019],
 };
 
 export const FURNITURE_Y_OFFSET: Record<string, number> = { computer: 0.61 };
@@ -84,8 +79,6 @@ export const FURNITURE_TINT: Record<string, string | null> = {
   cabinet: "#5d4037",
   plant: null,
   lamp: "#c8a060",
-  coffee_cup: null,
-  espresso: null,
 };
 
 const SHADOW_CASTING = new Set([

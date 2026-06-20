@@ -71,6 +71,7 @@ from app.services.staff_service import (
     ensure_staff_agents,
     ensure_web_customer_agent,
     orchestrate_staff_node,
+    publish_agent_action,
 )
 
 app = FastAPI(title="智能咖啡馆 AI 店长")
@@ -589,10 +590,13 @@ def _require_agent(
 def chat(req: ChatRequest, db: Session = Depends(get_db)):
     """Handle chat, recommendation, pending confirmation, and paid order flows."""
     consumer_url = _normalize_consumer_url(req.consumer_url)
+    web_customer = None
+    web_agent_id = None
     try:
         web_customer = ensure_web_customer_agent(db, req.user_id)
         web_agent_id = web_customer.agent_id
     except Exception:
+        web_customer = None
         web_agent_id = None
     web_source_payload = {
         "source_type": ORDER_SOURCE_WEB_DIALOG,
@@ -611,6 +615,13 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         patience=100,
         satisfaction=80,
     )
+    if web_customer is not None:
+        publish_agent_action(
+            db,
+            web_customer,
+            "enter_scene",
+            correlation_id=req.request_id,
+        )
     _try_publish_visualization_event(
         db,
         "message.received",
@@ -757,6 +768,13 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         {"user_id": req.user_id, "intent": intent.get("intent", "chat"), **web_source_payload},
         correlation_id=req.request_id,
     )
+    # Waiter greets the customer as soon as an order intent is recognized.
+    if intent.get("intent") == "order":
+        try:
+            _staff = ensure_staff_agents(db)
+        except Exception:
+            _staff = {}
+        orchestrate_staff_node(db, _staff, "intent_detected", req.request_id)
 
     # ===== 第3步：LLM 判断为"下单"意图 → 解析具体是哪杯咖啡 =====
     # 四路优先级：价格匹配 > LLM显式名 > RAG关键词 > 历史提取

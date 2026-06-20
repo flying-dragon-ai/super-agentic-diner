@@ -107,7 +107,7 @@ def ensure_web_customer_agent(db: Session, user_id: Any) -> AgentProfile:
     return agent
 
 
-def _staff_payload(agent: AgentProfile, action_type: str, **extra: Any) -> dict[str, Any]:
+def _agent_payload(agent: AgentProfile, action_type: str, **extra: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "agent_id": agent.agent_id,
         "tool_name": agent.tool_name,
@@ -141,7 +141,35 @@ def publish_staff_action(
         message = create_visualization_event(
             db,
             event_type="agent.action",
-            payload=_staff_payload(agent, action_type, **extra),
+            payload=_agent_payload(agent, action_type, **extra),
+            agent_id=agent.agent_id,
+            correlation_id=correlation_id,
+        )
+        visualization_hub.broadcast_from_sync(message)
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
+def publish_agent_action(
+    db: Session,
+    agent: AgentProfile,
+    action_type: str,
+    *,
+    correlation_id: str | None = None,
+    **extra: Any,
+) -> None:
+    """Broadcast an ``agent.action`` event for any agent (staff or customer).
+
+    Best-effort: failures are swallowed so visualization never blocks business.
+    """
+    try:
+        message = create_visualization_event(
+            db,
+            event_type="agent.action",
+            payload=_agent_payload(agent, action_type, **extra),
             agent_id=agent.agent_id,
             correlation_id=correlation_id,
         )
@@ -166,8 +194,11 @@ def orchestrate_staff_node(
     waiter delivers -> staff return to stations.
     """
     if node == "payment_completed":
-        publish_staff_action(db, staff, "waiter", "walk_to_counter", correlation_id=correlation_id)
         publish_staff_action(db, staff, "cashier", "take_order", correlation_id=correlation_id)
+    elif node == "intent_detected":
+        # Waiter greets the customer as soon as the order intent is recognized,
+        # ahead of payment (roadmap line 196: intent_detected -> waiter walk_to_counter).
+        publish_staff_action(db, staff, "waiter", "walk_to_counter", correlation_id=correlation_id)
     elif node == "preparation_progress":
         publish_staff_action(db, staff, "barista", "prepare_coffee", correlation_id=correlation_id)
     elif node == "order_ready":

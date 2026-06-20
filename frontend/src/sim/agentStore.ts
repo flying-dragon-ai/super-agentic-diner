@@ -44,7 +44,7 @@ export function getNav(handle: SimHandle): Uint8Array {
   return handle._nav;
 }
 
-const ensureAgent = (handle: SimHandle, meta: AgentMeta): RenderAgent => {
+const ensureAgent = (handle: SimHandle, meta: AgentMeta): { agent: RenderAgent; isNew: boolean } => {
   let agent = handle.agents.find((a) => a.id === meta.id);
   const role = resolveRole(meta.role);
   if (!agent) {
@@ -69,8 +69,9 @@ const ensureAgent = (handle: SimHandle, meta: AgentMeta): RenderAgent => {
       state: "standing",
     };
     handle.agents.push(agent);
+    return { agent, isNew: true };
   }
-  return agent;
+  return { agent, isNew: false };
 };
 
 const routeTo = (handle: SimHandle, agent: RenderAgent, tx: number, ty: number) => {
@@ -88,7 +89,7 @@ export function applyEvent(
   action: string,
   payload: Record<string, unknown>,
 ) {
-  const agent = ensureAgent(handle, meta);
+  const { agent, isNew } = ensureAgent(handle, meta);
   const behavior = resolveAction(action);
   const role = resolveRole(meta.role);
   agent.status = behavior === "error" ? "error" : agent.status === "error" ? "idle" : agent.status;
@@ -96,8 +97,13 @@ export function applyEvent(
   switch (behavior) {
     case "enter": {
       agent.lastSeenAt = Date.now();
-      agent.x = ENTRY_POINT.x;
-      agent.y = ENTRY_POINT.y;
+      if (isNew) {
+        // First appearance: spawn at the door and walk in.
+        agent.x = ENTRY_POINT.x;
+        agent.y = ENTRY_POINT.y;
+      }
+      // Returning staff (re-enter/reset): route from current position to
+      // their desk without a teleport jump.
       routeTo(handle, agent, ROLE_DESK[role].x, ROLE_DESK[role].y);
       break;
     }
