@@ -5,8 +5,8 @@ from typing import Any, Optional
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import func
@@ -1388,8 +1388,13 @@ def three_d_app_spa(full_path: str):
 
 
 @app.get("/")
-def index():
-    """Root: 2D 聊天页（AI 店长对话主页）。3D 咖啡厅场景在 /3d。"""
+def index(request: Request, db: Session = Depends(get_db)):
+    """Root: 未登录 → 302 跳 /3d/login；已登录 → 2D 聊天页。"""
+    from app.auth.router import current_account
+
+    account = current_account(request, db)
+    if not account:
+        return RedirectResponse(url="/3d/login", status_code=302)
     chat_index = _STATIC_DIR / "index.html"
     if chat_index.is_file():
         return FileResponse(chat_index)

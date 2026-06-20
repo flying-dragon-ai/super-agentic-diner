@@ -108,7 +108,7 @@ echo [6/6] Starting server: http://localhost:%PORT%
 echo       Press Ctrl+C to stop.
 echo.
 timeout /t 2 >nul
-if /I not "%OPEN_BROWSER%"=="0" start "" "http://localhost:%PORT%/"
+if /I not "%OPEN_BROWSER%"=="0" start "" "http://localhost:%PORT%/3d/login"
 "%PYTHON_CMD%" -m uvicorn app.main:app --host 127.0.0.1 --port %PORT% --reload
 goto end
 
