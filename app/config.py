@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-4o-mini"
+    # LLM(大模型) 单次 HTTP(超文本传输) 请求超时秒数；过期会走 mock(降级) 兜底
+    llm_timeout_seconds: float = 15.0
 
     # Chat memory.
     chat_history_rounds: int = 5

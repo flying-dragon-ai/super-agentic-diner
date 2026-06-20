@@ -9,6 +9,19 @@ from app.memory.chat_history import add_message, get_history
 from app.rag.keywords import extract_keywords
 from app.rag.retrieval import retrieve
 
+
+def product_to_card(p: Product) -> dict:
+    """序列化 Product(产品) 为前端图片卡片数据（与 /menu 格式一致）"""
+    return {
+        "name": p.name,
+        "price": float(p.base_price),
+        "tags": p.tags or "",
+        "category": p.category or "",
+        "description": (p.description or "")[:120],
+        "image": f"/imag/{p.name}.png",
+        "stock": p.stock,
+    }
+
 # 用户想看更多/全部产品时的触发词（注意："套餐"不在此列，它是组合套餐≠全部单品）
 _BROWSE_ALL_WORDS = (
     "还有", "还有什么", "还有吗", "列出", "全部", "所有", "全列",
@@ -73,7 +86,7 @@ def handle_message(db, user_id, user_msg):
             reply = llm.chat(history, user_msg, context)
             add_message(user_id, "user", user_msg)
             add_message(user_id, "assistant", reply)
-            return reply
+            return reply, [product_to_card(r) for r in kb_rows]
 
     # 第2步：【任务二·1】关键词提取 + RAG 检索
     # extract_keywords: jieba分词→去停用词→同义词扩展→否定词分离
@@ -98,4 +111,4 @@ def handle_message(db, user_id, user_msg):
     # 第5步：写回 Redis 记忆（本轮对话，供下一轮使用）
     add_message(user_id, "user", user_msg)
     add_message(user_id, "assistant", reply)
-    return reply
+    return reply, [product_to_card(r) for r in kb_rows]

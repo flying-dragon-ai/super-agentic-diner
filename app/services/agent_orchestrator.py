@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Product
 from app.memory.chat_history import add_message, get_history
 from app.services.agents import manager_agent, recommender_agent, reviewer_agent
+from app.services.chat_service import product_to_card, _is_browse_all
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,8 @@ class OrchestratorResult:
     # 复盘结果（检测到纠正时填充）
     review: dict[str, Any] | None = None
     applied_experience: bool = False
+    # 推荐/聊天路径涉及的产品卡片数据（供前端图片卡片渲染）
+    products: list[dict] = field(default_factory=list)
 
 
 def orchestrate(
@@ -147,6 +150,12 @@ def orchestrate(
         reco = recommender_agent.recommend(db, user_id, user_msg, history)
         result.reply = reco["reply"]
         result.applied_experience = reco["applied_experience"]
+        # 看菜单请求：卡片展示全部产品；普通推荐：只展示候选产品
+        if _is_browse_all(user_msg):
+            all_products = db.query(Product).order_by(Product.base_price).all()
+            result.products = [product_to_card(p) for p in all_products]
+        else:
+            result.products = [product_to_card(p) for p in reco["candidates"]]
         result.events.append(
             {
                 "type": "agent.recommender.suggested",
@@ -174,6 +183,12 @@ def orchestrate(
     reco = recommender_agent.recommend(db, user_id, user_msg, history)
     result.reply = reco["reply"]
     result.applied_experience = reco["applied_experience"]
+    # 看菜单请求：卡片展示全部产品；普通推荐：只展示候选产品
+    if _is_browse_all(user_msg):
+        all_products = db.query(Product).order_by(Product.base_price).all()
+        result.products = [product_to_card(p) for p in all_products]
+    else:
+        result.products = [product_to_card(p) for p in reco["candidates"]]
     result.events.append(
         {
             "type": "agent.recommender.suggested",

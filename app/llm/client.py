@@ -20,7 +20,8 @@ _client: httpx.Client | None = None
 def get_client() -> httpx.Client:
     global _client
     if _client is None:
-        _client = httpx.Client(timeout=60.0)
+        # 超时从 config(配置) 读取：默认 15s，避免单次 LLM 调用卡死整个请求
+        _client = httpx.Client(timeout=settings.llm_timeout_seconds)
     return _client
 
 

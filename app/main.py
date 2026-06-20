@@ -220,6 +220,47 @@ _CONFIRM_NEGATIVE_WORDS = (
 )
 _CONFIRM_QUESTION_MARKS = ("吗", "？", "?")
 
+# ======/chat 加速：启发式判断消息是否「明显不是下单」以跳过 parse_intent 的 LLM 调用/======
+# 触发条件：消息含订单/确认信号 → 必须调 parse_intent 提取 coffee_name 等细节；
+# 否则消息含推荐/口味/问号等信号 → 直接走 recommend，省一次 LLM 往返（约 1-5s）。
+_ORDER_HEURISTIC_WORDS = (
+    "买", "下单", "结账", "扣钱", "扣款", "付款", "买单", "从余额",
+    "来一杯", "来个", "来两杯", "要一杯", "要个", "要两杯",
+    "点一杯", "点个", "来份", "给我来", "整一杯", "整一个",
+    "就这个", "就它", "这两杯", "就买", "就点",
+)
+# 明确的推荐/聊天信号（仅在不含订单词时才触发跳过）
+_RECOMMEND_CHAT_HINTS = (
+    "推荐", "有什么", "介绍一下", "介绍下", "区别", "哪种", "换口味", "换个",
+    "多少钱", "几点", "为什么", "怎么", "如何", "？", "?", "吗",
+    "果味", "苦", "甜", "酸", "椰", "口味", "偏好", "忌口", "喜欢", "清爽",
+    "不要牛奶", "无奶", "不加奶", "深烘", "浅烘", "加冰", "热饮", "冷饮",
+)
+
+
+def _is_clearly_non_order(user_msg: str) -> bool:
+    """启发式：消息是否「明显不是下单」，可以跳过 parse_intent 的 LLM 调用。
+
+    保守策略：拿不准时返回 False（仍调 LLM），只在非常确定时才跳过省一次调用。
+    安全兜底：即便误判为「非下单」，orchestrator(编排器) 里的 _detect_exact_product
+    仍会从消息里捞出精确商品名（如「柑橘冷萃」）并改路由为 order。
+    """
+    msg = user_msg.strip()
+    if not msg:
+        return True  # 空消息不会下单
+    # 含疑问标记 → 提问而非下单（即使以「可以」开头也是提问，如「可以加冰吗」）
+    if any(w in msg for w in _CONFIRM_QUESTION_MARKS):
+        return True
+    # 含订单词或确认词 → 不能跳过
+    if any(w in msg for w in _ORDER_HEURISTIC_WORDS):
+        return False
+    if any(w in msg for w in _CONFIRM_STRONG):
+        return False
+    if len(msg) <= 6 and any(msg.startswith(w) for w in _CONFIRM_WEAK):
+        return False
+    # 没有订单词时，再看是否有推荐/聊天信号
+    return any(w in msg for w in _RECOMMEND_CHAT_HINTS)
+
 
 def _is_confirming(user_msg):
     """判断用户是否在确认待支付订单。
@@ -314,6 +355,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     order_id: Optional[int] = None
+    products: Optional[list[dict]] = None  # 推荐/菜单场景的产品卡片数据
 
 
 class AgentRegisterRequest(BaseModel):
@@ -756,8 +798,13 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             clear_pending_order(req.user_id)
 
     # ===== 第2步：无待确认订单 → 调 LLM 理解用户意图 =====
-    # LLM 返回三分类之一：order（下单）/ recommend（求推荐）/ chat（闲聊）
-    intent = llm.parse_intent(history, req.message)
+    # 加速：消息「明显不是下单」时跳过 parse_intent 的 LLM 调用，直接走 recommend，
+    # 把推荐/聊天路径从 2 次 LLM 调用降到 1 次（节省 1-5s）。
+    # 安全：拿不准时仍调 parse_intent；误判由 orchestrator._detect_exact_product 兜底。
+    if _is_clearly_non_order(req.message):
+        intent = {"intent": "recommend", "reason": "heuristic_skip_parse_intent"}
+    else:
+        intent = llm.parse_intent(history, req.message)
     _try_publish_visualization_event(
         db,
         "order.intent_detected",
@@ -896,16 +943,16 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         )
     # 若编排器已写对话历史并给出回复，直接返回
     if orch.reply:
-        return ChatResponse(reply=orch.reply)
+        return ChatResponse(reply=orch.reply, products=orch.products if orch.products else None)
     # 编排器降级（如无 LLM key）：回退到原 handle_message
-    reply = handle_message(db, req.user_id, req.message)
+    reply, products = handle_message(db, req.user_id, req.message)
     _try_publish_visualization_event(
         db,
         "order.reply",
         {"user_id": req.user_id, "intent": intent.get("intent", "chat"), **web_source_payload},
         correlation_id=req.request_id,
     )
-    return ChatResponse(reply=reply)
+    return ChatResponse(reply=reply, products=products if products else None)
 
 
 @app.post("/agents/register", response_model=AgentRegisterResponse)
