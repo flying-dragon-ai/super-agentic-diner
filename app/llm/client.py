@@ -37,8 +37,10 @@ def _chat_completions_url() -> str:
     return base_url + "/chat/completions"
 
 
-def _call_llm(messages):
+def _call_llm(messages, temperature=0.7):
     """统一调用入口：POST {base_url}/chat/completions
+
+    temperature 默认 0.7（推荐/聊天）；意图分类/JSON 输出传 0.0 更稳定。
     遇到 429 限流时自动重试 1 次（等 1.5 秒）。
     """
     url = _chat_completions_url()
@@ -46,7 +48,7 @@ def _call_llm(messages):
         "Authorization": f"Bearer {settings.effective_llm_api_key}",
         "Content-Type": "application/json",
     }
-    payload = {"model": settings.llm_model, "messages": messages, "temperature": 0.7}
+    payload = {"model": settings.llm_model, "messages": messages, "temperature": temperature}
 
     for attempt in range(2):  # 最多 2 次（首次 + 1 次重试）
         try:
@@ -126,37 +128,13 @@ def _mock_chat(context: str) -> str:
     return "根据您的喜好，为您推荐：\n" + context + "\n\n请问想点哪一杯呢？告诉我就可以为您下单啦~"
 
 
-# 【任务三·LLM】意图分类提示词：让 LLM 把用户消息分为三种意图
-# 这是任务三"系统执行步骤"的第一步——LLM 理解用户想干什么
-# 三分类：order（下单）/ recommend（求推荐）/ chat（闲聊）
-INTENT_PROMPT = """你是对话意图分类器。结合对话历史，判断用户最新消息的意图，输出三分类之一：
+# 【任务三·LLM】意图分类提示词（精简版：~150 字，省 ~170 tokens/次）
+INTENT_PROMPT = """你是咖啡馆意图分类器。结合对话历史，判断用户最新消息的意图，只输出JSON：
+{"intent":"order|recommend|chat","reason":"简述","coffee_name":"咖啡名或空","quantity":1}
 
-## 三种意图
-
-**order** — 用户想购买/确认下单。典型特征：
-- 直接说要买/下单/结账/扣钱：「就买这杯」「下单」「结账」
-- 推荐后用简短肯定词回应：「可以」「行」「好的」「嗯」「要」「就这个」「就它了」「这两杯了」
-- 判断关键：消息简短 + 肯定/确认语气 + 对话历史中刚推荐过咖啡
-
-**recommend** — 用户想看推荐/描述口味偏好/问选择。典型特征：
-- 描述口味：「我想喝果味的」「不要牛奶」「苦一点的」
-- 要求推荐：「有什么推荐」「再来个」「换个口味」
-
-**chat** — 其他闲聊/询问。典型特征：
-- 问问题：「可以加冰吗」「几点关门」「多少钱」
-- 肯定词 + 附加内容：「可以加点糖吗」（不是纯确认，有附加需求）
-- 完全无关内容
-
-## 关键判别规则
-- 短肯定词（可以/行/好）+ 历史里有推荐 → order
-- 短肯定词 + 历史里无推荐 → chat（应反问用户想买什么）
-- 描述口味/问推荐 → recommend（即使用户说得很肯定）
-
-## 输出格式（只输出 JSON，无其他文字）
-{"intent":"order","reason":"简短理由","coffee_name":"咖啡名(来自上下文，可能为空)","quantity":1}
-{"intent":"recommend","reason":"简短理由"}
-{"intent":"chat","reason":"简短理由"}
-"""
+- order：明确要买/下单/确认（"来一杯""下单""就买它""好的""行"）+ 历史有推荐
+- recommend：描述口味/求推荐/看菜单（"果味的""不要牛奶""有什么推荐"）
+- chat：其他闲聊/询问（"几点关门""可以加冰吗"）"""
 
 # LLM 不可用时的兜底词。覆盖最常见的中文下单表达，避免 LLM 不可用时
 # 把"来一杯/要一杯/来个"这类明确的下单意图误判为闲聊。
@@ -186,10 +164,12 @@ def parse_intent(history, user_msg):
     # LLM 可用：完全信任语义理解
     if has_real_key():
         messages = [{"role": "system", "content": INTENT_PROMPT}]
-        messages.extend(history)
+        # 意图分类只需最近 2 轮（4 条消息），省 ~300 tokens
+        recent_history = history[-4:] if len(history) > 4 else history
+        messages.extend(recent_history)
         messages.append({"role": "user", "content": user_msg})
         try:
-            text = _call_llm(messages)
+            text = _call_llm(messages, temperature=0.0)
             text = _strip_code_fence(text)
             result = json.loads(text)
             # 规范化 intent 字段（兼容旧值 place_order）

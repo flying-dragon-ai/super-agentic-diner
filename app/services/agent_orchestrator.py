@@ -3,9 +3,9 @@
 被 /chat 调用，替代原来直接调 parse_intent + chat_service 的散装逻辑。
 编排流程：
   1. 店长 Agent 意图分析 → order / recommend / chat
-  2. 检测纠正信号 → 若是，复盘 Agent 分析失误 + 经验继承存储
+  2. 检测纠正信号 → 若是，复盘 Agent 后台异步执行（不阻塞推荐响应）
   3. recommend → 推荐 Agent（融合经验）生成回复
-  4. chat → 复用店长回复（或降级 chat_service）
+  4. chat → 复用推荐 Agent（闲聊也能给点建议）
   5. order → 不在此处理，返回意图由 main.py 继续下单流程
 
 返回 OrchestratorResult，main.py 据此执行下单 / 回复 + 发可视化事件。
@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -21,9 +22,39 @@ from sqlalchemy.orm import Session
 from app.db.models import Product
 from app.memory.chat_history import add_message, get_history
 from app.services.agents import manager_agent, recommender_agent, reviewer_agent
-from app.services.chat_service import product_to_card, _is_browse_all
+from app.services.chat_service import product_to_card, _is_browse_all, get_all_products
 
 logger = logging.getLogger(__name__)
+
+
+def _run_review_background(
+    user_id: int,
+    user_msg: str,
+    history: list[dict],
+    correlation_id: str | None,
+    trigger_reason: str,
+) -> None:
+    """后台执行复盘 Agent（独立 db session，失败 swallow 不阻塞主流程）。
+
+    复盘只负责写经验（MySQL+Redis+EvoMap），不影响当前推荐响应。
+    """
+    try:
+        from app.db.database import SessionLocal
+
+        db = SessionLocal()
+        try:
+            reviewer_agent.review_mistake(
+                db,
+                user_id=user_id,
+                user_msg=user_msg,
+                history=history,
+                correlation_id=correlation_id,
+                trigger_reason=trigger_reason,
+            )
+        finally:
+            db.close()
+    except Exception:
+        logger.warning("后台复盘 Agent(事后复盘) 执行失败", exc_info=True)
 
 
 def _detect_exact_product(db: Session, user_msg: str) -> str | None:
@@ -32,7 +63,7 @@ def _detect_exact_product(db: Session, user_msg: str) -> str | None:
     如"我要一杯柑橘冷萃" → 返回 "柑橘冷萃"。
     用于跳过推荐 Agent，直接走下单流程（更快，且不会输出菜单列表）。
     """
-    all_names = [p.name for p in db.query(Product).all()]
+    all_names = [p.name for p in get_all_products(db)]
     for name in all_names:
         if name in user_msg:
             return name
@@ -97,7 +128,7 @@ def orchestrate(
         }
     )
 
-    # ===== 第2步：纠正/生气/重复检测 → 触发复盘 Agent =====
+    # ===== 第2步：纠正/生气/重复检测 → 触发复盘 Agent（后台异步，不阻塞推荐） =====
     triggered, trigger_reason = manager_agent.detect_review_trigger(user_msg, history)
     if triggered:
         result.events.append(
@@ -106,33 +137,18 @@ def orchestrate(
                 "payload": {"user_id": user_id, "trigger": trigger_reason},
             }
         )
-        review = reviewer_agent.review_mistake(
-            db,
-            user_id=user_id,
-            user_msg=user_msg,
-            history=history,
-            correlation_id=correlation_id,
-            trigger_reason=trigger_reason,
-        )
-        if review:
-            result.review = review
-            result.events.append(
-                {
-                    "type": "agent.reviewer.reviewed",
-                    "payload": {
-                        "user_id": user_id,
-                        "mistake_type": review.get("mistake_type"),
-                        "rating": review.get("rating"),
-                        "insight": review.get("insight"),
-                    },
-                }
-            )
-            result.events.append(
-                {
-                    "type": "agent.experience.learned",
-                    "payload": {"user_id": user_id, "insight": review.get("insight", "")},
-                }
-            )
+        # 复盘在后台线程执行（独立 db session，不阻塞推荐响应，省 2-6 秒）
+        threading.Thread(
+            target=_run_review_background,
+            kwargs={
+                "user_id": user_id,
+                "user_msg": user_msg,
+                "history": list(history),  # 复制一份避免竞争
+                "correlation_id": correlation_id,
+                "trigger_reason": trigger_reason,
+            },
+            daemon=True,
+        ).start()
 
     # ===== 第3步：按意图分派 =====
     if intent == "order":
@@ -152,7 +168,7 @@ def orchestrate(
         result.applied_experience = reco["applied_experience"]
         # 看菜单请求：卡片展示全部产品；普通推荐：只展示候选产品
         if _is_browse_all(user_msg):
-            all_products = db.query(Product).order_by(Product.base_price).all()
+            all_products = get_all_products(db)
             result.products = [product_to_card(p) for p in all_products]
         else:
             result.products = [product_to_card(p) for p in reco["candidates"]]

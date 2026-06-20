@@ -44,7 +44,7 @@ from app.memory.chat_history import (
     get_pending_order,
     set_pending_order,
 )
-from app.services.chat_service import extract_price, handle_message, match_by_price
+from app.services.chat_service import extract_price, handle_message, match_by_price, get_all_products
 from app.services.agent_orchestrator import orchestrate as agent_orchestrate
 from app.services.agents.experience_agent import list_recent_experiences
 from app.services import evomap_evolution_service
@@ -175,7 +175,7 @@ def _resolve_coffees_from_history(db, history, max_messages=1):
     max_messages=1：只看最近1条assistant消息（默认，避免前面聊过5杯就全选）
     max_messages=3：看最近3条（用户说"这两杯了"时用，跨多轮提取）
     """
-    all_coffees = [c.name for c in db.query(Product).all()]
+    all_coffees = [c.name for c in get_all_products(db)]
     found = []
     msg_count = 0
     for msg in reversed(history):
@@ -828,7 +828,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             coffee = intent.get("coffee_name")
             if coffee:
                 # 处理 LLM 可能返回合并名 "柑橘冷萃和美式咖啡"
-                valid_names = [c.name for c in db.query(Product).all()]
+                valid_names = [c.name for c in get_all_products(db)]
                 parts = [p.strip() for p in coffee.replace("和", ",").replace("、", ",").split(",") if p.strip()]
                 matched = [p for p in parts if p in valid_names]
                 if matched:
@@ -1681,7 +1681,7 @@ async def visualization_websocket(websocket: WebSocket):
 @app.get("/menu")
 def get_menu(db: Session = Depends(get_db)):
     """返回完整菜单（供前端图片卡片渲染），含名称、价格、标签、图片路径。"""
-    products = db.query(Product).order_by(Product.base_price).all()
+    products = get_all_products(db)
     return [
         {
             "name": p.name,

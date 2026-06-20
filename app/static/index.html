@@ -237,9 +237,6 @@
       <div id="quickMenu" aria-label="意图快捷菜单"></div>
       <button class="quick-clear" onclick="clearChat()">🗑 清空对话</button>
     </div>
-    <div id="consumerUrlBar">
-      <input id="consumerUrlInput" placeholder="Order page URL" />
-    </div>
     <div id="inputBar">
       <input id="msgInput" placeholder="和店长说点什么…" onkeydown="if(event.key==='Enter')send()" />
       <button id="sendBtn" onclick="send()">发送</button>
@@ -491,7 +488,7 @@ async function send() {
   typing.classList.add('typing');
   $('sendBtn').disabled = true;
   try {
-    const consumerUrl = $('consumerUrlInput')?.value.trim() || window.location.href;
+    const consumerUrl = window.location.href;
     const r = await fetch('/chat', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -644,7 +641,6 @@ async function initAuth() {
 
 // 初始化
 (async function init() {
-  if ($('consumerUrlInput')) $('consumerUrlInput').value = window.location.href;
   if ($('msgInput')) {
     $('msgInput').addEventListener('input', () => {
       quickState.selectedKey = '';
