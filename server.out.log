@@ -1,160 +1,45 @@
-INFO:     127.0.0.1:52756 - "GET / HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52756 - "GET /status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52756 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:52812 - "GET /status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52851 - "GET /3d/ HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52851 - "GET /3d/assets/index-CQEDMCJi.js HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52851 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:52851 - "GET /3d/office-assets/models/furniture/tableRound.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52851 - "GET /3d/office-assets/models/furniture/chairDesk.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52851 - "GET /3d/office-assets/models/furniture/bookcaseClosed.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52851 - "GET /3d/office-assets/models/furniture/loungeSofa.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52851 - "GET /3d/office-assets/models/furniture/kitchenFridgeSmall.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52857 - "GET /3d/office-assets/models/furniture/table.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52858 - "GET /3d/office-assets/models/furniture/kitchenCabinet.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52859 - "GET /3d/office-assets/models/furniture/kitchenCoffeeMachine.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52851 - "GET /3d/office-assets/models/furniture/desk.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52857 - "GET /3d/office-assets/models/furniture/computerScreen.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52859 - "GET /3d/office-assets/models/furniture/tableCoffee.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52858 - "GET /3d/office-assets/models/furniture/loungeDesignChair.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52857 - "GET /3d/office-assets/models/furniture/lampRoundFloor.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52851 - "GET /3d/office-assets/models/furniture/deskCorner.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52858 - "GET /3d/office-assets/models/furniture/pottedPlant.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52810 - "GET /user/1 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52811 - "GET /orders/1 HTTP/1.1" 500 Internal Server Error
-INFO:     127.0.0.1:53057 - "GET /visualization/events?limit=2 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:53057 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:53057 - "GET /3d/office-assets/models/furniture/desk.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:53057 - "GET /3d HTTP/1.1" 200 OK
-INFO:     127.0.0.1:53057 - "GET /3d/assets/index-CQEDMCJi.js HTTP/1.1" 200 OK
-INFO:     127.0.0.1:53647 - "POST /auth/register HTTP/1.1" 200 OK
-INFO:     127.0.0.1:53647 - "GET /auth/me HTTP/1.1" 200 OK
-INFO:     127.0.0.1:54478 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:54478 - "GET /3d/assets/index-CQEDMCJi.js HTTP/1.1" 304 Not Modified
-INFO:     127.0.0.1:54478 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:54845 - "GET /status HTTP/1.1" 200 OK
-INFO:     127.0.0.1:54843 - "GET /user/1 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:54844 - "GET /orders/1 HTTP/1.1" 500 Internal Server Error
-INFO:     127.0.0.1:54845 - "POST /chat HTTP/1.1" 500 Internal Server Error
-INFO:     127.0.0.1:54964 - "GET / HTTP/1.1" 200 OK
-INFO:     127.0.0.1:54964 - "GET /3d/assets/index-CQEDMCJi.js HTTP/1.1" 304 Not Modified
-INFO:     127.0.0.1:54964 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:54988 - "POST /chat HTTP/1.1" 500 Internal Server Error
-INFO:     127.0.0.1:55100 - "POST /chat HTTP/1.1" 500 Internal Server Error
-INFO:     127.0.0.1:57666 - "HEAD /3d/scene HTTP/1.1" 405 Method Not Allowed
-INFO:     127.0.0.1:57667 - "HEAD / HTTP/1.1" 405 Method Not Allowed
-INFO:     127.0.0.1:57693 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57694 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56829 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56829 - "GET /3d/assets/index-C5bvm8tR.js HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49669 - "GET /favicon.ico HTTP/1.1" 404 Not Found
-INFO:     127.0.0.1:56829 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:56829 - "GET /3d/office-assets/models/furniture/kitchenCabinet.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56829 - "GET /3d/office-assets/models/furniture/kitchenFridgeSmall.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56829 - "GET /3d/office-assets/models/furniture/deskCorner.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56829 - "GET /3d/office-assets/models/furniture/kitchenCoffeeMachine.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56829 - "GET /3d/office-assets/models/furniture/computerScreen.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56829 - "GET /3d/office-assets/models/furniture/chairDesk.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56829 - "GET /3d/office-assets/models/furniture/pottedPlant.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56829 - "GET /3d/office-assets/models/furniture/table.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56829 - "GET /3d/office-assets/models/furniture/tableRound.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56829 - "GET /3d/office-assets/models/furniture/loungeSofa.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56829 - "GET /3d/office-assets/models/furniture/loungeDesignChair.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56829 - "GET /3d/office-assets/models/furniture/bookcaseClosed.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56829 - "GET /3d/office-assets/models/furniture/lampRoundFloor.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:53167 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:53167 - "GET /3d/assets/index-C5bvm8tR.js HTTP/1.1" 304 Not Modified
-INFO:     127.0.0.1:53167 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:50172 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50172 - "GET /3d/assets/index-C5bvm8tR.js HTTP/1.1" 304 Not Modified
-INFO:     127.0.0.1:50172 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:50172 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50172 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:50172 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50172 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:62750 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62750 - "GET /3d/assets/index-CSYrgxix.js HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62750 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:62750 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:54597 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:54597 - "GET /3d/assets/index-D8_LM9et.js HTTP/1.1" 200 OK
-INFO:     127.0.0.1:54597 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:51415 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51415 - "GET /3d/assets/index-D8_LM9et.js HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51415 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:52450 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52450 - "GET /3d/assets/index-D8_LM9et.js HTTP/1.1" 304 Not Modified
-INFO:     127.0.0.1:52450 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:60720 - "GET /visualization/events?limit=30 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57610 - "GET /admin/restaurant-state HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57433 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57433 - "GET /3d/assets/index-CpluUXI8.js HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57433 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:57433 - "GET /3d/office-assets/models/furniture/kitchenCabinet.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57433 - "GET /3d/office-assets/models/furniture/kitchenFridgeSmall.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57438 - "GET /3d/office-assets/models/furniture/deskCorner.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57441 - "GET /3d/office-assets/models/furniture/chairDesk.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57439 - "GET /3d/office-assets/models/furniture/kitchenCoffeeMachine.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57440 - "GET /3d/office-assets/models/furniture/computerScreen.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57442 - "GET /3d/office-assets/models/furniture/pottedPlant.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57433 - "GET /3d/office-assets/models/furniture/table.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57438 - "GET /3d/office-assets/models/cafe-extras/ppEspresso.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57442 - "GET /3d/office-assets/models/furniture/tableRound.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57439 - "GET /3d/office-assets/models/cafe-extras/ppCoffeeCup.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57440 - "GET /3d/office-assets/models/furniture/loungeDesignChair.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57441 - "GET /3d/office-assets/models/furniture/loungeSofa.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57433 - "GET /3d/office-assets/models/furniture/bookcaseClosed.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57442 - "GET /3d/office-assets/models/furniture/lampRoundFloor.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50929 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50929 - "GET /3d/assets/index-CpluUXI8.js HTTP/1.1" 304 Not Modified
-INFO:     127.0.0.1:50929 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:51079 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51079 - "GET /3d/assets/index-065u5kL1.js HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51079 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:51591 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51591 - "GET /3d/assets/index-065u5kL1.js HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51591 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:51591 - "GET /3d/office-assets/models/cafe-extras/ppEspresso.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51591 - "GET /3d/office-assets/models/cafe-extras/ppCoffeeCup.glb HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49669 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49669 - "GET /3d/assets/index-065u5kL1.js HTTP/1.1" 304 Not Modified
+用.venv启动
+INFO:     127.0.0.1:51176 - "GET /3d/scene HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51177 - "GET /status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51336 - "GET /3d/scene HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51336 - "GET /3d/assets/index-U0aJ7vbD.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51336 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:55216 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:55260 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55262 - "GET /status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55261 - "GET /orders/1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55260 - "GET /user/1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55260 - "POST /chat HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55260 - "GET /user/1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55321 - "GET /orders/1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63695 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:63695 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:58458 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:58458 - "GET /auth/me HTTP/1.1" 401 Unauthorized
 INFO:     127.0.0.1:49669 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:49669 - "GET /3d/scene HTTP/1.1" 200 OK
 INFO:     127.0.0.1:49669 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:64478 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:64478 - "GET /3d/assets/index-065u5kL1.js HTTP/1.1" 304 Not Modified
-INFO:     127.0.0.1:64478 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:64478 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:64478 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:56598 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56598 - "GET /3d/assets/index-BIFqsAY_.js HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56598 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:56598 - "GET /3d/office-assets/models/cafe-extras/ppEspresso.glb HTTP/1.1" 304 Not Modified
-INFO:     127.0.0.1:56598 - "GET /3d/office-assets/models/cafe-extras/ppCoffeeCup.glb HTTP/1.1" 304 Not Modified
-INFO:     127.0.0.1:59743 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59743 - "GET /3d/assets/index-Do6AXtaR.js HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59743 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:59743 - "GET /3d/office-assets/models/cafe-extras/ppEspresso.glb HTTP/1.1" 304 Not Modified
-INFO:     127.0.0.1:59743 - "GET /3d/office-assets/models/cafe-extras/ppCoffeeCup.glb HTTP/1.1" 304 Not Modified
-INFO:     127.0.0.1:50632 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50632 - "GET /3d/assets/index-Do6AXtaR.js HTTP/1.1" 304 Not Modified
-INFO:     127.0.0.1:50632 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:58863 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58863 - "GET /3d/assets/index-Do6AXtaR.js HTTP/1.1" 304 Not Modified
-INFO:     127.0.0.1:58863 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:51662 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51662 - "GET /3d/assets/index-DxSv77K1.js HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51662 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:61462 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:61462 - "GET /3d/assets/index-DQy6e8xj.js HTTP/1.1" 200 OK
-INFO:     127.0.0.1:61462 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:61462 - "GET /3d/office-assets/models/cafe-extras/ppEspresso.glb HTTP/1.1" 304 Not Modified
-INFO:     127.0.0.1:61462 - "GET /3d/office-assets/models/cafe-extras/ppCoffeeCup.glb HTTP/1.1" 304 Not Modified
-INFO:     127.0.0.1:61933 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:61933 - "GET /3d/assets/index-DQy6e8xj.js HTTP/1.1" 304 Not Modified
-INFO:     127.0.0.1:61933 - "GET /auth/me HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:61933 - "GET /3d/office-assets/models/cafe-extras/ppEspresso.glb HTTP/1.1" 304 Not Modified
-INFO:     127.0.0.1:61933 - "GET /3d/office-assets/models/cafe-extras/ppCoffeeCup.glb HTTP/1.1" 304 Not Modified
-INFO:     127.0.0.1:60268 - "GET /3d/scene HTTP/1.1" 200 OK
-INFO:     127.0.0.1:60268 - "GET /3d/assets/index-DQy6e8xj.js HTTP/1.1" 304 Not Modified
-INFO:     127.0.0.1:60268 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:49393 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:49393 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:49386 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:49386 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:60134 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61341 - "GET /orders/1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61341 - "GET /status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60134 - "GET /user/1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60134 - "GET /3d HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60134 - "GET /3d/assets/index-U0aJ7vbD.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60134 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:49773 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:49773 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:62619 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62619 - "GET /user/1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62619 - "GET /status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57773 - "GET /orders/1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57773 - "GET /3d/scene HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57773 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:53011 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:53011 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:49669 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:49669 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:54381 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:54381 - "GET /auth/me HTTP/1.1" 401 Unauthorized

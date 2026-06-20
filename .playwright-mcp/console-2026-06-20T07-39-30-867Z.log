@@ -1,0 +1,8 @@
+[      99ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8000/auth/me:0
+[     177ms] [WARNING] THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://localhost:8000/3d/assets/index-U0aJ7vbD.js:63
+[     538ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://localhost:8000/3d/assets/index-U0aJ7vbD.js:63
+[     914ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://localhost:8000/3d/assets/index-U0aJ7vbD.js:63
+[  150604ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8000/auth/me:0
+[  150655ms] [WARNING] THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://localhost:8000/3d/assets/index-U0aJ7vbD.js:63
+[  150995ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://localhost:8000/3d/assets/index-U0aJ7vbD.js:63
+[  151309ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://localhost:8000/3d/assets/index-U0aJ7vbD.js:63

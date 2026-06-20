@@ -1,140 +1,144 @@
-# Agent 派活启动 Prompt 模板
+# Agent 派活启动 Prompt 模板（v2，复核修正版）
 
-> 📌 本文件提供**可直接复制粘贴**的启动 prompt，用于把 `3D-ALIGNMENT-ROADMAP.md` 和 `SKILL-VISUALIZATION-ROADMAP.md` 派给**干净上下文的执行 Agent**。
->
-> 使用方式：在新 Agent 会话里，整段复制对应 prompt 即可。每个 prompt 都自包含——Agent 不需要本会话任何历史。
-
----
-
-## 🎯 整体策略（先看这个）
-
-两份 roadmap 有依赖关系：
-
-```
-SKILL-VISUALIZATION（事件通）  ──►  3D-ALIGNMENT（渲染丰富）
-        ↑ 必须先做                      ↑ 后做
-   不通这个, 3D 再漂亮也是死的      事件通了才有意义去美化
-```
-
-**建议**：先派一个 Agent 干 SKILL-VISUALIZATION（5 Phase，约 3-5 天），验收通过后再派 Agent 干 3D-ALIGNMENT（7 Phase，约 15-20 天）。
-
-也可以两份**并行**派（SKILL 的 Phase 1 前端契约 + 3D 的 Phase 1 core 内核不冲突），但 **3D 的 Phase 2+（碰撞/相机/模型）依赖 SKILL 通了才能验证效果**，所以并行价值有限。
+> 📌 本文件提供**可直接复制粘贴**的启动 prompt。
+> **v2 修正（2026-06-20 复核后）**：原 v1 基于"两份 roadmap 都待执行"，**与实际严重不符**——已大幅实施。Prompt 已从"实施"改为"验证 / 盘点接力"。
 
 ---
 
-## Prompt A — 执行 SKILL-VISUALIZATION-ROADMAP（建议先派）
+## ⚠️ 派活前必读：两份 roadmap 的真实状态（2026-06-20 复核确认）
+
+| Roadmap | 实施状态 | 证据 | 还差什么 |
+|---------|---------|------|---------|
+| **SKILL-VISUALIZATION** | ✅ **5 Phase 全完成** | 该文档第 9 节（Codex 实施记录）+ 第 10 节（第二 Agent 独立验证 PASS + 真实 Skill 端到端单 22 事件/9 staff 编排）| 仅付费单（第 3 单起）因 `EVOMAP_API_KEY` 占位符未跑通——**运维配置**，非代码 |
+| **3D-ALIGNMENT** | 🟡 **部分完成** | coffee `office3d/` 已有：Phase 2 碰撞(`NavigationSystem.tsx`)、Phase 3 相机(`CameraAnimator`/`FollowCamController`)、Phase 5a 机器(`Atm`/`Vending`/`Jukebox`)、Phase 7 调试(`Heatmap`/`Trail`)| Phase 1(persistence 内容待确认)、**Phase 4(交互编辑器，未见 ui/ 目录，疑似未做)**、**Phase 6(Agent 人偶增强，待确认)**；且第 8 节进度记录**未回填**（全显示待执行）|
+
+> **关键**：别再派 Agent "实施 SKILL"或"全面移植 3D"——会重做已完成的工作。下方 Prompt 已改为"验证/盘点接力"。
+
+---
+
+## 🎯 派活策略（v2）
 
 ```
-你是一个资深全栈工程师，负责实施一个已规划好的功能。请严格按照规划文档执行，不要自由发挥。
+SKILL-VISUALIZATION ──► 已完成，派 Agent 做「独立验证 + 付费单配置收尾」
+3D-ALIGNMENT ─────────► 部分完成，派 Agent 做「盘点已做 + 接力未做(Phase 4/6) + 回填进度记录」
+```
+
+两份任务**互不阻塞**，可并行派（文件所有权不冲突：SKILL 验证动后端配置 + 运行时；3D 盘点动前端 office3d）。
+
+---
+
+## Prompt A — SKILL 独立验证 + 付费单收尾
+
+```
+你是一个资深全栈工程师。注意：本任务【不是实施】，而是【独立验证已实施的功能 + 收尾一个运维配置项】。不要重写已有代码。
+
+## 背景
+
+coffee-ai-boss 的「Skill 接入可视化联动」功能已被前一位 Agent（Codex）实施完成 5 个 Phase，并有第二位 Agent 做过独立验证（见文档第 10 节）。你的任务是【第三方独立复核】+ 补齐唯一未覆盖项。
+
+规划文档：D:\temp\EVOMAP\coffee-ai-boss\docs\SKILL-VISUALIZATION-ROADMAP.md
+（重点读第 9 节进度记录 + 第 10 节验证证据，了解已做了什么）
 
 ## 你的任务
 
-打通「外部 Agent 工具通过 Skill 接入 → 注册 → 可视化新增人物 → 下单时服务员联动动作」这条链路。
+1. **独立运行时验证**（复跑第二 Agent 的验证，确认无回归）：
+   - 启动后端：cd D:\temp\EVOMAP\coffee-ai-boss && python -m uvicorn app.main:app --port 8000
+   - 启动前端：cd frontend && npm run dev
+   - 确认 GET /agents 含 4 个 staff:barista/cashier/waiter/manager
+   - 连 ws /ws/visualization，确认 scene.snapshot.payload.agents 含 4 staff
+   - CLI 下单：python .agents\skills\a2a-super-order\scripts\order.py --message "一杯拿铁"
+   - 确认完整联动：顾客入场→服务员走向收银台→收银员收银→咖啡师做咖啡(绿圈)→服务员送餐
+   - 按 SKILL 文档第 6 节验证清单逐条核对
 
-完整规划文档在：
-D:\temp\EVOMAP\coffee-ai-boss\docs\SKILL-VISUALIZATION-ROADMAP.md
+2. **若发现回归**（前两轮验证 PASS 但现在坏了）：最小化修复，不重构。修完重跑验证。
 
-## 执行要求
+3. **付费单收尾**（唯一未覆盖项，属运维配置）：
+   - 当前 .trae/.zhipu/.qingyan/.codex 的 EVOMAP_API_KEY 全是 "your-api-key-here" 占位符
+   - 向 Owner 索要真实 EvoMap 凭证（API_KEY + node_id + node_secret + service_listing_id）
+   - 配置后跑第 3 单（超过免费额度），确认 EvoMap 积分扣费链路端到端通
+   - 若 Owner 暂不提供凭证，在文档第 10 节"仍未覆盖项"记录待办，不强求
 
-1. **第一步：完整阅读** `docs\SKILL-VISUALIZATION-ROADMAP.md`，理解：
-   - 第 0.2 节的 10 个必读文件（逐个读，建立上下文）
-   - 第 0.3 节的 10 条操作铁律（违反一条返工）
-   - 第 2 节的 5 个契约 Bug（B1-B5）
-   - 第 4 节的 Phase 1-5 roadmap 和服务员编排时序表
+4. **铁律**：
+   - 路径用双引号包裹（Windows）
+   - 不重写 staff_service.py / OfficeScene.tsx 等已实施代码（除非发现明确 bug）
+   - ws 事件 role/action 集合只读
+   - 不动 order/User/SkillOrderLedger 业务表
+   - 改前先 Read；不擅自 git 提交
 
-2. **严格按 Phase 顺序执行**：Phase 1（前端契约适配）→ Phase 2（服务员团队）→ Phase 3（编排联动）→ Phase 4（snapshot）→ Phase 5（文档）。Phase 1 是地基，必须先做。
+5. **交付**：在 SKILL 文档第 10 节追加你的独立验证记录（验证手段 + 结果 + 日期），与已有两条记录并列。
 
-3. **每完成一个 Phase**：
-   - 按第 6 节验证清单逐条验证
-   - 在第 9 节进度记录表填写状态/日期
-   - 跑 `tsc --noEmit`（前端）确认零类型错误
-   - 汇报本次 Phase 的改动文件和验证结果
-
-4. **铁律**（摘自文档第 0.3 节，必须遵守）：
-   - 路径用双引号包裹（Windows 环境）
-   - ws 事件 role/action 集合只读，只新增 staff 编排事件，不删改现有
-   - 前端只做"读取适配"，编排逻辑全后端
-   - 不动 order/User/SkillOrderLedger 等业务表结构
-   - 不改 /chat、/admin/restaurant-state、订单支付业务
-   - 改前先 Read 文件理解上下文
-   - 不擅自 git 提交
-
-5. **遇到歧义**：先问我，不要猜。
-
-## 验收标准
-
-- Phase 3 完成后：CLI 跑 `python .agents\skills\a2a-super-order\scripts\order.py --message "一杯拿铁"`，3D 页面能看到完整联动——顾客入场 → 服务员走向收银台 → 收银员收银 → 咖啡师做咖啡（绿圈脉冲）→ 服务员送餐，全程与 /visualization/events 一一对应。
-
-现在开始：先读规划文档和 10 个必读文件，然后告诉我你的执行计划（准备先动哪些文件、预计每个 Phase 的工作量），等我确认后再动手改代码。
+## 遇到歧义先问 Owner，不要猜。
 ```
 
 ---
 
-## Prompt B — 执行 3D-ALIGNMENT-ROADMAP（SKILL 验收后派）
+## Prompt B — 3D 盘点 + 接力未做 Phase
 
 ```
-你是一个资深前端/3D 图形工程师，负责把一个 3D 场景从"能跑的简化版"升级到 Claw3D 级别的沉浸感。
+你是一个资深前端/3D 工程师。注意：本任务【不是从零移植】，而是【先盘点已实施到哪，再接力未做的部分】。绝不重写已存在的文件。
+
+## 背景
+
+coffee-ai-boss 的 3D 渲染追平 Claw3D 工程已【部分完成】——coffee 的 office3d/ 下已有多个本该"新建"的文件（machines.tsx/NavigationSystem.tsx/visualSystems.tsx/primitives.tsx/persistence.ts），对应 3D-ALIGNMENT 的多个 Phase 已被前一位 Agent 实施。但文档第 8 节进度记录还全显示"待执行"，且部分 Phase 是否做完不明。
+
+规划文档：D:\temp\EVOMAP\coffee-ai-boss\docs\3D-ALIGNMENT-ROADMAP.md
+来源参考：D:\temp\EVOMAP\Claw3D-main\src\features\retro-office\（Claw3D 原始实现，用于对照）
 
 ## 你的任务
 
-把 Claw3D-main 的 3D 渲染能力全面移植/对齐到 coffee-ai-boss 前端。
+1. **先盘点**（动手改代码前必做）：逐 Phase 核对 coffee office3d/ 实际代码 vs roadmap 第 4 节要求，判定每 Phase 状态：
+   - 已确认实施（复核证据）：Phase 2 碰撞(NavigationSystem.tsx:18 applyAgentCollisionBumps)、Phase 3 相机(cameraLighting.tsx CameraAnimator@84/FollowCamController@133)、Phase 5a 机器(machines.tsx Atm@27/Vending@73/Jukebox@121)、Phase 7 调试(visualSystems.tsx Heatmap@16/Trail@76)
+   - **待你确认**：Phase 1(persistence.ts 内容是否完整)、Phase 4(交互编辑器——找 ui/Palette.tsx，疑似未做)、Phase 6(Agent 人偶增强——对照 Claw3D agents.tsx 看 coffee agents.tsx 表情/动画/手持物完整度)
 
-完整规划文档在：
-D:\temp\EVOMAP\coffee-ai-boss\docs\3D-ALIGNMENT-ROADMAP.md
+2. **回填进度记录**：把盘点结果写进 3D 文档第 8 节（状态 ✅完成/🟡部分/❌未做 + 完成日期 + 产物），消除"全待执行"的误导。学 SKILL 文档第 9 节的格式。
 
-## 前置条件
+3. **接力未做的 Phase**（盘点确认后才动手）：
+   - 重点疑似未做：Phase 4（家具编辑器 PALETTE + 拖拽 + 键盘快捷键）、Phase 6（咖啡师完整表情/动画/手持咖啡杯）
+   - 来源绝对路径都在 3D 文档第 4 节表格（Claw3D retro-office 对应文件，已复核行号准确）
+   - 绝不重写已存在的 machines.tsx/NavigationSystem.tsx 等——只扩展或新建缺失的
 
-另一份文档 `docs\SKILL-VISUALIZATION-ROADMAP.md` 的事件链路应该已经打通（顾客下单能驱动服务员动作）。你在这个基础上做渲染丰富度。开工前先确认：3D 场景能正常显示、ws 事件能驱动人偶。如果事件链路没通，先停下来告诉我。
-
-## 执行要求
-
-1. **第一步：完整阅读** `docs\3D-ALIGNMENT-ROADMAP.md`，理解：
-   - 第 0.2 节的 8 个必读文件（含 Claw3D 来源）
-   - 第 0.3 节的 10 条操作铁律
-   - 第 3 节的禁区（不搬 gateway/远程办公室/district/gym 等）
-   - 第 4 节的 Phase 0-7
-
-2. **严格按 Phase 顺序**：Phase 0（基线）→ 1（core）→ 2（模拟）→ 3（相机）→ 4（交互）→ 5（模型场景）→ 6（Agent 人偶）→ 7（可选高级）。
-
-3. **核心策略**：数据驱动 + 逐组件移植。绝不整体复制 Claw3D 的 RetroOffice3D.tsx（7248 行业务胶水），只搬纯 3D 能力。来源文件绝对路径都在文档第 4 节的表格里。
-
-4. **每完成一个 Phase**：
-   - 按第 6 节验证清单验证
-   - 第 8 节进度记录表填状态
-   - 量 fps（性能基线，每加一个 system 都要测）
-   - 汇报改动文件
-
-5. **铁律**：
+4. **铁律**：
    - 路径用双引号包裹
-   - 不搬 Claw3D 的 gateway/Hermes/远程办公室/district/业务外壳
-   - machines.tsx 选择性移植（咖啡厅不需要健身器材/QA，只搬收银机/售货机/点唱机/厨房）
-   - 保留 OrbitControls，FollowCam 作为聚焦增强叠加
-   - 代码注释英文（跟随现有文件）
-   - 改前先 Read
-   - 不擅自 git 提交
+   - 绝不整体复制 Claw3D RetroOffice3D.tsx（7248 行业务胶水）
+   - 不搬 gateway/Hermes/远程办公室/district/gym（见 3D 文档第 3 节禁区）
+   - 保留 OrbitControls，FollowCam 作聚焦增强叠加
+   - 代码注释英文；改前先 Read；不擅自 git 提交
+   - 每加 system 量 fps
 
-6. **遇到歧义**：先问我。
+5. **验收**：盘点表回填 + 未做 Phase 实施完毕 + npm run build 通过 + fps 稳定。
 
-## 验收标准
-
-- Phase 6 完成后：3D 咖啡厅有 Agent-Agent 碰撞响应、多视角相机+跟随、家具编辑器、程序化收银机/点唱机、墙菜单画、咖啡师完整表情动画。fps 稳定。
-
-现在开始：先读规划文档和 8 个必读文件，然后告诉我执行计划，等我确认后再动手。
+## 遇到歧义先问 Owner，不要猜。特别是盘点时若发现某 Phase 状态与预期不符，先报告再决定动作。
 ```
 
 ---
 
-## 使用小贴士
+## 使用小贴士（v2）
 
-1. **派活后让 Agent 先汇报计划**：两个 prompt 结尾都要求 Agent"先读文档 + 汇报执行计划，等确认再动手"。这样你能**在它瞎改前纠偏**，比让它直接闷头干安全得多。
+1. **派活前先看各 roadmap 的进度记录**（SKILL 第 9/10 节、3D 第 8 节），别凭本文件顶部的摘要就下结论——进度记录是 ground truth。
 
-2. **验收节点**：
-   - Prompt A 的验收点 = Phase 3 跑通完整下单联动
-   - Prompt B 的验收点 = Phase 6 完成所有渲染增强
-   - 中途每个 Phase 都要它填进度表 + 汇报
+2. **让 Agent 先盘点/验证再动手**：两个 prompt 都要求 Agent 先核对现状、汇报发现，等确认才改代码。这能在它瞎改前纠偏。
 
-3. **如果 Agent 跑偏**：直接引用文档章节号纠正——"回去看 SKILL-VISUALIZATION-ROADMAP.md 第 0.3 节铁律第 3 条"。
+3. **验收节点**（v2 更新）：
+   - Prompt A = 独立验证无回归 + 付费单配置（或记录待办）
+   - Prompt B = 盘点表回填 + Phase 4/6 接力完成
 
-4. **并行派活的注意**：若两份同时派，**明确划分文件所有权**——SKILL Agent 动 `frontend/src/screens/OfficeScene.tsx` + `sim/*` + `app/services/*`；3D Agent 动 `office3d/*`（core/objects/scene/systems）。**OfficeScene.tsx 是冲突高发区**（两份都要改），最好串行，或约定 SKILL 先改完再交给 3D。
+4. **文件所有权**（v2，两份可并行）：
+   - Prompt A 动：后端配置(.env / MCP 配置) + 运行时验证，基本不碰代码
+   - Prompt B 动：frontend/src/office3d/* + 可能的 ui/
+   - 无冲突，可同时派
 
-5. **换工具派活**：这两个 prompt 是中文（因 roadmap 是中文），Claude Code / Codex / Cursor / Trae 都能读。Codex 偏好英文可让 Agent 自行翻译执行，不影响。
+5. **若 Agent 报告"发现某功能已存在"**：这是正常的（本就部分实施了），让它转入"验证/扩展"模式，别让它"重写以求统一"。
+
+6. **换工具派活**：prompt 是中文（roadmap 中文），Claude Code/Codex/Cursor/Trae 都能读。
+
+---
+
+## 附：v1 → v2 变更说明
+
+| 项 | v1（已废弃）| v2 |
+|----|------------|-----|
+| 前提假设 | 两份 roadmap 都待执行 | 两份都已大幅实施 |
+| Prompt A | 实施 SKILL 5 Phase | 独立验证 + 付费单收尾 |
+| Prompt B | 全面移植 3D | 盘点 + 接力未做 Phase |
+| 并行策略 | 有冲突（OfficeScene 高发）| 无冲突，可并行 |
+| 风险 | 误导 Agent 重做已完成工作 | 基于真实状态，聚焦增量 |

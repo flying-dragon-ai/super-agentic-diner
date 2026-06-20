@@ -39,7 +39,7 @@ export const FURNITURE_SCALE: Record<string, [number, number, number]> = {
   desk_cubicle: [1.5, 1.5, 1.5],
   executive_desk: [1.8, 1.8, 1.8],
   chair: [1.2, 1.2, 1.2],
-  round_table: [3.2, 3.2, 3.2],
+  round_table: [1.5, 1.5, 1.5],
   couch: [1.8, 1.8, 1.8],
   couch_v: [1.4, 1.4, 1.4],
   bookshelf: [1.5, 2, 1.5],

@@ -20,35 +20,40 @@ export const DEFAULT_FURNITURE: FurnitureSeed[] = [
   { type: "coffee_cup", x: 205, y: 142, elevation: 0.69 },
 
   // --- Seating area (center, x:480-1180): 4 round-table groups in a 2x2 grid ---
-  // Group 1 (table center 620,230)
+  // MEASURED FACT: FurnitureModel renders each GLB centered on its item.x,y
+  // anchor (model origin = geometry center), NOT at item.x+width/2. So the
+  // tabletop center IS round_table.x/y. Chairs & cups are placed relative to
+  // that anchor directly. Chairs sit 85px from the table anchor (clears the
+  // ~53px visual radius at scale 3.2 + chair half-width). Cup sits on the anchor.
+  // Group 1 (table anchor = tabletop center 565,165)
   { type: "round_table", x: 565, y: 165, r: 55 },
-  { type: "chair", x: 608, y: 158, facing: 0 },
-  { type: "chair", x: 608, y: 290, facing: 180 },
-  { type: "chair", x: 548, y: 218, facing: 90 },
-  { type: "chair", x: 680, y: 218, facing: 270 },
-  // Group 2 (table center 1000,230)
+  { type: "chair", x: 565, y: 80, facing: 0 },      // N, 85px above anchor
+  { type: "chair", x: 565, y: 250, facing: 180 },   // S, 85px below
+  { type: "chair", x: 480, y: 165, facing: 90 },    // W
+  { type: "chair", x: 650, y: 165, facing: 270 },   // E
+  // Group 2 (945,165)
   { type: "round_table", x: 945, y: 165, r: 55 },
-  { type: "chair", x: 988, y: 158, facing: 0 },
-  { type: "chair", x: 988, y: 290, facing: 180 },
-  { type: "chair", x: 928, y: 218, facing: 90 },
-  { type: "chair", x: 1060, y: 218, facing: 270 },
-  // Group 3 (table center 620,480)
-  { type: "round_table", x: 565, y: 425, r: 55 },
-  { type: "chair", x: 608, y: 408, facing: 0 },
-  { type: "chair", x: 608, y: 540, facing: 180 },
-  { type: "chair", x: 548, y: 468, facing: 90 },
-  { type: "chair", x: 680, y: 468, facing: 270 },
-  // Group 4 (table center 1000,480)
-  { type: "round_table", x: 945, y: 425, r: 55 },
-  { type: "chair", x: 988, y: 408, facing: 0 },
-  { type: "chair", x: 988, y: 540, facing: 180 },
-  { type: "chair", x: 928, y: 468, facing: 90 },
-  { type: "chair", x: 1060, y: 468, facing: 270 },
-  // coffee cups centered on each round table (table center coords)
-  { type: "coffee_cup", x: 615, y: 215, elevation: 0.31 },
-  { type: "coffee_cup", x: 995, y: 215, elevation: 0.31 },
-  { type: "coffee_cup", x: 615, y: 475, elevation: 0.31 },
-  { type: "coffee_cup", x: 995, y: 475, elevation: 0.31 },
+  { type: "chair", x: 945, y: 80, facing: 0 },
+  { type: "chair", x: 945, y: 250, facing: 180 },
+  { type: "chair", x: 860, y: 165, facing: 90 },
+  { type: "chair", x: 1030, y: 165, facing: 270 },
+  // Group 3 (565,420)
+  { type: "round_table", x: 565, y: 420, r: 55 },
+  { type: "chair", x: 565, y: 335, facing: 0 },
+  { type: "chair", x: 565, y: 505, facing: 180 },
+  { type: "chair", x: 480, y: 420, facing: 90 },
+  { type: "chair", x: 650, y: 420, facing: 270 },
+  // Group 4 (945,420)
+  { type: "round_table", x: 945, y: 420, r: 55 },
+  { type: "chair", x: 945, y: 335, facing: 0 },
+  { type: "chair", x: 945, y: 505, facing: 180 },
+  { type: "chair", x: 860, y: 420, facing: 90 },
+  { type: "chair", x: 1030, y: 420, facing: 270 },
+  // Coffee cups on each tabletop center (elevation tuned to tabletop height).
+  { type: "coffee_cup", x: 565, y: 165, elevation: 0.235 },
+  { type: "coffee_cup", x: 945, y: 165, elevation: 0.235 },
+  { type: "coffee_cup", x: 565, y: 420, elevation: 0.235 },
+  { type: "coffee_cup", x: 945, y: 420, elevation: 0.235 },
 
   // --- Lounge sofa area (right, x:1200-1750) ---
   { type: "couch", x: 1280, y: 150, w: 120, h: 45 },
