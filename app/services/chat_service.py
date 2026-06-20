@@ -3,7 +3,7 @@ import re
 
 from sqlalchemy.orm import Session
 
-from app.db.models import CoffeeKB
+from app.db.models import Product
 from app.llm import client as llm
 from app.memory.chat_history import add_message, get_history
 from app.rag.keywords import extract_keywords
@@ -39,8 +39,8 @@ def extract_price(text):
 
 
 def match_by_price(db, price):
-    """按价格精确查询咖啡，返回 CoffeeKB 列表"""
-    return db.query(CoffeeKB).filter(CoffeeKB.price == price).all()
+    """按价格精确查询商品，返回 Product 列表"""
+    return db.query(Product).filter(Product.base_price == price).all()
 
 
 def handle_message(db, user_id, user_msg):
@@ -68,7 +68,7 @@ def handle_message(db, user_id, user_msg):
         kb_rows = match_by_price(db, price)
         if kb_rows:
             context = "\n---\n".join(
-                f"{r.coffee_name}（¥{r.price}）：{r.content}" for r in kb_rows
+                f"{r.name}（¥{r.base_price}）：{r.description}" for r in kb_rows
             )
             reply = llm.chat(history, user_msg, context)
             add_message(user_id, "user", user_msg)
@@ -85,11 +85,11 @@ def handle_message(db, user_id, user_msg):
     # 第2.5步：RAG 无结果 或 用户想看全部 → 加载所有真实产品，杜绝 LLM 幻觉
     # （不加载的话 LLM 会编造不存在的咖啡，如"危地马拉手冲""澳白"）
     if not kb_rows or _is_browse_all(user_msg):
-        kb_rows = db.query(CoffeeKB).order_by(CoffeeKB.price).all()
+        kb_rows = db.query(Product).order_by(Product.base_price).all()
 
     # 第3步：把检索到的咖啡知识拼接成 context 字符串
     context = "\n---\n".join(
-        f"{r.coffee_name}（¥{r.price}）：{r.content}" for r in kb_rows
+        f"{r.name}（¥{r.base_price}）：{r.description}" for r in kb_rows
     )
 
     # 第4步：调 LLM 生成回复（传入对话历史 + RAG检索到的真实资料）

@@ -22,11 +22,19 @@ from app.domain_constants import (
     IDENTITY_STATUS_ACTIVE,
     IDENTITY_STATUSES,
     LEDGER_PAYMENT_STATUSES,
+   OPTION_SELECTION_TYPES,
+    OPTION_SELECTION_SINGLE,
+   OPTION_STATUSES,
+    OPTION_STATUS_ACTIVE,
     ORDER_PAYMENT_STATUSES,
     ORDER_SOURCE_TYPES,
     ORDER_SOURCE_WEB_DIALOG,
     ORDER_STATUSES,
     PAYMENT_STATUS_PAID,
+    PRODUCT_STATUSES,
+    PRODUCT_STATUS_AVAILABLE,
+    TRANSACTION_TYPES,
+    WALLET_CURRENCIES,
 )
 
 _PK = BigInteger
@@ -50,6 +58,28 @@ class User(Base):
     )
 
 
+class UserAccount(Base):
+    """Login account for the 3D office app. Kept separate from the legacy
+    anonymous `user` table so existing chat/order flows stay untouched. On
+    register we also create a matching `user` row to back ordering by user_id."""
+
+    __tablename__ = "user_account"
+
+    account_id = Column(_PK, primary_key=True, autoincrement=True)
+    username = Column(String(64), nullable=False, unique=True)
+    password_hash = Column(String(255), nullable=False)
+    nickname = Column(String(64), nullable=True)
+    user_id = Column(_PK, ForeignKey("user.user_id"), nullable=False, unique=True)
+    status = Column(String(16), nullable=False, default=IDENTITY_STATUS_ACTIVE)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+
 class Order(Base):
     """Paid coffee order for a local customer."""
 
@@ -57,9 +87,12 @@ class Order(Base):
 
     order_id = Column(_PK, primary_key=True, autoincrement=True)
     user_id = Column(BigInteger, ForeignKey("user.user_id"), nullable=False)
-    coffee_name = Column(String(128), nullable=False)
-    amount = Column(DECIMAL(10, 2), nullable=False)
+    coffee_name = Column(String(128), nullable=True)
+    amount = Column(DECIMAL(10, 2), nullable=True)
     status = Column(SmallInteger, nullable=False, default=0)
+    total_amount = Column(DECIMAL(10, 2), nullable=True)
+    cancelled_at = Column(DateTime, nullable=True)
+    refunded_at = Column(DateTime, nullable=True)
     request_id = Column(String(64), nullable=True, unique=True)
     source_type = Column(String(32), nullable=False, default=ORDER_SOURCE_WEB_DIALOG)
     payment_status = Column(String(32), nullable=False, default=PAYMENT_STATUS_PAID)
@@ -240,4 +273,226 @@ class SkillOrderLedger(Base):
         ),
         Index("idx_skill_order_consumer", "consumer_id", "created_at"),
         Index("idx_skill_order_payment", "payment_status"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Product catalog (normalized menu + RAG source; replaces coffee_kb).
+# ---------------------------------------------------------------------------
+
+
+class Product(Base):
+    """Sellable product that also backs keyword/price RAG."""
+
+    __tablename__ = "product"
+
+    product_id = Column(_PK, primary_key=True, autoincrement=True)
+    sku = Column(String(64), nullable=False, unique=True)
+    name = Column(String(128), nullable=False)
+    category = Column(String(64), nullable=True)
+    description = Column(Text, nullable=False)
+    base_price = Column(DECIMAL(10, 2), nullable=False, default=Decimal("0.00"))
+    tags = Column(String(255), nullable=True)
+    status = Column(String(32), nullable=False, default=PRODUCT_STATUS_AVAILABLE)
+    stock = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            f"status IN ({', '.join(repr(v) for v in sorted(PRODUCT_STATUSES))})",
+            name="ck_product_status",
+        ),
+        CheckConstraint("stock >= 0", name="ck_product_stock_nonneg"),
+        Index("idx_product_status", "status"),
+        Index("idx_product_category", "category"),
+    )
+
+
+class ProductOptionGroup(Base):
+    """A group of configurable options for a product (cup size, milk, etc.)."""
+
+    __tablename__ = "product_option_group"
+
+    group_id = Column(_PK, primary_key=True, autoincrement=True)
+    product_id = Column(_PK, ForeignKey("product.product_id"), nullable=False)
+    name = Column(String(64), nullable=False)
+    selection_type = Column(
+        String(16), nullable=False, default=OPTION_SELECTION_SINGLE
+    )
+    is_required = Column(Integer, nullable=False, default=0)
+    sort_order = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            f"selection_type IN ({', '.join(repr(v) for v in sorted(OPTION_SELECTION_TYPES))})",
+            name="ck_product_option_group_selection_type",
+        ),
+        CheckConstraint(
+            "is_required IN (0, 1)", name="ck_product_option_group_required"
+        ),
+        Index("idx_product_option_group_product", "product_id", "sort_order"),
+    )
+
+
+class ProductOption(Base):
+    """A single selectable option inside an option group."""
+
+    __tablename__ = "product_option"
+
+    option_id = Column(_PK, primary_key=True, autoincrement=True)
+    group_id = Column(_PK, ForeignKey("product_option_group.group_id"), nullable=False)
+    name = Column(String(64), nullable=False)
+    price_delta = Column(DECIMAL(10, 2), nullable=False, default=Decimal("0.00"))
+    sort_order = Column(Integer, nullable=False, default=0)
+    status = Column(String(32), nullable=False, default=OPTION_STATUS_ACTIVE)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            f"status IN ({', '.join(repr(v) for v in sorted(OPTION_STATUSES))})",
+            name="ck_product_option_status",
+        ),
+        Index("idx_product_option_group_sort", "group_id", "sort_order"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Order line items (snapshot of the catalog at order time).
+# ---------------------------------------------------------------------------
+
+
+class OrderItem(Base):
+    """One line of an order. Unit price + selected options are snapshotted so
+    later catalog edits never change historical order totals."""
+
+    __tablename__ = "order_item"
+
+    item_id = Column(_PK, primary_key=True, autoincrement=True)
+    order_id = Column(_PK, ForeignKey("order.order_id"), nullable=False)
+    product_id = Column(_PK, ForeignKey("product.product_id"), nullable=True)
+    product_name_snapshot = Column(String(128), nullable=False)
+    unit_price = Column(DECIMAL(10, 2), nullable=False)
+    quantity = Column(Integer, nullable=False, default=1)
+    line_total = Column(DECIMAL(10, 2), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="ck_order_item_quantity"),
+        Index("idx_order_item_order", "order_id"),
+        Index("idx_order_item_product", "product_id"),
+    )
+
+
+class OrderItemOption(Base):
+    """Snapshot of the option(s) chosen for a single order line."""
+
+    __tablename__ = "order_item_option"
+
+    item_option_id = Column(_PK, primary_key=True, autoincrement=True)
+    item_id = Column(_PK, ForeignKey("order_item.item_id"), nullable=False)
+    group_id = Column(
+        _PK, ForeignKey("product_option_group.group_id"), nullable=True
+    )
+    option_id = Column(_PK, ForeignKey("product_option.option_id"), nullable=True)
+    group_name_snapshot = Column(String(64), nullable=True)
+    option_name_snapshot = Column(String(64), nullable=True)
+    price_delta = Column(DECIMAL(10, 2), nullable=False, default=Decimal("0.00"))
+
+    __table_args__ = (
+        Index("idx_order_item_option_item", "item_id"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Unified multi-currency ledger.
+# ---------------------------------------------------------------------------
+
+
+class UserWallet(Base):
+    """Per-currency running balance cache.
+
+    ``user_id`` + ``currency`` is the composite primary key. CNY is the
+    authoritative local balance; ``credits`` mirrors EvoMap Hub spending and its
+    ``balance_after`` is informational only (the Hub remains the source of
+    truth for credit balance).
+    """
+
+    __tablename__ = "user_wallet"
+
+    user_id = Column(
+        _PK, ForeignKey("user.user_id"), primary_key=True, nullable=False
+    )
+    currency = Column(String(16), primary_key=True, nullable=False)
+    balance = Column(DECIMAL(18, 4), nullable=False, default=Decimal("0.0000"))
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            f"currency IN ({', '.join(repr(v) for v in sorted(WALLET_CURRENCIES))})",
+            name="ck_user_wallet_currency",
+        ),
+    )
+
+
+class BalanceTransaction(Base):
+    """Append-only ledger row.
+
+    ``amount`` is signed: positive credits the wallet, negative debits it.
+    ``balance_after`` snapshots the wallet balance right after this row so the
+    chain can be audited independently of the running ``user_wallet`` cache.
+    """
+
+    __tablename__ = "balance_transaction"
+
+    transaction_id = Column(_PK, primary_key=True, autoincrement=True)
+    user_id = Column(_PK, ForeignKey("user.user_id"), nullable=False)
+    currency = Column(String(16), nullable=False)
+    type = Column(String(32), nullable=False)
+    amount = Column(DECIMAL(18, 4), nullable=False)
+    balance_after = Column(DECIMAL(18, 4), nullable=True)
+    order_id = Column(BigInteger, ForeignKey("order.order_id"), nullable=True)
+    ledger_id = Column(
+        BigInteger, ForeignKey("skill_order_ledger.ledger_id"), nullable=True
+    )
+    correlation_id = Column(String(128), nullable=True)
+    note = Column(String(255), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint(
+            f"currency IN ({', '.join(repr(v) for v in sorted(WALLET_CURRENCIES))})",
+            name="ck_balance_transaction_currency",
+        ),
+        CheckConstraint(
+            f"type IN ({', '.join(repr(v) for v in sorted(TRANSACTION_TYPES))})",
+            name="ck_balance_transaction_type",
+        ),
+        Index("idx_balance_txn_user_created", "user_id", "currency", "created_at"),
+        Index("idx_balance_txn_order", "order_id"),
+        Index("idx_balance_txn_ledger", "ledger_id"),
+        Index("idx_balance_txn_correlation", "correlation_id"),
     )

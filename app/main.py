@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import func
@@ -16,13 +16,15 @@ from app.config import settings
 from app.db.database import get_db
 from app.db.models import (
     AgentProfile,
-    CoffeeKB,
     EvomapConsumer,
     Order,
     SkillOrderLedger,
     User,
     VisualizationEvent,
 )
+from app.db.models import OrderItem, Product
+from app.domain_constants import WALLET_CURRENCY_CNY
+from app.services import wallet_service
 from app.domain_constants import (
     IDENTITY_STATUS_ACTIVE,
     ORDER_SOURCE_SKILL,
@@ -64,11 +66,34 @@ from app.services.visualization_service import (
     make_sprite_seed,
     visualization_hub,
 )
+from app.colyseus_bridge import bridge_event_to_colyseus, start_colyseus_server, stop_colyseus_server
 
 app = FastAPI(title="智能咖啡馆 AI 店长")
 
+@app.on_event("startup")
+async def _startup_colyseus() -> None:
+    start_colyseus_server()
+
+
+@app.on_event("shutdown")
+async def _shutdown_colyseus() -> None:
+    stop_colyseus_server()
+
+
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+# 3D office app build output (Vite -> app/static/3d). Served at /3d/.
+_3D_STATIC_DIR = Path(__file__).resolve().parent / "static" / "3d"
+if _3D_STATIC_DIR.is_dir():
+    _3d_assets = _3D_STATIC_DIR / "assets"
+    if _3d_assets.is_dir():
+        app.mount("/3d/assets", StaticFiles(directory=_3d_assets), name="static-3d-assets")
+    _3d_office_assets = _3D_STATIC_DIR / "office-assets"
+    if _3d_office_assets.is_dir():
+        app.mount("/3d/office-assets", StaticFiles(directory=_3d_office_assets), name="static-3d-office-assets")
+from app.auth.router import router as auth_router  # noqa: E402
+
+app.include_router(auth_router)
 
 _PRESENCE_CLIENT_EVENTS = {
     "presence.join": "presence.customer_joined",
@@ -1340,19 +1365,28 @@ def status():
     }
 
 
+@app.get("/3d")
+def three_d_app():
+    """Serve the 3D office SPA. Assets are under /3d/assets (Vite base ./)."""
+    index_path = _3D_STATIC_DIR / "index.html"
+    if not index_path.is_file():
+        raise HTTPException(status_code=404, detail="3D build not found. Run: cd frontend && npm run build")
+    return FileResponse(index_path)
+@app.get("/3d/{full_path:path}")
+def three_d_app_spa(full_path: str):
+    """SPA fallback: any /3d/* sub-path serves index.html so client-side
+    routing (/3d/scene, /3d/login, /3d/dashboard) works. Static assets under
+    /3d/assets are handled by the /3d StaticFiles mount."""
+    index_path = _3D_STATIC_DIR / "index.html"
+    if not index_path.is_file():
+        raise HTTPException(status_code=404, detail="3D build not found. Run: cd frontend && npm run build")
+    return FileResponse(index_path)
+
+
 @app.get("/")
 def index():
-    """根路由：返回聊天网页"""
-    return FileResponse(_STATIC_DIR / "index.html")
-
-
-@app.get("/screen")
-def screen():
-    """Full-screen restaurant visualization display."""
-    return FileResponse(_STATIC_DIR / "screen.html")
-
-
-@app.get("/screeny")
-def screeny():
-    """Alias for the full-screen restaurant visualization display."""
-    return FileResponse(_STATIC_DIR / "screen.html")
+    """Root: serve the 3D office SPA (2D archived to _archive/2d-legacy/)."""
+    three_d_index = _3D_STATIC_DIR / "index.html"
+    if three_d_index.is_file():
+        return FileResponse(three_d_index)
+    raise HTTPException(status_code=404, detail="3D build not found. Run: cd frontend && npm run build")

@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>智能咖啡馆 · AI 店长</title>
-<link rel="stylesheet" href="/static/order-visualization.css">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body {
@@ -166,22 +165,6 @@
     </div>
   </div>
   <aside id="side">
-    <section id="orderViz" aria-label="A2A 点单过程可视化">
-      <h3>🎮 A2A 点单过程</h3>
-      <div class="viz-card">
-        <div class="viz-head">
-          <div class="viz-title">咖啡馆动线</div>
-          <div class="viz-status" id="orderVizStatus">idle</div>
-        </div>
-        <div class="viz-canvas-wrap">
-          <canvas id="orderGameCanvas" width="640" height="360"></canvas>
-        </div>
-        <div class="viz-caption" id="orderVizCaption">等待顾客发送消息</div>
-        <div class="viz-agents" id="orderVizAgents"></div>
-        <div class="viz-flow" id="orderVizFlow" aria-hidden="true"></div>
-        <div class="viz-events" id="orderVizEvents"></div>
-      </div>
-    </section>
     <h3>👤 用户信息</h3>
     <div class="card" id="userCard">
       <div id="userName">加载中…</div>
@@ -193,12 +176,9 @@
   </aside>
 </main>
 
-<script src="/static/restaurant-scene-core.js"></script>
-<script src="/static/order-visualization.js"></script>
 <script>
 const USER_ID = 1;
 const $ = id => document.getElementById(id);
-const orderViz = () => window.OrderVisualization;
 const quickState = {
   lastUserText: '',
   lastBotText: '',
@@ -368,7 +348,6 @@ async function send() {
   $('msgInput').value = '';
   renderQuickMenu({userText: text, stage: 'sending'});
   addMsg(text, 'user');
-  orderViz()?.emit('message:sent', {message: text});
   const typing = addMsg('店长正在思考…', 'bot');
   typing.classList.add('typing');
   $('sendBtn').disabled = true;
@@ -386,9 +365,6 @@ async function send() {
     typing.classList.remove('typing');
     typing.textContent = data.reply;
     renderQuickMenu({userText: text, botText: data.reply});
-    if (!orderViz()?.isRealtimeConnected()) {
-      orderViz()?.handleChatResult(data);
-    }
     if (data.order_id) {
       addMsg('✅ 已生成订单 #' + data.order_id, 'sys');
     }
@@ -398,7 +374,6 @@ async function send() {
     typing.textContent = '⚠️ 网络错误：' + e.message;
     typing.classList.add('sys');
     renderQuickMenu({userText: text, botText: e.message, stage: 'issue'});
-    orderViz()?.emit('order:failed', {error: e.message});
   } finally {
     $('sendBtn').disabled = false;
   }
@@ -407,7 +382,6 @@ async function send() {
 async function clearChat() {
   // 先重置本地 UI 和菜单，确保即使后端不可用菜单也回到欢迎态
   $('messages').innerHTML = '';
-  orderViz()?.reset();
   quickState.lastUserText = '';
   quickState.lastBotText = '';
   quickState.selectedKey = '';

@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     evomap_credit_rate: str = "1"
     evomap_atp_caps: str = "a2a_super_order,coffee_order"
 
+    # Auth session cookie signing (for the new account login). Set a strong
+    # random value in .env; a dev default keeps local runs working.
+    auth_secret_key: str = "dev-only-change-me-in-prod"
+    auth_cookie_name: str = "coffee_session"
+    auth_cookie_max_age_seconds: int = 7 * 24 * 3600
+
     @property
     def database_url(self) -> str:
         return (
