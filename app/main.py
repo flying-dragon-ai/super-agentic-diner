@@ -13,7 +13,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db.database import get_db
+from app.db.database import SessionLocal, get_db
 from app.db.models import (
     AgentProfile,
     EvomapConsumer,
@@ -67,12 +67,49 @@ from app.services.visualization_service import (
     visualization_hub,
 )
 from app.colyseus_bridge import start_colyseus_server, stop_colyseus_server
+from app.services.staff_service import (
+    ensure_staff_agents,
+    ensure_web_customer_agent,
+    orchestrate_staff_node,
+)
 
 app = FastAPI(title="智能咖啡馆 AI 店长")
 
 @app.on_event("startup")
 async def _startup_colyseus() -> None:
     start_colyseus_server()
+    await _seed_and_broadcast_staff()
+
+
+async def _seed_and_broadcast_staff() -> None:
+    """Ensure the fixed staff team exists and announce each member to the scene.
+
+    Best-effort: visualization seeding must never crash app boot.
+    """
+    db = SessionLocal()
+    try:
+        staff = ensure_staff_agents(db)
+        for role, agent in staff.items():
+            await visualization_hub.broadcast(
+                {
+                    "event_id": None,
+                    "type": "agent.registered",
+                    "agent_id": agent.agent_id,
+                    "payload": {
+                        "agent_id": agent.agent_id,
+                        "tool_name": agent.tool_name,
+                        "display_name": agent.display_name,
+                        "role_type": agent.role_type,
+                        "sprite_seed": agent.sprite_seed,
+                    },
+                    "correlation_id": f"staff:{role}",
+                    "created_at": datetime.utcnow().isoformat(),
+                }
+            )
+    except Exception:
+        pass
+    finally:
+        db.close()
 
 
 @app.on_event("shutdown")
@@ -418,6 +455,7 @@ def _publish_web_restaurant_event(
     db: Session,
     event_type: str,
     *,
+    agent_id: int | None = None,
     req: ChatRequest,
     consumer_url: str | None,
     state: str,
@@ -451,6 +489,7 @@ def _publish_web_restaurant_event(
             satisfaction=satisfaction,
         ),
         correlation_id=req.request_id,
+        agent_id=agent_id,
     )
 
 
@@ -460,6 +499,7 @@ def _publish_web_completion_flow(
     req: ChatRequest,
     consumer_url: str | None,
     orders: list[Order],
+    agent_id: int | None = None,
 ) -> None:
     coffees = [{"name": order.coffee_name, "price": float(order.amount)} for order in orders]
     coffee_names = [order.coffee_name for order in orders]
@@ -473,7 +513,13 @@ def _publish_web_completion_flow(
         "total": total,
         "payment_status": PAYMENT_STATUS_PAID,
         "order_ids": order_ids,
+        "agent_id": agent_id,
     }
+    try:
+        staff = ensure_staff_agents(db)
+    except Exception:
+        staff = {}
+    correlation = req.request_id
     _publish_web_restaurant_event(
         db,
         "restaurant.payment_completed",
@@ -482,6 +528,7 @@ def _publish_web_completion_flow(
         satisfaction=88,
         **common,
     )
+    orchestrate_staff_node(db, staff, "payment_completed", correlation)
     for stage, label, patience in (
         ("grinding", "grinding beans", 78),
         ("brewing", "brewing coffee", 72),
@@ -497,8 +544,11 @@ def _publish_web_completion_flow(
             satisfaction=90,
             **common,
         )
+        orchestrate_staff_node(db, staff, "preparation_progress", correlation)
     _publish_web_restaurant_event(db, "restaurant.order_ready", state="ready", patience=70, satisfaction=92, **common)
+    orchestrate_staff_node(db, staff, "order_ready", correlation)
     _publish_web_restaurant_event(db, "restaurant.order_delivered", state="delivered", patience=74, satisfaction=94, **common)
+    orchestrate_staff_node(db, staff, "order_delivered", correlation)
     _publish_web_restaurant_event(
         db,
         "restaurant.customer_reviewed",
@@ -509,6 +559,7 @@ def _publish_web_completion_flow(
         **common,
     )
     _publish_web_restaurant_event(db, "restaurant.customer_left", state="left", patience=80, satisfaction=96, **common)
+    orchestrate_staff_node(db, staff, "customer_left", correlation)
 
 
 def _extract_agent_token(authorization: str | None, x_agent_token: str | None) -> str:
@@ -538,6 +589,11 @@ def _require_agent(
 def chat(req: ChatRequest, db: Session = Depends(get_db)):
     """Handle chat, recommendation, pending confirmation, and paid order flows."""
     consumer_url = _normalize_consumer_url(req.consumer_url)
+    try:
+        web_customer = ensure_web_customer_agent(db, req.user_id)
+        web_agent_id = web_customer.agent_id
+    except Exception:
+        web_agent_id = None
     web_source_payload = {
         "source_type": ORDER_SOURCE_WEB_DIALOG,
         "payment_status": PAYMENT_STATUS_PAID,
@@ -549,6 +605,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         "restaurant.customer_entered",
         req=req,
         consumer_url=consumer_url,
+        agent_id=web_agent_id,
         state="entered",
         message=req.message,
         patience=100,
@@ -671,6 +728,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                 req=req,
                 consumer_url=consumer_url,
                 orders=orders,
+                agent_id=web_agent_id,
             )
             _try_publish_visualization_event(
                 db,
@@ -1269,9 +1327,40 @@ def _presence_message_from_client(message: dict[str, Any]) -> dict[str, Any] | N
     }
 
 
+def _snapshot_agents(db: Session) -> list[dict[str, Any]]:
+    """Staff + recently active customer agents for scene.snapshot replay."""
+    staff = ensure_staff_agents(db)
+    rows = (
+        db.query(AgentProfile)
+        .filter(AgentProfile.status == IDENTITY_STATUS_ACTIVE)
+        .order_by(AgentProfile.last_seen_at.desc())
+        .limit(50)
+        .all()
+    )
+    staff_ids = {a.agent_id for a in staff.values()}
+    ordered = list(staff.values()) + [r for r in rows if r.agent_id not in staff_ids]
+    out: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for a in ordered:
+        if a.agent_id in seen:
+            continue
+        seen.add(a.agent_id)
+        out.append(
+            {
+                "agent_id": a.agent_id,
+                "tool_name": a.tool_name,
+                "display_name": a.display_name,
+                "role_type": a.role_type,
+                "sprite_seed": a.sprite_seed,
+                "status": a.status,
+            }
+        )
+    return out
+
+
 @app.websocket("/ws/visualization")
-async def visualization_websocket(websocket: WebSocket):
-    await visualization_hub.connect(websocket)
+async def visualization_websocket(websocket: WebSocket, db: Session = Depends(get_db)):
+    try:
     presence_payload: dict[str, Any] | None = None
     try:
         while True:

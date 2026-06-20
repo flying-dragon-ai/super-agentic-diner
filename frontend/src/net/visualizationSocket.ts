@@ -1,7 +1,7 @@
 // WebSocket client for /ws/visualization. On connect the server sends a
 // scene.snapshot (recent events); afterwards single events are broadcast.
 // Events are handed to the caller via onEvent, including snapshot replay.
-import type { VisEvent } from "./api";
+import type { SnapshotAgent, VisEvent } from "./api";
 
 const wsUrl = () => {
   const dev = (import.meta as unknown as { env: { DEV?: boolean } }).env?.DEV;
@@ -14,6 +14,7 @@ export type SocketHandle = { close: () => void };
 
 export function connectVisualization(opts: {
   onEvent: (event: VisEvent) => void;
+  onSnapshot?: (agents: SnapshotAgent[]) => void;
   onStatus?: (status: "connecting" | "open" | "closed") => void;
 }): SocketHandle {
   let closed = false;
@@ -37,9 +38,15 @@ export function connectVisualization(opts: {
       } catch {
         return;
       }
-      const message = data as { type?: string; payload?: { events?: VisEvent[] } };
-      if (message?.type === "scene.snapshot" && Array.isArray(message.payload?.events)) {
-        for (const ev of message.payload!.events!) opts.onEvent(ev);
+      const message = data as {
+        type?: string;
+        payload?: { events?: VisEvent[]; agents?: SnapshotAgent[] };
+      };
+      if (message?.type === "scene.snapshot") {
+        opts.onSnapshot?.(Array.isArray(message.payload?.agents) ? message.payload!.agents! : []);
+        if (Array.isArray(message.payload?.events)) {
+          for (const ev of message.payload!.events!) opts.onEvent(ev);
+        }
       } else if (message && typeof message === "object" && "type" in message) {
         opts.onEvent(message as VisEvent);
       }

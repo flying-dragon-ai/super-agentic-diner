@@ -17,7 +17,7 @@ export const DEFAULT_FURNITURE: FurnitureSeed[] = [
   { type: "plant", x: 30, y: 330 },
   { type: "trash", x: 300, y: 210 },
   { type: "espresso", x: 155, y: 142, elevation: 0.69 },
-  { type: "coffee_cup", x: 205, y: 142, elevation: 0.88 },
+  { type: "coffee_cup", x: 205, y: 142, elevation: 0.69 },
 
   // --- Seating area (center, x:480-1180): 4 round-table groups in a 2x2 grid ---
   // Group 1 (table center 620,230)
@@ -45,10 +45,10 @@ export const DEFAULT_FURNITURE: FurnitureSeed[] = [
   { type: "chair", x: 928, y: 468, facing: 90 },
   { type: "chair", x: 1060, y: 468, facing: 270 },
   // coffee cups centered on each round table (table center coords)
-  { type: "coffee_cup", x: 615, y: 215, elevation: 0.5 },
-  { type: "coffee_cup", x: 995, y: 215, elevation: 0.5 },
-  { type: "coffee_cup", x: 615, y: 475, elevation: 0.5 },
-  { type: "coffee_cup", x: 995, y: 475, elevation: 0.5 },
+  { type: "coffee_cup", x: 615, y: 215, elevation: 0.31 },
+  { type: "coffee_cup", x: 995, y: 215, elevation: 0.31 },
+  { type: "coffee_cup", x: 615, y: 475, elevation: 0.31 },
+  { type: "coffee_cup", x: 995, y: 475, elevation: 0.31 },
 
   // --- Lounge sofa area (right, x:1200-1750) ---
   { type: "couch", x: 1280, y: 150, w: 120, h: 45 },

@@ -46,10 +46,16 @@ import type { FurnitureItem, RenderAgent } from "../office3d/core/types";
 import { createSimStore, applyEvent, clearSpeech } from "../sim/agentStore";
 import { makeTick } from "../sim/tick";
 import { connectVisualization } from "../net/visualizationSocket";
-import type { VisEvent } from "../net/api";
-import { ROLE_LABEL } from "../sim/roleMap";
+import type { SnapshotAgent, VisEvent } from "../net/api";
+import { ROLE_LABEL, resolveAction, resolveRole } from "../sim/roleMap";
 import { Palette, PALETTE } from "../ui/Palette";
 import { ImmersiveOverlay, type OverlayKind } from "../overlays/ImmersiveOverlay";
+import {
+  HeatmapSystem,
+  TrailSystem,
+  AdaptiveDprController,
+  useColorMap,
+} from "../office3d/systems/visualSystems";
 
 const DEFAULT_FURNITURE: FurnitureItem[] = materializeDefaults();
 
@@ -81,6 +87,9 @@ export default function OfficeScene() {
   const [ghostPos, setGhostPos] = useState<[number, number, number] | null>(null);
   const [wallDrawStart, setWallDrawStart] = useState<{ x: number; y: number } | null>(null);
   const [overlay, setOverlay] = useState<OverlayKind>(null);
+  // Phase 7 optional debug overlays + perf safety net.
+  const [debug, setDebug] = useState(false);
+  const colorMap = useColorMap(agentsRef);
 
   useEffect(() => {
     sim.setFurniture(furniture);
@@ -90,21 +99,57 @@ export default function OfficeScene() {
 
   useEffect(() => {
     const socket = connectVisualization({
-      onStatus: (s) => setStatus(s),
       onEvent: (event) => {
         setEvents((prev) => [event, ...prev].slice(0, 40));
+        // Read-only adapter: backend emits snake_case payloads (display_name /
+        // role_type / sprite_seed) wrapped in agent.action/agent.registered;
+        // tolerate camelCase too without changing the wire contract.
+        const payload = event.payload ?? {};
+        const role = resolveRole(
+          (payload.role_type as string) ?? (payload.role as string) ?? "customer",
+        );
         const meta = {
           id: `agent_${event.agent_id ?? "anon"}`,
-          name: (event.payload?.name as string) || `员工 ${event.agent_id ?? "?"}`,
+          name:
+            (payload.display_name as string) ??
+            (payload.name as string) ??
+            `?? ${event.agent_id ?? "?"}`,
           subtitle: null as string | null,
-          role: (event.payload?.role as string) || "customer",
-          color: (event.payload?.color as string) || "",
-          spriteSeed: Number(event.payload?.spriteSeed ?? (Math.abs((event.agent_id ?? 1) * 7) % 900000) + 100000),
+          role,
+          color: (payload.color as string) || "",
+          spriteSeed: Number(
+            payload.sprite_seed ??
+              payload.spriteSeed ??
+              (Math.abs((event.agent_id ?? 1) * 7) % 900000) + 100000,
+          ),
         };
-        applyEvent(sim, meta, event.type, event.payload ?? {});
-        if (event.type === "show_message") {
-          const id = meta.id;
-          setTimeout(() => clearSpeech(sim, id), 6000);
+        // Map the backend event envelope to a sim action.
+        // - agent.action: the real action lives in payload.action_type.
+        // - agent.registered: a new agent entered -> seat them at their role desk.
+        let action = event.type;
+        if (event.type === "agent.action") {
+          action = (payload.action_type as string) ?? event.type;
+        } else if (event.type === "agent.registered") {
+          action = "enter_scene";
+        }
+        applyEvent(sim, meta, action, payload);
+        if (resolveAction(action) === "show_message") {
+          setTimeout(() => clearSpeech(sim, meta.id), 6000);
+        }
+      },
+      onSnapshot: (agents) => {
+        // Pre-create agents from scene.snapshot so late-connecting clients see
+        // the fixed staff team + active customers immediately.
+        for (const a of agents as SnapshotAgent[]) {
+          const meta = {
+            id: `agent_${a.agent_id}`,
+            name: a.display_name || `?? ${a.agent_id}`,
+            subtitle: null as string | null,
+            role: resolveRole(a.role_type || "customer"),
+            color: "",
+            spriteSeed: Number(a.sprite_seed ?? 100000),
+          };
+          applyEvent(sim, meta, "enter_scene", {});
         }
       },
     });

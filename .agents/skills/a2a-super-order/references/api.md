@@ -2,6 +2,27 @@
 
 Base URL defaults to `http://127.0.0.1:8000`.
 
+## Check EvoMap Install (local script, read-only)
+
+```bash
+python .agents/skills/a2a-super-order/scripts/order.py --check-evomap
+```
+
+No network call; reads `~/.evomap/{node_id,node_secret}` only. Response:
+
+```json
+{
+  "installed": true,
+  "has_node_id": true,
+  "has_node_secret": true,
+  "evomap_home": "/home/user/.evomap",
+  "credentials_loaded": true,
+  "username": "john"
+}
+```
+
+`username` is the OS login account name (via `getpass.getuser()`), NOT the hostname. When `installed=true`, the order script auto-loads node_id + node_secret (priority: `~/.evomap/` files > `A2A_NODE_SECRET` env > `EVOMAP_NODE_SECRET` env), so `--evomap-node-secret` is optional.
+
 ## Register Skill Consumer
 
 `POST /skill/register`

@@ -49,6 +49,7 @@ from app.db.models import Product
 from app.domain_constants import WALLET_CURRENCY_CREDITS
 from app.services import wallet_service
 from app.services.catalog_service import decrement_stock
+from app.services.staff_service import ensure_staff_agents, orchestrate_staff_node
 
 logger = logging.getLogger(__name__)
 
@@ -250,6 +251,11 @@ def _publish_skill_completion_flow(
         "free_order_sequence": free_order_sequence,
         "evomap_order_id": ledger.evomap_order_id,
     }
+    try:
+        staff = ensure_staff_agents(db)
+    except Exception:
+        staff = {}
+    correlation = ledger.request_id
     _publish_skill_restaurant_event(
         db,
         "restaurant.payment_completed",
@@ -258,6 +264,7 @@ def _publish_skill_completion_flow(
         satisfaction=88,
         **common,
     )
+    orchestrate_staff_node(db, staff, "payment_completed", correlation)
     for stage, label, patience in (
         ("grinding", "grinding beans", 78),
         ("brewing", "brewing coffee", 72),
@@ -273,6 +280,7 @@ def _publish_skill_completion_flow(
             satisfaction=90,
             **common,
         )
+        orchestrate_staff_node(db, staff, "preparation_progress", correlation)
     _publish_skill_restaurant_event(
         db,
         "restaurant.order_ready",
@@ -281,6 +289,7 @@ def _publish_skill_completion_flow(
         satisfaction=92,
         **common,
     )
+    orchestrate_staff_node(db, staff, "order_ready", correlation)
     _publish_skill_restaurant_event(
         db,
         "restaurant.order_delivered",
@@ -289,6 +298,7 @@ def _publish_skill_completion_flow(
         satisfaction=94,
         **common,
     )
+    orchestrate_staff_node(db, staff, "order_delivered", correlation)
     _publish_skill_restaurant_event(
         db,
         "restaurant.customer_reviewed",
@@ -306,6 +316,7 @@ def _publish_skill_completion_flow(
         satisfaction=96,
         **common,
     )
+    orchestrate_staff_node(db, staff, "customer_left", correlation)
 
 
 def ensure_consumer(

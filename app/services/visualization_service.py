@@ -87,13 +87,20 @@ class VisualizationHub:
         self._connections: set[WebSocket] = set()
         self._recent_events: list[dict[str, Any]] = []
 
-    async def connect(self, websocket: WebSocket) -> None:
+    async def connect(
+        self,
+        websocket: WebSocket,
+        agents: list[dict[str, Any]] | None = None,
+    ) -> None:
         await websocket.accept()
         self._connections.add(websocket)
         await websocket.send_json(
             {
                 "type": "scene.snapshot",
-                "payload": {"events": self._recent_events[-50:]},
+                "payload": {
+                    "events": self._recent_events[-50:],
+                    "agents": agents or [],
+                },
                 "created_at": datetime.utcnow().isoformat(),
             }
         )

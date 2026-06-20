@@ -33,6 +33,17 @@ export type VisEvent = {
   created_at: string;
 };
 
+// Lean agent descriptor embedded in scene.snapshot.payload.agents.
+// Backend emits snake_case; this mirrors the staff/customer snapshot fields.
+export type SnapshotAgent = {
+  agent_id: number;
+  tool_name?: string;
+  display_name: string;
+  role_type: string;
+  sprite_seed: number;
+  status?: string;
+};
+
 export const listEvents = (limit = 50) => getJson<VisEvent[]>(`/visualization/events?limit=${limit}`);
 export const getRestaurantState = () => getJson<unknown>("/admin/restaurant-state");
 export { base };

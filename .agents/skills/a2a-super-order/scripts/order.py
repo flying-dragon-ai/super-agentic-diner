@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import os
 import platform
@@ -76,6 +77,61 @@ def request_json(
         raise ApiError(exc.code, body) from exc
 
 
+EVOMAP_HOME = Path(os.getenv("EVOLVER_HOME") or (Path.home() / ".evomap"))
+
+
+def detect_username() -> str:
+    """Cross-platform current login account name (NOT hostname).
+
+    macOS: getpass.getuser() / $USER
+    Windows: getpass.getuser() / %USERNAME%
+    """
+    try:
+        user = getpass.getuser()
+        if user:
+            return user.strip()
+    except Exception:
+        pass
+    return (os.getenv("USER") or os.getenv("USERNAME") or "user").strip()
+
+
+def detect_evomap_install() -> dict[str, Any]:
+    """Read-only detection of local EvoMap install via Evolver credential files.
+
+    No side effects: does not write, network, or spawn processes.
+    """
+    node_id_file = EVOMAP_HOME / "node_id"
+    node_secret_file = EVOMAP_HOME / "node_secret"
+    has_node_id = node_id_file.exists()
+    has_secret = node_secret_file.exists()
+    return {
+        "installed": has_node_id and has_secret,
+        "has_node_id": has_node_id,
+        "has_node_secret": has_secret,
+        "evomap_home": str(EVOMAP_HOME),
+        "node_id_path": str(node_id_file),
+        "node_secret_path": str(node_secret_file),
+    }
+
+
+def load_evomap_credentials() -> dict[str, str] | None:
+    """Load node_id + node_secret. Prefer ~/.evomap/ files, fall back to env vars."""
+    install = detect_evomap_install()
+    if install["installed"]:
+        try:
+            node_id = (EVOMAP_HOME / "node_id").read_text(encoding="utf-8").strip()
+            node_secret = (EVOMAP_HOME / "node_secret").read_text(encoding="utf-8").strip()
+            if node_id and node_secret:
+                return {"node_id": node_id, "node_secret": node_secret}
+        except Exception:
+            pass
+    node_id = (os.getenv("A2A_NODE_ID") or os.getenv("EVOMAP_NODE_ID") or "").strip()
+    node_secret = (os.getenv("A2A_NODE_SECRET") or os.getenv("EVOMAP_NODE_SECRET") or "").strip()
+    if node_id and node_secret:
+        return {"node_id": node_id, "node_secret": node_secret}
+    return None
+
+
 def detect_mcp_node_id(root: Path) -> str | None:
     mcp_path = root / ".mcp.json"
     if not mcp_path.exists():
@@ -117,7 +173,15 @@ def load_payment_proof(raw: str | None) -> dict[str, Any] | None:
 
 def register_if_needed(args: argparse.Namespace, root: Path, state: dict[str, Any]) -> dict[str, Any]:
     base_url = args.base_url.rstrip("/")
-    node_id = detect_node_id(root, args.evomap_node_id)
+    # Prefer real EvoMap credentials from ~/.evomap/ (or env); only fall back to
+    # the local-unregistered placeholder when the user has not installed EvoMap.
+    evomap_creds = load_evomap_credentials()
+    if evomap_creds:
+        node_id = evomap_creds["node_id"]
+        if not args.evomap_node_secret:
+            args.evomap_node_secret = evomap_creds["node_secret"]
+    else:
+        node_id = detect_node_id(root, args.evomap_node_id)
     existing = state.get(base_url)
     if (
         existing
@@ -203,7 +267,25 @@ def main() -> int:
     )
     parser.add_argument("--force-register", action="store_true")
     parser.add_argument("--register-only", action="store_true")
+    parser.add_argument(
+        "--check-evomap",
+        action="store_true",
+        help="Read-only check of local EvoMap install status (no side effects).",
+    )
     args = parser.parse_args()
+
+    if args.check_evomap:
+        install = detect_evomap_install()
+        creds = load_evomap_credentials()
+        print(json.dumps({
+            "installed": install["installed"],
+            "has_node_id": install["has_node_id"],
+            "has_node_secret": install["has_node_secret"],
+            "evomap_home": install["evomap_home"],
+            "credentials_loaded": creds is not None,
+            "username": detect_username(),
+        }, ensure_ascii=False, indent=2))
+        return 0
 
     root = Path.cwd()
     state = read_json(STATE_PATH, {})

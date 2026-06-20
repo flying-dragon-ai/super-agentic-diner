@@ -145,3 +145,16 @@ INFO:     127.0.0.1:58863 - "GET /auth/me HTTP/1.1" 401 Unauthorized
 INFO:     127.0.0.1:51662 - "GET /3d/scene HTTP/1.1" 200 OK
 INFO:     127.0.0.1:51662 - "GET /3d/assets/index-DxSv77K1.js HTTP/1.1" 200 OK
 INFO:     127.0.0.1:51662 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:61462 - "GET /3d/scene HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61462 - "GET /3d/assets/index-DQy6e8xj.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61462 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:61462 - "GET /3d/office-assets/models/cafe-extras/ppEspresso.glb HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:61462 - "GET /3d/office-assets/models/cafe-extras/ppCoffeeCup.glb HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:61933 - "GET /3d/scene HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61933 - "GET /3d/assets/index-DQy6e8xj.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:61933 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:61933 - "GET /3d/office-assets/models/cafe-extras/ppEspresso.glb HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:61933 - "GET /3d/office-assets/models/cafe-extras/ppCoffeeCup.glb HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:60268 - "GET /3d/scene HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60268 - "GET /3d/assets/index-DQy6e8xj.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:60268 - "GET /auth/me HTTP/1.1" 401 Unauthorized

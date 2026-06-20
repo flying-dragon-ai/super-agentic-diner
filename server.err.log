@@ -1222,3 +1222,12 @@ INFO:     connection open
 INFO:     connection closed
 INFO:     127.0.0.1:64711 - "WebSocket /ws/visualization" [accepted]
 INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:62466 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:57059 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:58834 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
