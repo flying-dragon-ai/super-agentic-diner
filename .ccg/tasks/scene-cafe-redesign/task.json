@@ -1,0 +1,12 @@
+{
+  "id": "scene-cafe-redesign",
+  "title": "修复天气系统变暗bug并将3D办公室改造为咖啡厅场景",
+  "status": "in_progress",
+  "strategy": "guided-develop",
+  "currentPhase": "5-implement",
+  "nextAction": "Codex写场景改造4文件 + 老王改OfficeScene+爬CC0素材",
+  "gate": null,
+  "branch": "main",
+  "scope": "scene-cafe-redesign",
+  "createdAt": "2026-06-20T10:31:05+08:00"
+}

@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
-  "generated_at": "2026-06-20T09:35:16+08:00",
-  "last_incremental_run": "2026-06-20T09:35:16+08:00",
+  "generated_at": "2026-06-20T10:05:00+08:00",
+  "last_incremental_run": "2026-06-20T10:05:00+08:00",
   "scanner": "init-architect-adaptive",
   "run_mode": "incremental",
   "truncated": false,
@@ -9,19 +9,26 @@
     "claude_md": "CLAUDE.md",
     "existing_claude_md": ".claude/CLAUDE.md",
     "project": "coffee-ai-boss",
-    "vision": "咖啡店 AI Boss 系统：LLM+RAG+Redis 对话点单 + A2A Skill 积分点单 + 事件流可视化（3D 办公室 + 像素多人房间）",
+    "vision": "咖啡店 AI Boss 系统：LLM+RAG+Redis 对话点单 + A2A Skill 积分点单 + 3D 办公室事件流可视化。2026-06-20 09:40 起，像素风 Colyseus 方案与独立 2D 对话页已归档到 _archive/，3D 办公室 (frontend/) 为唯一活跃 UI。",
     "languages": {
       "Python": "app/, scripts/, tests/",
-      "TypeScript": "frontend/, colyseus-server/",
-      "HTML/CSS": "app/static/"
+      "TypeScript": "frontend/",
+      "HTML/CSS": "app/static/ (仅 3d/ 构建产物)"
     },
     "runtimes": {
       "backend": "FastAPI + Uvicorn (port 8000)",
       "frontend_dev": "Vite (port 5174)",
-      "frontend_served": "FastAPI /3d (app/static/3d)",
-      "colyseus": "Node, port 2567 (由后端子进程拉起)"
+      "frontend_served": "FastAPI /3d + 根 / (app/static/3d)"
     },
-    "databases": ["MySQL 8.0", "Redis 7"]
+    "databases": ["MySQL 8.0", "Redis 7"],
+    "archived": {
+      "note": "2026-06-20 09:40 归档：像素 Colyseus 多人房间 + 2D 原生对话页。归档而非删除，可恢复。",
+      "items": [
+        {"path": "_archive/colyseus-server/", "original": "colyseus-server/", "reason": "像素风方案被 3D 办公室取代"},
+        {"path": "_archive/2d-legacy/", "original": "app/static/index.html", "reason": "2D 对话页被 3D 场景内嵌聊天取代；根 / 改直出 3D SPA"}
+      ],
+      "lingering_code": "app/colyseus_bridge.py 仍在仓库（检测 colyseus-server/ 目录缺失即跳过启动，仅 warning；bridge_event_to_colyseus 仅 debug 日志），属可恢复的停用"
+    }
   },
   "modules": [
     {
@@ -31,21 +38,24 @@
       "language": "Python",
       "entry": "app/main.py",
       "framework": "FastAPI",
-      "tables": ["user", "user_account", "order", "coffee_kb", "agent_profile", "evomap_consumer", "skill_order_ledger", "visualization_event"],
+      "tables": ["user", "user_account", "order", "order_item", "order_item_option", "product", "product_option_group", "product_option", "coffee_kb", "agent_profile", "evomap_consumer", "skill_order_ledger", "user_wallet", "balance_transaction", "visualization_event"],
+      "table_count": 15,
       "endpoints": [
         "POST /chat", "POST /agents/register", "POST /agents/{id}/heartbeat",
         "POST /agents/{id}/actions", "GET /agents", "POST /skill/register",
         "POST /skill/orders", "GET /visualization/events", "GET /admin/restaurant-state",
         "WS /ws/visualization", "POST /auth/register", "POST /auth/login",
         "POST /auth/logout", "GET /auth/me", "GET /user/{id}", "GET /orders/{id}",
-        "GET /history/{id}", "DELETE /history/{id}", "GET /status", "GET /3d", "GET /"
+        "GET /history/{id}", "DELETE /history/{id}", "GET /status", "GET /3d", "GET /3d/{path}", "GET /"
       ],
+      "root_route": "GET / → 3D SPA (app/static/3d/index.html); 2D 对话页已归档",
       "key_files": [
         "app/main.py", "app/config.py", "app/domain_constants.py", "app/colyseus_bridge.py",
         "app/db/models.py", "app/db/database.py", "app/db/seed.py",
         "app/services/chat_service.py", "app/services/order_service.py",
         "app/services/skill_order_service.py", "app/services/evomap_payment_service.py",
-        "app/services/visualization_service.py", "app/llm/client.py",
+        "app/services/visualization_service.py", "app/services/wallet_service.py",
+        "app/services/catalog_service.py", "app/llm/client.py",
         "app/rag/keywords.py", "app/rag/retrieval.py", "app/memory/chat_history.py",
         "app/auth/router.py", "app/auth/service.py"
       ],
@@ -54,6 +64,15 @@
         "tests/test_chat_order_view.py", "tests/test_skill_evomap_payment.py",
         "tests/verify_quick_menu.py"
       ],
+      "payment_idempotency": {
+        "resume_function": "_resume_existing_order",
+        "states": {
+          "FREE|PAID": "直接成功重试，不改库",
+          "PAYMENT_REQUIRED|PAYMENT_FAILED|PAYMENT_PENDING": "拒绝客户端 payment_proof；无 node_secret 抛 402；有则重新 _charge_evomap_and_complete",
+          "other": "SkillOrderError(code=ledger_not_resumable)"
+        },
+        "client_proof_rejected_by": "_reject_unverified_payment_proof (402 payment_proof_unverifiable)"
+      },
       "coverage": "high",
       "gaps": []
     },
@@ -61,10 +80,11 @@
       "name": "frontend (3D 前端)",
       "path": "frontend/",
       "claude_md": "frontend/CLAUDE.md",
+      "status": "active",
       "language": "TypeScript",
       "entry": "frontend/src/main.tsx",
       "framework": "React 19 + React-Three-Fiber + Vite",
-      "origin_note": "office3d/ 与 avatars/ 全套从 Claw3D retro-office 移植（文件头均注明），去掉 janitor/gym/qa/pingpong/district",
+      "origin_note": "office3d/ 与 avatars/ 全套从 Claw3D retro-office 移植（文件头均注明），去掉 janitor/gym/qa/pingpong/district。2026-06-20 09:40 起为项目唯一活跃 UI",
       "routes": ["/3d/scene", "/3d/dashboard", "/3d/login", "/3d/register"],
       "key_files": [
         "frontend/src/main.tsx", "frontend/src/App.tsx",
@@ -83,6 +103,12 @@
       "render_pipeline": "/ws/visualization -> sim/agentStore.applyEvent -> sim/tick.makeTick -> office3d/objects/agents.AgentModel",
       "coord_system": "画布像素 (CANVAS_W=1800 x CANVAS_H=720) * SCALE=0.018 -> three.js 世界坐标 (toWorld in core/geometry.ts)",
       "pathfinding": "core/navigation.ts: 25px 网格 A*, 8 方向, 拐角裁剪, 手写二叉堆优先队列, findFree 螺旋搜索",
+      "dashboard": {
+        "polling_seconds": 4,
+        "endpoints": ["GET /admin/restaurant-state", "GET /visualization/events?limit=30"],
+        "layout": "4 KPI 卡片(今日订单/金额/在线员工/活跃访客) + 最近订单(2fr) + 实时事件流(1.4fr, maxHeight 360)",
+        "events_precedence": "本地 listEvents 结果优先，空时回退 state.recent_events"
+      },
       "coverage": "high",
       "gaps": [
         "无 Playwright E2E 测试（依赖已装但无测试文件）",
@@ -90,21 +116,38 @@
       ]
     },
     {
-      "name": "colyseus-server (多人服务器)",
-      "path": "colyseus-server/",
-      "claude_md": "colyseus-server/CLAUDE.md",
+      "name": "colyseus-server (多人服务器) — ARCHIVED",
+      "status": "archived",
+      "archived_at": "2026-06-20T09:40:00+08:00",
+      "path": "_archive/colyseus-server/",
+      "original_path": "colyseus-server/",
+      "claude_md": "_archive/colyseus-server/CLAUDE.md",
       "language": "TypeScript",
-      "entry": "colyseus-server/src/Server.ts",
+      "entry": "_archive/colyseus-server/src/Server.ts",
       "framework": "Colyseus 0.15",
       "room": "coffee_room",
       "key_files": [
-        "colyseus-server/src/Server.ts",
-        "colyseus-server/src/rooms/CoffeeRoom.ts",
-        "colyseus-server/src/schema/CoffeeState.ts",
-        "colyseus-server/package.json"
+        "_archive/colyseus-server/src/Server.ts",
+        "_archive/colyseus-server/src/rooms/CoffeeRoom.ts",
+        "_archive/colyseus-server/src/schema/CoffeeState.ts",
+        "_archive/colyseus-server/package.json"
       ],
-      "coverage": "high",
-      "gaps": ["place_order handler 为 TODO stub", "无测试", "与后端 bridge_event_to_colyseus 尚未真正打通"]
+      "archive_reason": "像素风多人房间方案被 3D 办公室 (frontend/) 取代；可视化统一走后端 /ws/visualization 事件流。源码+node_modules 完整保留，可恢复（移回根 colyseus-server/ 即重新生效）",
+      "coverage": "high (历史快照)",
+      "gaps": ["place_order handler 为 TODO stub（历史）", "无测试（历史）", "bridge_event_to_colyseus 从未真正打通（历史）"]
+    },
+    {
+      "name": "2d-legacy (2D 对话页) — ARCHIVED",
+      "status": "archived",
+      "archived_at": "2026-06-20T09:40:00+08:00",
+      "path": "_archive/2d-legacy/",
+      "original_path": "app/static/index.html",
+      "claude_md": null,
+      "language": "HTML/CSS",
+      "entry": "_archive/2d-legacy/index.html",
+      "archive_reason": "2D 聊天 UI 被 3D 场景内嵌聊天取代；后端根路由 / 已改直出 3D SPA（app/static/3d/index.html）。POST /chat 仍作 JSON API 存在",
+      "coverage": "n/a (单文件归档)",
+      "gaps": []
     }
   ],
   "scripts": [
@@ -115,21 +158,21 @@
   "docs": [
     {"path": "docs/EvoMap A2A 积分扣款接入调研与实现计划.md", "summary": "把 /chat 本地余额扣款改为 EvoMap POST /a2a/service/order 扣 Credits；固定每单扣积分；两段式确认；node_secret 只存本地", "code_link": "app/services/evomap_payment_service.py, app/config.py EVOMAP_*"},
     {"path": "docs/点单SKILL生成.md", "summary": "唯一对外 Skill a2a-super-order；前两单免费（按 evomap_node_id），第三单起真实扣积分（Evolver ATP CLI）；无网页可点单", "code_link": "POST /skill/register, POST /skill/orders, skill_order_service.py"},
-    {"path": "docs/agent-integration-api.md", "summary": "Agent 工具 REST 注册为餐厅角色 + WS 实时像素人物；9 种 action_type/8 种 target；MySQL 唯一 RDBMS，source_type 约束 web_dialog/skill", "code_link": "POST /agents/register, /agents/{id}/actions, app/domain_constants.py"},
-    {"path": "docs/pixel-agents-integration.md", "summary": "像素 Agent 集成早期方案（2D，已被 3D 取代）", "code_link": "历史参考"},
+    {"path": "docs/agent-integration-api.md", "summary": "Agent 工具 REST 注册为餐厅角色 + WS 实时人物；9 种 action_type/8 种 target；MySQL 唯一 RDBMS，source_type 约束 web_dialog/skill。注：文档原写'像素人物'，实际渲染已切 3D", "code_link": "POST /agents/register, /agents/{id}/actions, app/domain_constants.py"},
+    {"path": "docs/pixel-agents-integration.md", "summary": "像素 Agent 集成早期方案（2D，已被 3D 取代，Colyseus 通道已归档）", "code_link": "历史参考；归档见 _archive/colyseus-server/"},
     {"path": "docs/pixel-restaurant-reference-repos.md", "summary": "像素餐厅参考仓库调研（Claw3D 等）", "code_link": "frontend/src/office3d/ 移植自 Claw3D"},
     {"path": "docs/smart-search-pixel-restaurant-repos.md", "summary": "像素餐厅仓库智能搜索结果", "code_link": "参考"}
   ],
   "coverage_report": {
-    "estimated_source_files": 50,
-    "scanned_files": 48,
-    "coverage_percent": 97,
-    "delta_this_run": "+4 files (office3d/core/navigation.ts, office3d/core/geometry.ts, office3d/core/constants.ts, sim/tick.ts) + 6 office3d 子文件精读 + auth/AuthPages.tsx + 3 docs 全文",
+    "estimated_source_files": 52,
+    "scanned_files": 51,
+    "coverage_percent": 98,
+    "delta_this_run": "归档对齐：colyseus-server/ + 2D 对话页迁入 _archive/（标注 status:archived，源码未读变更，沿用历史快照）。补扫 4 个活跃缺口文件全文：frontend/src/screens/Dashboard.tsx、app/services/evomap_payment_service.py、app/services/skill_order_service.py（幂等三态 + 钱包镜像）、app/main.py 静态托管/根路由段。校正数据模型 8→15 表（新增 order_item/order_item_option/product/product_option_group/product_option/user_wallet/balance_transaction）+ 新增 services wallet_service/catalog_service",
     "scanned_root": ["docker-compose.yml", "requirements.txt", ".gitignore"],
-    "scanned_app": ["app/main.py", "app/config.py", "app/domain_constants.py", "app/colyseus_bridge.py", "app/db/models.py", "app/db/database.py", "app/db/seed.py", "app/services/*.py (5)", "app/llm/client.py", "app/rag/*.py (2)", "app/memory/chat_history.py", "app/auth/*.py (2)"],
+    "scanned_app": ["app/main.py", "app/config.py", "app/domain_constants.py", "app/colyseus_bridge.py", "app/db/models.py (15 表实测)", "app/db/database.py", "app/db/seed.py", "app/services/*.py (7)", "app/llm/client.py", "app/rag/*.py (2)", "app/memory/chat_history.py", "app/auth/*.py (2)"],
     "scanned_frontend": [
       "package.json", "vite.config.ts", "src/main.tsx", "src/App.tsx",
-      "src/screens/OfficeScene.tsx", "src/screens/Dashboard.tsx",
+      "src/screens/OfficeScene.tsx", "src/screens/Dashboard.tsx (全文)",
       "src/auth/AuthProvider.tsx", "src/auth/AuthPages.tsx",
       "src/net/api.ts", "src/net/visualizationSocket.ts",
       "src/sim/agentStore.ts", "src/sim/tick.ts", "src/sim/roleMap.ts",
@@ -139,22 +182,23 @@
       "src/office3d/objects/{furniture,agents,types}.tsx",
       "src/office3d/avatars/profile.ts"
     ],
-    "scanned_colyseus": ["src/Server.ts", "src/rooms/CoffeeRoom.ts", "src/schema/CoffeeState.ts", "package.json"],
+    "scanned_archive": ["_archive/colyseus-server/CLAUDE.md (重写为归档版，content 沿用历史)", "_archive/2d-legacy/index.html (头部确认=2D 聊天页源)"],
+    "scanned_colyseus": "已归档，沿用历史快照（Server.ts/CoffeeRoom.ts/CoffeeState.ts/package.json 上轮已扫）",
     "scanned_tests": ["test_llm_configuration.py", "test_chat_confirm.py", "test_chat_order_view.py", "test_skill_evomap_payment.py"],
     "scanned_scripts": ["init_db.py", "migrate_user_accounts.py", "migrate_order_sources.py"],
     "scanned_docs": [
       "docs/EvoMap A2A 积分扣款接入调研与实现计划.md (全文)",
       "docs/agent-integration-api.md (全文)",
       "docs/点单SKILL生成.md (全文)",
-      "docs/pixel-agents-integration.md (文件名)",
-      "docs/pixel-restaurant-reference-repos.md (文件名)",
-      "docs/smart-search-pixel-restaurant-repos.md (文件名)"
+      "docs/pixel-agents-integration.md (文件名/历史参考)",
+      "docs/pixel-restaurant-reference-repos.md (文件名/历史参考)",
+      "docs/smart-search-pixel-restaurant-repos.md (文件名/历史参考)"
     ]
   },
   "ignored": {
     "rule_source": ".gitignore + defaults",
     "top_dirs": [
-      "node_modules/", "frontend/node_modules/", "colyseus-server/node_modules/",
+      "node_modules/", "frontend/node_modules/", "_archive/colyseus-server/node_modules/",
       ".venv/", "__pycache__/", "tests/__pycache__/", "scripts/__pycache__/",
       ".artifacts/", ".codegraph/", ".codestable/", ".agents/", ".cursor/",
       ".gemini/", ".kiro/", ".idea/", ".codex/", ".trae/", ".zhipu/", ".qingyan/",
@@ -163,10 +207,12 @@
     "binary_assets": ["app/static/3d/office-assets/models/furniture/*.glb", "*.png", "app/static/3d/assets/index-*.js (构建产物)"]
   },
   "gaps_next_run": [
-    "docs/pixel-agents-integration.md 与 docs/pixel-restaurant-reference-repos.md 全文（当前仅扫文件名，属历史/参考文档，优先级低）",
-    "frontend/src/screens/Dashboard.tsx 全文（大屏布局/轮询逻辑细节，首次仅扫概要）",
-    "app/services/evomap_payment_service.py 与 skill_order_service.py 的支付证明校验/幂等恢复细节（_resume_existing_order）",
-    "Colyseus CoffeeRoom place_order handler（TODO stub 待实现）",
-    "前端 Playwright E2E 测试（依赖已装但无测试文件）"
-  ]
+    "前端 Playwright E2E 测试（依赖已装但无测试文件，需先编写测试才能扫）",
+    "order_service.place_orders 的并发/余额不足边界（with_for_update 行锁细节，当前仅流程级描述）",
+    "wallet_service.apply_transaction 与 catalog_service.decrement_stock 的全函数体（当前仅签名级，被 skill_order_service 调用链覆盖）",
+    "docs/pixel-agents-integration.md 与 docs/pixel-restaurant-reference-repos.md 全文（历史参考文档，优先级低；核心结论已并入根文档「架构演进」）"
+  ],
+  "resume_checkpoints": {
+    "note": "下次运行优先补 gaps_next_run 中标记的活跃代码缺口；归档区 (_archive/) 不再作为扫描目标，仅在 content 变更时复核"
+  }
 }

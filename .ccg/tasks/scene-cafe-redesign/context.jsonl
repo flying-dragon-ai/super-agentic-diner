@@ -1,0 +1,8 @@
+{"_example": "Fill with {\"file\": \"path\", \"reason\": \"why\"}. Seed rows are skipped."}
+{"file": "frontend/src/office3d/systems/cameraLighting.tsx", "reason": "天气/灯光系统，bug根因：DAY_NIGHT_KEYFRAMES 含2个暗帧(sunIntensity 0.2-0.3)，DAY_NIGHT_PERIOD=300s周期。需改为固定明亮白天灯光"}
+{"file": "frontend/src/office3d/core/furnitureDefaults.ts", "reason": "场景布局数据源DEFAULT_FURNITURE。需重写：删除8个办公工位/服务器机房/健身房/QA实验室/美术室，重排为咖啡厅(吧台+客座区+休闲沙发区)"}
+{"file": "frontend/src/office3d/objects/furniture.tsx", "reason": "type→GLB映射+染色缩放。17个GLB已够用(coffee_machine/tableRound/loungeSofa/lamp等)，可能微调FURNITURE_TINT为暖咖啡色调"}
+{"file": "frontend/src/office3d/scene/environment.tsx", "reason": "地板墙体。地板#c8a97e米色+墙#8d6e63棕色已偏暖，可微调emissive增强咖啡厅氛围"}
+{"file": "frontend/src/office3d/core/constants.ts", "reason": "CANVAS_W=1800/CANVAS_H=720/SCALE=0.018坐标系，布局需在此画布范围内规划"}
+{"file": "frontend/src/office3d/core/geometry.ts", "reason": "ITEM_FOOTPRINT/ITEM_METADATA定义家具占地和寻路阻塞，布局需遵守"}
+{"file": "frontend/src/screens/OfficeScene.tsx", "reason": "主场景装配，line92 DayNightCycle/FloorAndWalls/FurnitureModel挂载点"}

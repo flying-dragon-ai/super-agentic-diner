@@ -641,11 +641,11 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                         "stage": "payment",
                         **web_source_payload,
                     },
-                   correlation_id=req.request_id,
-               )
+                    correlation_id=req.request_id,
+                )
                 return ChatResponse(reply=reply)
 
-           clear_pending_order(req.user_id)
+            clear_pending_order(req.user_id)
             user = db.query(User).filter(User.user_id == req.user_id).first()
             balance = (
                 wallet_service.get_balance(db, req.user_id, WALLET_CURRENCY_CNY)
@@ -653,11 +653,11 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                 else "?"
             )
             if len(orders) == 1:
-               reply = (
-                   f"好嘞！已为您下单「{orders[0].coffee_name}」，扣款 ¥{orders[0].amount}，"
-                   f"当前余额 ¥{balance}。祝您品尝愉快~"
-               )
-           else:
+                reply = (
+                    f"好嘞！已为您下单「{orders[0].coffee_name}」，扣款 ¥{orders[0].amount}，"
+                    f"当前余额 ¥{balance}。祝您品尝愉快~"
+                )
+            else:
                 order_lines = "\n".join(f"  • {o.coffee_name} ¥{o.amount}" for o in orders)
                 total = sum(o.amount for o in orders)
                 reply = (

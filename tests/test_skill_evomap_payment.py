@@ -7,7 +7,17 @@ from urllib.error import HTTPError
 from unittest.mock import patch
 
 from app.config import settings
-from app.db.models import AgentProfile, CoffeeKB, EvomapConsumer, Order, SkillOrderLedger
+from app.db.models import (
+    AgentProfile,
+    BalanceTransaction,
+    CoffeeKB,
+    EvomapConsumer,
+    Order,
+    OrderItem,
+    Product,
+    SkillOrderLedger,
+    UserWallet,
+)
 from app.services.skill_order_service import (
     SkillOrderError,
     SkillPaymentRequired,
@@ -56,9 +66,14 @@ class _FakeQuery:
     def order_by(self, *_args, **_kwargs):
         return self
 
+    def limit(self, *_args, **_kwargs):
+        return self
+
     def all(self):
         if self.model is CoffeeKB:
             return list(self.session.coffees)
+        if self.model is Product:
+            return list(self.session.products)
         return []
 
     def first(self):
@@ -66,9 +81,24 @@ class _FakeQuery:
             return self.session.existing_ledger
         if self.model is CoffeeKB:
             return self.session.coffees[0] if self.session.coffees else None
+        if self.model is Product:
+            return self.session.products[0] if self.session.products else None
         if self.model is Order:
             return None
+        if self.model is OrderItem:
+            return None
         return None
+
+
+class _FakeSelectResult:
+    def __init__(self, value):
+        self._value = value
+
+    def scalar_one_or_none(self):
+        return self._value
+
+    def scalar(self):
+        return self._value
 
 
 class _FakeSession:
@@ -76,6 +106,19 @@ class _FakeSession:
         self.coffees = [
             CoffeeKB(id=1, coffee_name="榛果拿铁", content="香甜坚果风味", price=Decimal("28.00"))
         ]
+        self.products = [
+            Product(
+                product_id=1,
+                sku="HAZELNUT-LATTE",
+                name="榛果拿铁",
+                description="香甜坚果风味",
+                base_price=Decimal("28.00"),
+                tags="坚果,拿铁",
+                status="available",
+                stock=10,
+            )
+        ]
+        self.wallets: dict[tuple[int, str], UserWallet] = {(17, "credits"): UserWallet(user_id=17, currency="credits", balance=Decimal("100"))}
         self.existing_ledger = None
         self.ledgers: list[SkillOrderLedger] = []
         self.orders: list[Order] = []
@@ -87,6 +130,21 @@ class _FakeSession:
 
     def query(self, model):
         return _FakeQuery(self, model)
+
+    def execute(self, statement):
+        # The new skill path executes SELECT statements for Product (stock),
+        # UserWallet, and OrderItem lookups. Resolve against the in-memory state.
+        model = getattr(statement, "column_descriptions", None)
+        try:
+            target = model[0]["entity"] if model else None
+        except Exception:
+            target = None
+        if target is Product:
+            return _FakeSelectResult(self.products[0] if self.products else None)
+        if target is UserWallet:
+            # user_id/currency key lookups: return the matching wallet if present.
+            return _FakeSelectResult(None)
+        return _FakeSelectResult(None)
 
     def add(self, obj):
         if isinstance(obj, SkillOrderLedger) and obj not in self.ledgers:
@@ -155,7 +213,34 @@ class SkillEvoMapPaymentTests(unittest.TestCase):
             status="active",
         )
 
+        # The new skill-order path writes a credits wallet transaction + order
+        # item + stock decrement. Patch the wallet service so the fake session
+        # does not have to implement a full SQLAlchemy execute() path.
+        self._wallet_patch = patch("app.services.skill_order_service.wallet_service")
+        self._wallet_mock = self._wallet_patch.start()
+        self._wallet_mock.WALLET_CURRENCY_CREDITS = "credits"
+        self._wallet_mock.BalanceTransaction = BalanceTransaction
+        self._wallet_mock.apply_transaction.return_value = BalanceTransaction(
+            transaction_id=1, user_id=17, currency="credits", type="consume", amount=Decimal("-3")
+        )
+        # Stock decrement goes through catalog_service.decrement_stock which uses
+        # db.execute(select(Product)); patch it to mutate the fake product stock.
+        self._stock_patch = patch(
+            "app.services.skill_order_service.decrement_stock",
+            side_effect=self._fake_decrement_stock,
+        )
+        self._stock_patch.start()
+
+    def _fake_decrement_stock(self, db, product_id, quantity):
+        for product in db.products:
+            if product.product_id == product_id:
+                product.stock = max(0, (product.stock or 0) - quantity)
+                return product
+        return None
+
     def tearDown(self):
+        self._stock_patch.stop()
+        self._wallet_patch.stop()
         for key, value in self._settings.items():
             setattr(settings, key, value)
 

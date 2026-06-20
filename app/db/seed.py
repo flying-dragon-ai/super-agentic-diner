@@ -1,8 +1,16 @@
-"""灌入《咖啡风味手册》示例段落 + 一个测试用户"""
+"""Seed users, wallets, the normalized product catalog, and (legacy) coffee_kb."""
 from decimal import Decimal
 
 from app.db.database import SessionLocal
-from app.db.models import CoffeeKB, User
+from app.db.models import (
+    CoffeeKB,
+    Product,
+    ProductOption,
+    ProductOptionGroup,
+    User,
+)
+from app.domain_constants import OPTION_SELECTION_SINGLE, WALLET_CURRENCY_CNY
+from app.services import wallet_service
 
 SAMPLE_KB = [
     {
@@ -53,6 +61,100 @@ SAMPLE_KB = [
 ]
 
 
+# Normalized catalog mirroring SAMPLE_KB. The first product (美式咖啡) carries a
+# demo option group so order snapshotting + price-delta math is exercised.
+SAMPLE_PRODUCTS = [
+    {
+        "sku": "AMERICANO",
+        "name": "美式咖啡",
+        "category": "咖啡",
+        "description": SAMPLE_KB[3]["content"],
+        "base_price": Decimal("22.00"),
+        "tags": SAMPLE_KB[3]["tags"],
+        "stock": 100,
+    },
+    {
+        "sku": "CITRUS-COLD-BREW",
+        "name": "柑橘冷萃",
+        "category": "冷萃",
+        "description": SAMPLE_KB[0]["content"],
+        "base_price": Decimal("28.00"),
+        "tags": SAMPLE_KB[0]["tags"],
+        "stock": 50,
+    },
+    {
+        "sku": "BERRY-LATTE",
+        "name": "莓果拿铁",
+        "category": "拿铁",
+        "description": SAMPLE_KB[1]["content"],
+        "base_price": Decimal("32.00"),
+        "tags": SAMPLE_KB[1]["tags"],
+        "stock": 50,
+    },
+    {
+        "sku": "CARAMEL-MACCHIATO",
+        "name": "焦糖玛奇朵",
+        "category": "拿铁",
+        "description": SAMPLE_KB[2]["content"],
+        "base_price": Decimal("30.00"),
+        "tags": SAMPLE_KB[2]["tags"],
+        "stock": 50,
+    },
+    {
+        "sku": "COCONUT-COLD-BREW",
+        "name": "椰香冷萃",
+        "category": "冷萃",
+        "description": SAMPLE_KB[4]["content"],
+        "base_price": Decimal("29.00"),
+        "tags": SAMPLE_KB[4]["tags"],
+        "stock": 50,
+    },
+]
+
+
+def _seed_legacy_kb(db) -> None:
+    if db.query(CoffeeKB).count() == 0:
+        for item in SAMPLE_KB:
+            db.add(CoffeeKB(**item))
+        print(f"已灌入 {len(SAMPLE_KB)} 条 legacy coffee_kb 知识")
+
+
+def _seed_products(db) -> None:
+    if db.query(Product).count() > 0:
+        return
+    for spec in SAMPLE_PRODUCTS:
+        db.add(Product(status="available", **spec))
+    db.flush()
+
+    americano = db.query(Product).filter(Product.sku == "AMERICANO").one()
+    # 杯型规格组：中杯 / 大杯（+3）。
+    size_group = ProductOptionGroup(
+        product_id=americano.product_id,
+        name="杯型",
+        selection_type=OPTION_SELECTION_SINGLE,
+        is_required=1,
+        sort_order=1,
+    )
+    db.add(size_group)
+    db.flush()
+    db.add(ProductOption(group_id=size_group.group_id, name="中杯", price_delta=Decimal("0.00"), sort_order=1))
+    db.add(ProductOption(group_id=size_group.group_id, name="大杯", price_delta=Decimal("3.00"), sort_order=2))
+
+    # 奶类规格组（可选）。
+    milk_group = ProductOptionGroup(
+        product_id=americano.product_id,
+        name="奶类",
+        selection_type=OPTION_SELECTION_SINGLE,
+        is_required=0,
+        sort_order=2,
+    )
+    db.add(milk_group)
+    db.flush()
+    db.add(ProductOption(group_id=milk_group.group_id, name="不加奶", price_delta=Decimal("0.00"), sort_order=1))
+    db.add(ProductOption(group_id=milk_group.group_id, name="燕麦奶", price_delta=Decimal("2.00"), sort_order=2))
+    print(f"已灌入 {len(SAMPLE_PRODUCTS)} 个商品 + 美式咖啡规格组")
+
+
 def seed() -> None:
     db = SessionLocal()
     try:
@@ -61,15 +163,33 @@ def seed() -> None:
                 User(
                     user_id=1,
                     nickname="测试顾客",
-                    balance=Decimal("100.00"),
                     taste_preference="不加糖",
                 )
             )
-            print("已创建测试用户 user_id=1，余额 100.00")
-        if db.query(CoffeeKB).count() == 0:
-            for item in SAMPLE_KB:
-                db.add(CoffeeKB(**item))
-            print(f"已灌入 {len(SAMPLE_KB)} 条咖啡知识")
+            db.flush()
+            print("已创建测试用户 user_id=1")
+        # CNY 钱包为权威余额。余额通过 append-only 流水 topup 写入，保证审计链完整。
+        existing_topup = (
+            db.query(wallet_service.BalanceTransaction)
+            .filter(
+                wallet_service.BalanceTransaction.user_id == 1,
+                wallet_service.BalanceTransaction.currency == WALLET_CURRENCY_CNY,
+                wallet_service.BalanceTransaction.type == "topup",
+            )
+            .first()
+        )
+        if existing_topup is None:
+            wallet_service.topup(
+                db,
+                user_id=1,
+                amount=Decimal("100.00"),
+                note="种子充值",
+            )
+            db.commit()
+            print("已为测试用户充值 ¥100.00 到 CNY 钱包")
+
+        _seed_legacy_kb(db)
+        _seed_products(db)
         db.commit()
     finally:
         db.close()

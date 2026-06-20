@@ -29,3 +29,15 @@ INFO:     127.0.0.1:53057 - "GET /3d HTTP/1.1" 200 OK
 INFO:     127.0.0.1:53057 - "GET /3d/assets/index-CQEDMCJi.js HTTP/1.1" 200 OK
 INFO:     127.0.0.1:53647 - "POST /auth/register HTTP/1.1" 200 OK
 INFO:     127.0.0.1:53647 - "GET /auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54478 - "GET /3d/scene HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54478 - "GET /3d/assets/index-CQEDMCJi.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:54478 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:54845 - "GET /status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54843 - "GET /user/1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54844 - "GET /orders/1 HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:54845 - "POST /chat HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:54964 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54964 - "GET /3d/assets/index-CQEDMCJi.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:54964 - "GET /auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:54988 - "POST /chat HTTP/1.1" 500 Internal Server Error
+INFO:     127.0.0.1:55100 - "POST /chat HTTP/1.1" 500 Internal Server Error

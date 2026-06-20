@@ -6,6 +6,7 @@
 
 | 时间 | 动作 | 说明 |
 |------|------|------|
+| 2026-06-20 10:05 | 增量对齐 | 第三次 init：精读 `screens/Dashboard.tsx` 全文，补全监控大屏布局（4 卡片 KPI + 最近订单 + 实时事件流）与 4s 轮询细节（`getRestaurantState` + `listEvents(30)` 双拉，事件流优先用本地 events 回退 `state.recent_events`）；同步根文档"唯一活跃 UI"定性 |
 | 2026-06-20 | 增量补扫 | 第二次 init：逐一精读 office3d/ 子模块（navigation/geometry/constants/agents/furniture/cameraLighting/sceneRuntime/environment/avatars）、sim/tick.ts 全文、auth/AuthPages.tsx 全文，补全坐标投影/A\*寻路/昼夜循环/Agent骨骼动画/表单实现细节 |
 | 2026-06-20 | 创建 | 初始化架构师首次生成 |
 
@@ -13,8 +14,8 @@
 
 ## 模块职责
 
-Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws/visualization` 事件流对接）：
-1. **3D 办公室场景**（`/3d/scene`）：用 React-Three-Fiber 渲染带真实 GLB 家具的办公室，Agent（咖啡师/收银/服务员/主管/访客）按可视化事件驱动行走、工作、说话。
+Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws/visualization` 事件流对接）。**2026-06-20 09:40 起，本模块是项目唯一活跃 UI**（像素 Colyseus 方案与独立 2D 对话页均已归档到 `_archive/`），后端根路由 `/` 已改为直出本前端构建产物。三大职责：
+1. **3D 办公室场景**（`/3d/scene`）：用 React-Three-Fiber 渲染带真实 GLB 家具的办公室，Agent（咖啡师/收银/服务员/主管/访客）按可视化事件驱动行走、工作、说话。内嵌聊天消费后端 `POST /chat`。
 2. **监控大屏**（`/3d/dashboard`）：聚合 `/admin/restaurant-state`，展示今日订单/金额/来源分布/最近订单/事件流/在线员工。
 3. **账户登录**（`/3d/login`、`/3d/register`）：通过签名 Cookie 会话访问受保护页面。
 
@@ -29,7 +30,7 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
   - `/dashboard` → `Dashboard`
   - `/login`、`/register` → 登录/注册页
 - **开发**：`npm run dev`（Vite，端口 5174，代理 `/ws` `/api` 到 `localhost:8000`）
-- **构建**：`npm run build`（`tsc --noEmit && vite build`，产物输出到 `../app/static/3d`，由 FastAPI `/3d` 托管）
+- **构建**：`npm run build`（`tsc --noEmit && vite build`，产物输出到 `../app/static/3d`，由 FastAPI `/3d` 与根 `/` 托管）
 - **base path**：`/3d/`（见 `vite.config.ts`）
 
 ## 对外接口（与后端的契约）
@@ -61,6 +62,7 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
 - **`AgentAvatarProfile`**（`office3d/avatars/profile.ts`）：确定性头像档案（version 1，含 skinTone/hair/clothing/accessories/glasses/headset/hat/backpack），由 seed 字符串经 FNV-1a 哈希确定性派生
 - **`SimHandle`**（`sim/agentStore.ts`）：`{agents, furniture, speech, rebuildNav, setFurniture, _nav}` — 事件驱动 + tick 推进的状态机
 - **`Account`**（`auth/AuthProvider.tsx`）：`{user_id, username, nickname}`
+- **大屏 `State`**（`screens/Dashboard.tsx`）：`{today:{order_count,total_amount,active_agent_count,active_consumer_count}, by_source:[{source_type,count,amount}], recent_orders:[{order_id,coffee_name,amount,status,source_type,created_at}], recent_events:VisEvent[], agents:[{display_name,role_type,status}]}`
 
 ## 核心架构
 
@@ -139,6 +141,17 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
   - 对话气泡：Markdown 扁平化（去代码块/图片/链接/标题/列表符号）+ 截断到 180 字 + 4 行；活跃气泡带尖角和边框，空闲时偶尔显示 "• • •" 环境气泡
 - **`avatars/profile.ts`** — 确定性头像生成：FNV-1a 哈希 seed → 派生肤色（6 种）/发型（4 种）/发色（8 种）/上装（tee/hoodie/jacket）/下装（pants/shorts/cuffed）/鞋色/帽子/眼镜/耳机/背包
 
+### 监控大屏（`screens/Dashboard.tsx`）— 全文细节
+- **数据源**：`getRestaurantState()`（`/admin/restaurant-state`）+ `listEvents(30)`（`/visualization/events`）双拉；`useEffect` 内 `load()` 立即跑一次，再 `setInterval(load, 4000)` 每 **4 秒**轮询，卸载时 `clearInterval`。
+- **事件流取值优先级**：`recentEvents = events.length ? events : (state?.recent_events ?? [])`——本地 `listEvents` 结果优先（更新），为空时回退到 `restaurant-state` 内嵌的 `recent_events`。
+- **布局**（全屏 `100vw×100vh`，深色 `#080c12` 背景，monospace 数字）：
+  - 顶部：标题 `Coffee AI Boss · 实时监控大屏` + 当前时间（`zh-CN` 格式）
+  - 4 张 KPI 卡片（`grid 4 列`）：今日订单（`today.order_count`）、今日金额（`¥today.total_amount.toFixed(2)`）、在线员工（`today.active_agent_count`，回退 `state.agents.length`）、活跃访客（`today.active_consumer_count`）
+  - 下方 2 列网格（`2fr : 1.4fr`）：
+    - 左 `最近订单`：遍历 `state.recent_orders`，每行显示咖啡名（米色）/`source_type`（蓝灰）/金额（金 `¥`）/时间（`toLocaleTimeString zh-CN`），空列表显示"暂无订单"
+    - 右 `实时事件流`：`maxHeight:360` 滚动区，每行事件 type（金）+ 时间；按 `event_id`（String 化）做 key
+- **样式风格**：全内联 `React.CSSProperties`，卡片 `rgba(14,22,34,0.9)` + 蓝色细边框 `rgba(80,130,200,0.18)` + 圆角 10；标签大写 `letterSpacing:2` 蓝 `#7fa6d8`；数字米色 `#e8dfc0` 34px 粗体。
+
 ### 账户登录（`auth/`）
 - **`AuthProvider.tsx`** — React Context，封装 `login/register/logout/me`，签名 Cookie 会话
 - **`AuthPages.tsx`** — 登录/注册表单（全文已扫）：
@@ -156,9 +169,9 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
 
 ## 常见问题 (FAQ)
 
-- **Q: 3D 页面 404？** A: 需先 `npm run build` 把产物输出到 `app/static/3d/`，否则 `/3d` 路由返回 "3D build not found"。
+- **Q: 3D 页面 404？** A: 需先 `npm run build` 把产物输出到 `app/static/3d/`，否则根 `/` 与 `/3d` 路由返回 "3D build not found"。
 - **Q: 开发模式如何连后端？** A: Vite 代理 `/ws`、`/api` 到 `localhost:8000`；`api.ts` 的 `base` 在 DEV 模式返回 `http://localhost:8000`。
-- **Q: 大屏数据多久刷新？** A: `Dashboard.tsx` 每 4 秒轮询一次 `/admin/restaurant-state`。
+- **Q: 大屏数据多久刷新？** A: `Dashboard.tsx` 每 **4 秒**同时轮询 `/admin/restaurant-state`（KPI/最近订单/在线员工）和 `/visualization/events?limit=30`（事件流）。
 - **Q: Agent 卡在家具里不动？** A: `astar` 的 `findFree` 会螺旋搜索最近空闲格，但若起终点都在大块家具内部且 10 格内无空闲格会返回空路径；检查 `ITEM_METADATA` 的 `blocksNavigation`/`navPadding` 配置。
 - **Q: GLB 加载失败？** A: 家具 GLB 必须存在于 `public/office-assets/models/furniture/`，构建后落到 `app/static/3d/office-assets/`；`FurnitureModel` 对未知类型兜底用 `table.glb`。
 
@@ -169,7 +182,7 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
 | `src/main.tsx` | React 挂载入口 |
 | `src/App.tsx` | 路由 + TopBar + AuthProvider |
 | `src/screens/OfficeScene.tsx` | 3D 办公室主场景（装配 Canvas+灯具+家具+Agent+聚光灯+GameLoop） |
-| `src/screens/Dashboard.tsx` | 监控大屏 |
+| `src/screens/Dashboard.tsx` | 监控大屏（4s 双轮询 + 4 KPI 卡 + 最近订单 + 实时事件流） |
 | `src/auth/AuthProvider.tsx` | 账户 Context（login/register/logout/me） |
 | `src/auth/AuthPages.tsx` | 登录/注册表单（内联样式，支持匿名进入） |
 | `src/net/api.ts` | fetch 封装 + 事件契约类型 |
