@@ -42,6 +42,8 @@ from app.memory.chat_history import (
     set_pending_order,
 )
 from app.services.chat_service import extract_price, handle_message, match_by_price
+from app.services.agent_orchestrator import orchestrate as agent_orchestrate
+from app.services.agents.experience_agent import list_recent_experiences
 from app.rag.keywords import extract_keywords
 from app.rag.retrieval import retrieve
 from app.services.order_service import (
@@ -811,9 +813,22 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         )
         return ChatResponse(reply=reply)
 
-    # ===== 非下单意图（recommend/chat）→ 走 RAG 聊天流程 =====
-    # handle_message 内部：读Redis → 关键词提取 → LIKE检索 → LLM生成 → 写Redis
+    # ===== 非下单意图（recommend/chat）→ 多 Agent(智能体) 协作流程 =====
+    # 编排器按序调用：店长(意图)→推荐(RAG+经验)→[纠正检测]→复盘→经验继承
     clear_pending_order(req.user_id)
+    orch = agent_orchestrate(db, req.user_id, req.message, correlation_id=req.request_id)
+    # 发布编排器产生的所有 Agent 协作事件
+    for evt in orch.events:
+        _try_publish_visualization_event(
+            db,
+            evt["type"],
+            {**evt.get("payload", {}), **web_source_payload},
+            correlation_id=req.request_id,
+        )
+    # 若编排器已写对话历史并给出回复，直接返回
+    if orch.reply:
+        return ChatResponse(reply=orch.reply)
+    # 编排器降级（如无 LLM key）：回退到原 handle_message
     reply = handle_message(db, req.user_id, req.message)
     _try_publish_visualization_event(
         db,
@@ -1181,6 +1196,40 @@ def restaurant_state(limit: int = 50, db: Session = Depends(get_db)):
         "recent_events": [event_to_message(row) for row in event_rows],
         "agents": [_public_agent(row) for row in active_agents],
         "consumers": [_public_consumer(row) for row in active_consumers],
+    }
+
+
+@app.get("/admin/agent-collaboration")
+def agent_collaboration_state(db: Session = Depends(get_db)):
+    """多 Agent(智能体) 协作面板数据：最近经验记录 + 协作事件统计。"""
+    experiences = list_recent_experiences(db, limit=20)
+    # 统计最近 200 条事件中各 Agent 的协作次数
+    agent_event_types = (
+        "agent.manager.intent",
+        "agent.recommender.suggested",
+        "agent.reviewer.reviewed",
+        "agent.experience.learned",
+        "agent.experience.applied",
+    )
+    rows = (
+        db.query(VisualizationEvent.event_type, func.count(VisualizationEvent.event_id))
+        .filter(
+            VisualizationEvent.event_type.in_(agent_event_types),
+        )
+        .group_by(VisualizationEvent.event_type)
+        .all()
+    )
+    stats = {row[0]: int(row[1]) for row in rows}
+    return {
+        "summary": {
+            "total_experiences": len(experiences),
+            "manager_actions": stats.get("agent.manager.intent", 0),
+            "recommender_actions": stats.get("agent.recommender.suggested", 0),
+            "reviewer_actions": stats.get("agent.reviewer.reviewed", 0),
+            "experience_learned": stats.get("agent.experience.learned", 0),
+            "experience_applied": stats.get("agent.experience.applied", 0),
+        },
+        "recent_experiences": experiences,
     }
 
 
