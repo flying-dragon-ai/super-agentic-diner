@@ -1478,8 +1478,8 @@ def three_d_app_spa(full_path: str):
 
 @app.get("/")
 def index():
-    """Root: serve the 3D office SPA (2D archived to _archive/2d-legacy/)."""
-    three_d_index = _3D_STATIC_DIR / "index.html"
-    if three_d_index.is_file():
-        return FileResponse(three_d_index)
-    raise HTTPException(status_code=404, detail="3D build not found. Run: cd frontend && npm run build")
+    """Root: 2D 聊天页（AI 店长对话主页）。3D 咖啡厅场景在 /3d。"""
+    chat_index = _STATIC_DIR / "index.html"
+    if chat_index.is_file():
+        return FileResponse(chat_index)
+    raise HTTPException(status_code=404, detail="chat page not found")
