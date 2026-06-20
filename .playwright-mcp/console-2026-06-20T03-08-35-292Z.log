@@ -1,0 +1,55 @@
+[      55ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:8000/auth/me:0
+[     107ms] [WARNING] THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://127.0.0.1:8000/3d/assets/index-CSYrgxix.js:63
+[     440ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://127.0.0.1:8000/3d/assets/index-CSYrgxix.js:63
+[  847705ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://127.0.0.1:8000/3d/assets/index-CSYrgxix.js:63
+[  849728ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://127.0.0.1:8000/3d/assets/index-CSYrgxix.js:63
+[  849747ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://127.0.0.1:8000/3d/assets/index-CSYrgxix.js:63
+[  890091ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:8000/auth/me:0
+[  890150ms] [WARNING] THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://127.0.0.1:8000/3d/assets/index-D8_LM9et.js:63
+[  890495ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://127.0.0.1:8000/3d/assets/index-D8_LM9et.js:63
+[ 1740861ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:8000/auth/me:0
+[ 1740921ms] [WARNING] THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://127.0.0.1:8000/3d/assets/index-D8_LM9et.js:63
+[ 1741263ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://127.0.0.1:8000/3d/assets/index-D8_LM9et.js:63
+[ 1752760ms] [LOG] THREE.WebGLRenderer: Context Lost. @ http://127.0.0.1:8000/3d/assets/index-D8_LM9et.js:63
+[ 1755043ms] [WARNING] THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://127.0.0.1:8000/3d/assets/index-D8_LM9et.js:63
+[ 1755069ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://127.0.0.1:8000/3d/assets/index-D8_LM9et.js:63
+[ 2309731ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:8000/auth/me:0
+[ 2309780ms] [WARNING] THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://127.0.0.1:8000/3d/assets/index-065u5kL1.js:63
+[ 2310147ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://127.0.0.1:8000/3d/assets/index-065u5kL1.js:63
+[ 2399085ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:8000/auth/me:0
+[ 2399137ms] [WARNING] THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://127.0.0.1:8000/3d/assets/index-065u5kL1.js:63
+[ 2399474ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://127.0.0.1:8000/3d/assets/index-065u5kL1.js:63
+[ 2400536ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:8000/auth/me:0
+[ 2400592ms] [WARNING] THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://127.0.0.1:8000/3d/assets/index-065u5kL1.js:63
+[ 2400931ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://127.0.0.1:8000/3d/assets/index-065u5kL1.js:63
+[ 2571257ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:8000/auth/me:0
+[ 2571310ms] [WARNING] THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://127.0.0.1:8000/3d/assets/index-065u5kL1.js:63
+[ 2571653ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://127.0.0.1:8000/3d/assets/index-065u5kL1.js:63
+[ 2572222ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:8000/auth/me:0
+[ 2572272ms] [WARNING] THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://127.0.0.1:8000/3d/assets/index-065u5kL1.js:63
+[ 2572618ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://127.0.0.1:8000/3d/assets/index-065u5kL1.js:63
+[ 3082648ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:8000/auth/me:0
+[ 3082715ms] [WARNING] THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://127.0.0.1:8000/3d/assets/index-BIFqsAY_.js:63
+[ 3083053ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://127.0.0.1:8000/3d/assets/index-BIFqsAY_.js:63
+[ 3820857ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:8000/auth/me:0
+[ 3820923ms] [WARNING] THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://127.0.0.1:8000/3d/assets/index-Do6AXtaR.js:63
+[ 3821281ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://127.0.0.1:8000/3d/assets/index-Do6AXtaR.js:63
+[ 3954592ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:8000/auth/me:0
+[ 3954653ms] [WARNING] THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://127.0.0.1:8000/3d/assets/index-Do6AXtaR.js:63
+[ 3955007ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://127.0.0.1:8000/3d/assets/index-Do6AXtaR.js:63
+[ 4195543ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:8000/auth/me:0
+[ 4195596ms] [WARNING] THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://127.0.0.1:8000/3d/assets/index-Do6AXtaR.js:63
+[ 4195952ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://127.0.0.1:8000/3d/assets/index-Do6AXtaR.js:63
+[ 4247700ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:8000/auth/me:0
+[ 4247761ms] [WARNING] THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://127.0.0.1:8000/3d/assets/index-DxSv77K1.js:63
+[ 4248116ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://127.0.0.1:8000/3d/assets/index-DxSv77K1.js:63
+[ 5603680ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:8000/auth/me:0
+[ 5603738ms] [WARNING] THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ http://127.0.0.1:8000/3d/assets/index-DQy6e8xj.js:63
+[ 5604102ms] [WARNING] THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated. Using PCFShadowMap instead. @ http://127.0.0.1:8000/3d/assets/index-DQy6e8xj.js:63
+[ 5734346ms] [WARNING] WebGL: CONTEXT_LOST_WEBGL: loseContext: context lost @ http://127.0.0.1:8000/3d/scene:0
+[ 5734366ms] [WARNING] WebGL: CONTEXT_LOST_WEBGL: loseContext: context lost @ http://127.0.0.1:8000/3d/scene:0
+[ 5734485ms] [LOG] THREE.WebGLRenderer: Context Lost. @ http://127.0.0.1:8000/3d/assets/index-DQy6e8xj.js:63
+[ 5734620ms] [LOG] Context Lost WebGLContextEvent @ http://127.0.0.1:8000/3d/assets/index-DQy6e8xj.js:4206
+[ 5735541ms] [LOG] THREE.WebGLRenderer: Context Restored. @ http://127.0.0.1:8000/3d/assets/index-DQy6e8xj.js:63
+[ 5736329ms] [WARNING] WebGL: INVALID_OPERATION: texSubImage2D: Can't upload a texture from a lost WebGL context. @ http://127.0.0.1:8000/3d/assets/index-DQy6e8xj.js:4091
+[ 5736390ms] [LOG] Context Restored WebGLContextEvent @ http://127.0.0.1:8000/3d/assets/index-DQy6e8xj.js:4206

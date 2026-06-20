@@ -59,6 +59,7 @@ export const AgentModel = memo(function AgentModel({
   const groupRef = useRef<THREE.Group>(null);
   const leftArmRef = useRef<THREE.Group>(null);
   const rightArmRef = useRef<THREE.Group>(null);
+  const heldCupRef = useRef<THREE.Group>(null);
   const leftLegRef = useRef<THREE.Group>(null);
   const rightLegRef = useRef<THREE.Group>(null);
   const statusDotMatRef = useRef<THREE.MeshBasicMaterial>(null);
@@ -170,6 +171,8 @@ export const AgentModel = memo(function AgentModel({
     }
 
     if (awayBubbleRef.current) awayBubbleRef.current.visible = isAway;
+    // Baristas hold a coffee cup; hide it when away so the hand reads as empty.
+    if (heldCupRef.current) heldCupRef.current.visible = agent.role === "barista" && !isAway;
     if (groupRef.current) {
       groupRef.current.traverse((child) => {
         if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshLambertMaterial) {
@@ -443,6 +446,24 @@ export const AgentModel = memo(function AgentModel({
           <boxGeometry args={[0.05, 0.05, 0.05]} />
           <meshLambertMaterial color={skin} />
         </mesh>
+        {/*
+          Held coffee cup (Phase 6). Attached to the right hand so it swings
+          with the arm; visibility is toggled in useFrame for baristas only.
+        */}
+        <group ref={heldCupRef} position={[0, -0.2, 0.04]} visible={false}>
+          <mesh>
+            <cylinderGeometry args={[0.035, 0.028, 0.06, 12]} />
+            <meshStandardMaterial color="#ffffff" roughness={0.5} />
+          </mesh>
+          <mesh position={[0, 0.035, 0]}>
+            <cylinderGeometry args={[0.036, 0.036, 0.01, 12]} />
+            <meshStandardMaterial color="#3e2723" roughness={0.6} />
+          </mesh>
+          <mesh position={[0.05, 0, 0]} rotation={[Math.PI / 2, 0, 0]}>
+            <torusGeometry args={[0.015, 0.004, 8, 16]} />
+            <meshStandardMaterial color="#d7ccc8" roughness={0.5} />
+          </mesh>
+        </group>
       </group>
       <group ref={leftArmRef} position={[0.12, 0.28, 0]}>
         <mesh position={[0, -0.08, 0]}>

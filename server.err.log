@@ -1115,3 +1115,110 @@ WHERE product.description LIKE %(description_1)s OR product.tags LIKE %(tags_1)s
  LIMIT %(param_1)s]
 [parameters: {'description_1': '%如果%', 'tags_1': '%如果%', 'description_2': '%系统%', 'tags_2': '%系统%', 'description_3': '%繁忙%', 'tags_3': '%繁忙%', 'description_4': '%常规%', 'tags_4': '%常规%', 'description_5': '%菜单%', 'tags_5': '%菜单%', 'description_6': '%点单%', 'tags_6': '%点单%', 'param_1': 3}]
 (Background on this error at: https://sqlalche.me/e/20/f405)
+INFO:     127.0.0.1:49214 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:58451 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:49153 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:65522 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:61334 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:61832 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:62426 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+ConnectionClosedError exception in shielded future
+future: <Future finished exception=ConnectionClosedError(None, Close(code=<CloseCode.INTERNAL_ERROR: 1011>, reason='keepalive ping timeout'), None)>
+Traceback (most recent call last):
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 1276, in close_connection
+    await self.transfer_data_task
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 940, in transfer_data
+    message = await self.read_message()
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 1010, in read_message
+    frame = await self.read_data_frame(max_size=self.max_size)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 1087, in read_data_frame
+    frame = await self.read_frame(max_size)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 1144, in read_frame
+    frame = await Frame.read(
+            ^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+    )
+    ^
+  File "D:\temp\EVOMAP\coffee-ai-boss\.venv\Lib\site-packages\websockets\legacy\framing.py", line 70, in read
+    data = await reader(2)
+           ^^^^^^^^^^^^^^^
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\asyncio\streams.py", line 769, in readexactly
+    await self._wait_for_data('readexactly')
+  File "C:\Users\Administrator\AppData\Local\Programs\Python\Python314\Lib\asyncio\streams.py", line 539, in _wait_for_data
+    await self._waiter
+asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+
+websockets.exceptions.ConnectionClosedError: sent 1011 (internal error) keepalive ping timeout; no close frame received
+INFO:     connection closed
+INFO:     127.0.0.1:59519 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     connection closed
+INFO:     127.0.0.1:50209 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:51417 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     connection closed
+INFO:     127.0.0.1:57004 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:57119 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:57436 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:50930 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     connection closed
+INFO:     127.0.0.1:51080 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     connection closed
+INFO:     127.0.0.1:59633 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:50889 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:60356 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:53769 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:60093 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:58614 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:64889 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:56884 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:64342 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open
+INFO:     connection closed
+INFO:     127.0.0.1:64711 - "WebSocket /ws/visualization" [accepted]
+INFO:     connection open

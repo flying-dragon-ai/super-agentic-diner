@@ -2,6 +2,9 @@
 // system: canvas pixel coords are projected into three.js world units via SCALE.
 export const DESK_STICKY_MS = 10_000;
 export const SNAP_GRID = 10;
+// localStorage keys for the editor layout persistence + smooth layout migration.
+export const STORAGE_KEY = "coffee-office-furniture-v1";
+export const LAYOUT_MIGRATION_KEY = "coffee-office-layout-migration-v1";
 export const ROTATION_STEP_DEG = 15;
 export const WALL_THICKNESS = 8;
 export const DOOR_THICKNESS = 8;

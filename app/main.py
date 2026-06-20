@@ -66,7 +66,7 @@ from app.services.visualization_service import (
     make_sprite_seed,
     visualization_hub,
 )
-from app.colyseus_bridge import bridge_event_to_colyseus, start_colyseus_server, stop_colyseus_server
+from app.colyseus_bridge import start_colyseus_server, stop_colyseus_server
 
 app = FastAPI(title="智能咖啡馆 AI 店长")
 

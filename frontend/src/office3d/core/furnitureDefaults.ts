@@ -1,173 +1,142 @@
-// Ported from Claw3D core/furnitureDefaults.ts. The DEFAULT_FURNITURE array is
-// Claw3D's complete office layout (8 desks, chairs, computers, kitchen, sofas,
-// pingpong, server room, gym, QA lab, art room, plants). materializeDefaults
-// turns FurnitureSeed[] into FurnitureItem[] with stable _uids.
+// Coffee shop scene layout for the 3D floor. DEFAULT_FURNITURE arranges a bar
+// (left), a 2x2 round-table seating block (center), a sofa lounge (right), and
+// wall props/decor across a 1800x720 canvas. materializeDefaults turns the
+// FurnitureSeed[] into FurnitureItem[] with stable _uids for OfficeScene.
 import type { FurnitureItem, FurnitureSeed } from "./types";
-import { nextUid } from "./geometry";
-
-const DEFAULT_SERVER_ROOM_ITEMS: FurnitureSeed[] = [
-  { type: "wall", x: 0, y: 560, w: 230, h: 8 },
-  { type: "wall", x: 220, y: 560, w: 8, h: 60 },
-  { type: "door", x: 210, y: 630, w: 40, h: 8, facing: 90 },
-  { type: "wall", x: 220, y: 660, w: 8, h: 60 },
-  { type: "server_rack", x: 50, y: 595, facing: 0 },
-  { type: "server_rack", x: 125, y: 595, facing: 0 },
-  { type: "server_terminal", x: 110, y: 645, facing: 180 },
-];
-
-const DEFAULT_GYM_ITEMS: FurnitureSeed[] = [
-  { type: "wall", x: 1126, y: 40, w: 8, h: 640 },
-  { type: "wall", x: 1126, y: 40, w: 176, h: 8 },
-  { type: "wall", x: 1126, y: 672, w: 176, h: 8 },
-  { type: "wall", x: 1294, y: 40, w: 8, h: 220 },
-  { type: "door", x: 1280, y: 280, w: 40, h: 8, facing: 90 },
-  { type: "wall", x: 1294, y: 300, w: 8, h: 380 },
-  { type: "treadmill", x: 1142, y: 90, facing: 90 },
-  { type: "weight_bench", x: 1204, y: 92, facing: 90 },
-  { type: "dumbbell_rack", x: 1220, y: 160, facing: 180 },
-  { type: "rowing_machine", x: 1140, y: 222, facing: 90 },
-  { type: "kettlebell_rack", x: 1224, y: 248, facing: 180 },
-  { type: "exercise_bike", x: 1146, y: 366, facing: 90 },
-  { type: "punching_bag", x: 1266, y: 380, facing: 0 },
-  { type: "yoga_mat", x: 1168, y: 542, facing: 0, color: "#0f766e" },
-  { type: "plant", x: 1268, y: 82 },
-  { type: "plant", x: 1268, y: 622 },
-];
-
-const DEFAULT_QA_LAB_ITEMS: FurnitureSeed[] = [
-  { type: "wall", x: 1356, y: 40, w: 8, h: 220 },
-  { type: "door", x: 1340, y: 280, w: 40, h: 8, facing: 90 },
-  { type: "wall", x: 1356, y: 300, w: 8, h: 380 },
-  { type: "wall", x: 1356, y: 40, w: 176, h: 8 },
-  { type: "wall", x: 1356, y: 672, w: 176, h: 8 },
-  { type: "wall", x: 1524, y: 40, w: 8, h: 640 },
-  { type: "qa_terminal", x: 1374, y: 92, facing: 90 },
-  { type: "device_rack", x: 1454, y: 92, facing: 180 },
-  { type: "device_rack", x: 1454, y: 204, facing: 180 },
-  { type: "test_bench", x: 1372, y: 316, facing: 90 },
-  { type: "test_bench", x: 1372, y: 450, facing: 90 },
-  { type: "plant", x: 1496, y: 82 },
-  { type: "plant", x: 1496, y: 622 },
-];
-
-const DEFAULT_ART_ROOM_ITEMS: FurnitureSeed[] = [
-  { type: "wall", x: 260, y: 40, w: 8, h: 230 },
-  { type: "wall", x: 260, y: 40, w: 178, h: 8 },
-  { type: "wall", x: 260, y: 262, w: 178, h: 8 },
-  { type: "wall", x: 430, y: 40, w: 8, h: 90 },
-  { type: "door", x: 420, y: 150, w: 40, h: 8, facing: 90 },
-  { type: "wall", x: 430, y: 170, w: 8, h: 100 },
-  { type: "easel", x: 278, y: 84, facing: 90 },
-  { type: "easel", x: 278, y: 158, facing: 90 },
-  { type: "plant", x: 280, y: 60 },
-  { type: "plant", x: 280, y: 240 },
-];
 
 export const DEFAULT_FURNITURE: FurnitureSeed[] = [
-  { type: "round_table", x: 50, y: 50, r: 90 },
-  { type: "chair", x: 130, y: 50, facing: 0 },
-  { type: "chair", x: 200, y: 90, facing: 325 },
-  { type: "chair", x: 180, y: 170, facing: 240 },
-  { type: "chair", x: 120, y: 480, facing: 180 },
-  { type: "chair", x: 50, y: 150, facing: 105 },
-  { type: "chair", x: 60, y: 80, facing: 60 },
-  { type: "chair", x: 550, y: 50, facing: 0 },
-  { type: "bookshelf", x: 600, y: 30, w: 80, h: 120 },
-  { type: "couch", x: 270, y: 90, w: 40, h: 80, vertical: true, facing: 180 },
-  { type: "fridge", x: 1050, y: 20, w: 40, h: 80 },
-  { type: "stove", x: 920, y: 20 },
-  { type: "cabinet", x: 980, y: 30, w: 40, h: 40 },
-  { type: "microwave", x: 1030, y: 10, facing: 0 },
-  { type: "sink", x: 970, y: 20 },
-  { type: "dishwasher", x: 950, y: 20, w: 40, h: 40 },
-  { type: "cabinet", x: 840, y: 30, w: 80, h: 40, elevation: 0 },
-  { type: "coffee_machine", x: 880, y: 30, elevation: 0.56 },
-  { type: "wall_cabinet", x: 960, y: 10, w: 80, h: 20, elevation: 0.9 },
-  { type: "wall_cabinet", x: 880, y: 10, w: 80, h: 20, elevation: 0.9 },
-  { type: "round_table", x: 890, y: 100, r: 50 },
-  { type: "chair", x: 930, y: 100, facing: 0 },
-  { type: "chair", x: 930, y: 180, facing: 180 },
-  { type: "chair", x: 880, y: 130, facing: 90 },
-  { type: "chair", x: 970, y: 130, facing: 270 },
-  { type: "vending", x: 790, y: 10 },
-  { type: "trash", x: 210, y: 20 },
-  { type: "desk_cubicle", x: 100, y: 300, id: "desk_0" },
-  { type: "chair", x: 120, y: 290, facing: 180 },
-  { type: "computer", x: 120, y: 287 },
-  { type: "keyboard", x: 130, y: 295 },
-  { type: "mouse", x: 152, y: 295 },
-  { type: "trash", x: 170, y: 290 },
-  { type: "desk_cubicle", x: 300, y: 300, id: "desk_1" },
-  { type: "chair", x: 320, y: 290, facing: 180 },
-  { type: "computer", x: 320, y: 287 },
-  { type: "keyboard", x: 330, y: 295 },
-  { type: "mouse", x: 352, y: 295 },
-  { type: "trash", x: 370, y: 290 },
-  { type: "desk_cubicle", x: 500, y: 300, id: "desk_2" },
-  { type: "chair", x: 520, y: 290, facing: 180 },
-  { type: "computer", x: 520, y: 287 },
-  { type: "keyboard", x: 530, y: 295 },
-  { type: "mouse", x: 552, y: 295 },
-  { type: "trash", x: 570, y: 290 },
-  { type: "desk_cubicle", x: 700, y: 300, id: "desk_3" },
-  { type: "chair", x: 720, y: 290, facing: 180 },
-  { type: "computer", x: 720, y: 287 },
-  { type: "keyboard", x: 730, y: 295 },
-  { type: "mouse", x: 752, y: 295 },
-  { type: "trash", x: 770, y: 290 },
-  { type: "desk_cubicle", x: 100, y: 500, id: "desk_4" },
-  { type: "computer", x: 120, y: 487 },
-  { type: "keyboard", x: 130, y: 490 },
-  { type: "mouse", x: 152, y: 495 },
-  { type: "trash", x: 170, y: 490 },
-  { type: "desk_cubicle", x: 300, y: 500, id: "desk_5" },
-  { type: "chair", x: 310, y: 490, facing: 180 },
-  { type: "computer", x: 320, y: 487 },
-  { type: "keyboard", x: 330, y: 495 },
-  { type: "mouse", x: 352, y: 495 },
-  { type: "trash", x: 370, y: 500 },
-  { type: "desk_cubicle", x: 500, y: 500, id: "desk_6" },
-  { type: "chair", x: 520, y: 490, facing: 180 },
-  { type: "computer", x: 520, y: 487 },
-  { type: "keyboard", x: 530, y: 495 },
-  { type: "mouse", x: 552, y: 495 },
-  { type: "trash", x: 570, y: 490 },
-  { type: "desk_cubicle", x: 700, y: 500, id: "desk_7" },
-  { type: "chair", x: 720, y: 490, facing: 180 },
-  { type: "computer", x: 720, y: 487 },
-  { type: "keyboard", x: 730, y: 495 },
-  { type: "mouse", x: 752, y: 495 },
-  { type: "trash", x: 770, y: 490 },
-  { type: "couch", x: 1000, y: 380, w: 100, h: 40, facing: 90 },
-  { type: "couch", x: 390, y: 630, w: 100, h: 40 },
-  { type: "table_rect", x: 980, y: 380, w: 60, h: 30, facing: 270 },
-  { type: "pingpong", x: 950, y: 600, w: 100, h: 60 },
-  { type: "beanbag", x: 1000, y: 330, color: "#e65100", facing: 90 },
-  { type: "beanbag", x: 1000, y: 410, color: "#1565c0", facing: 90 },
-  { type: "atm", x: 430, y: 210, facing: 90 },
-  { type: "phone_booth", x: 1050, y: 190, facing: 270 },
-  { type: "kanban_board", x: 460, y: -60, facing: 180 },
-  { type: "whiteboard", x: 40, y: 200, w: 10, h: 60 },
-  { type: "clock", x: 550, y: 5 },
-  { type: "lamp", x: 430, y: 100 },
-  { type: "lamp", x: 980, y: 390 },
-  { type: "trash", x: 830, y: 20 },
-  { type: "plant", x: 40, y: 40 },
-  { type: "plant", x: 660, y: 30 },
-  { type: "plant", x: 340, y: 700 },
-  { type: "plant", x: 450, y: 450 },
-  { type: "plant", x: 1090, y: 310 },
-  { type: "plant", x: 1100, y: 490 },
-  { type: "plant", x: 530, y: 700 },
-  ...DEFAULT_SERVER_ROOM_ITEMS,
-  ...DEFAULT_GYM_ITEMS,
-  ...DEFAULT_QA_LAB_ITEMS,
-  ...DEFAULT_ART_ROOM_ITEMS,
-  { type: "sms_booth", x: 700, y: 10, facing: 0 },
-  { type: "chair", x: 100, y: 200, facing: 180 },
+  // --- Bar area (left, x:0-480): L-shaped counter, back-bar, register, stools ---
+  { type: "cabinet", x: 60, y: 30, w: 280, h: 40 },
+  { type: "fridge", x: 360, y: 30, w: 40, h: 80 },
+  { type: "executive_desk", x: 100, y: 135 },
+  { type: "coffee_machine", x: 130, y: 150, elevation: 0.56 },
+  { type: "computer", x: 185, y: 150 },
+  { type: "chair", x: 120, y: 215, facing: 180 },
+  { type: "chair", x: 165, y: 215, facing: 180 },
+  { type: "chair", x: 210, y: 215, facing: 180 },
+  { type: "plant", x: 30, y: 330 },
+  { type: "trash", x: 300, y: 210 },
+  { type: "espresso", x: 155, y: 142, elevation: 0.69 },
+  { type: "coffee_cup", x: 205, y: 142, elevation: 0.88 },
+
+  // --- Seating area (center, x:480-1180): 4 round-table groups in a 2x2 grid ---
+  // Group 1 (table center 620,230)
+  { type: "round_table", x: 565, y: 165, r: 55 },
+  { type: "chair", x: 608, y: 158, facing: 0 },
+  { type: "chair", x: 608, y: 290, facing: 180 },
+  { type: "chair", x: 548, y: 218, facing: 90 },
+  { type: "chair", x: 680, y: 218, facing: 270 },
+  // Group 2 (table center 1000,230)
+  { type: "round_table", x: 945, y: 165, r: 55 },
+  { type: "chair", x: 988, y: 158, facing: 0 },
+  { type: "chair", x: 988, y: 290, facing: 180 },
+  { type: "chair", x: 928, y: 218, facing: 90 },
+  { type: "chair", x: 1060, y: 218, facing: 270 },
+  // Group 3 (table center 620,480)
+  { type: "round_table", x: 565, y: 425, r: 55 },
+  { type: "chair", x: 608, y: 408, facing: 0 },
+  { type: "chair", x: 608, y: 540, facing: 180 },
+  { type: "chair", x: 548, y: 468, facing: 90 },
+  { type: "chair", x: 680, y: 468, facing: 270 },
+  // Group 4 (table center 1000,480)
+  { type: "round_table", x: 945, y: 425, r: 55 },
+  { type: "chair", x: 988, y: 408, facing: 0 },
+  { type: "chair", x: 988, y: 540, facing: 180 },
+  { type: "chair", x: 928, y: 468, facing: 90 },
+  { type: "chair", x: 1060, y: 468, facing: 270 },
+  // coffee cups centered on each round table (table center coords)
+  { type: "coffee_cup", x: 615, y: 215, elevation: 0.5 },
+  { type: "coffee_cup", x: 995, y: 215, elevation: 0.5 },
+  { type: "coffee_cup", x: 615, y: 475, elevation: 0.5 },
+  { type: "coffee_cup", x: 995, y: 475, elevation: 0.5 },
+
+  // --- Lounge sofa area (right, x:1200-1750) ---
+  { type: "couch", x: 1280, y: 150, w: 120, h: 45 },
+  { type: "table_rect", x: 1300, y: 215, w: 80, h: 40 },
+  { type: "beanbag", x: 1430, y: 150, color: "#c0392b" },
+  { type: "beanbag", x: 1500, y: 150, color: "#1565c0" },
+  { type: "couch_v", x: 1280, y: 280 },
+  { type: "round_table", x: 1530, y: 300, r: 40 },
+  { type: "chair", x: 1558, y: 280, facing: 0 },
+  { type: "chair", x: 1558, y: 388, facing: 180 },
+
+  // --- Wall props + decor ---
+  // --- Cafe machines (Phase 5a): self-checkout, vending, jukebox ---
+  // --- Cafe entrance door (west edge, auto-opens when agents approach) ---
+  { type: "door", x: 30, y: 330, facing: 0 },
+  // --- Cafe machines (Phase 5a): self-checkout, vending, jukebox ---
+  { type: "atm", x: 410, y: 220 },
+  { type: "vending", x: 430, y: 600 },
+  { type: "jukebox", x: 1620, y: 600 },
+  // --- Wall props + decor ---
+  { type: "whiteboard", x: 700, y: 15, w: 12, h: 70, color: "#3e2723" },
+  { type: "whiteboard", x: 1080, y: 15, w: 12, h: 70, color: "#3e2723" },
+  { type: "whiteboard", x: 1620, y: 15, w: 12, h: 70, color: "#5d4037" },
+  { type: "bookshelf", x: 1150, y: 25, w: 80, h: 120 },
+  { type: "clock", x: 480, y: 12 },
+  { type: "lamp", x: 460, y: 600 },
+  { type: "lamp", x: 1180, y: 600 },
+  { type: "lamp", x: 1700, y: 400 },
+  { type: "plant", x: 30, y: 660 },
+  { type: "plant", x: 470, y: 660 },
+  { type: "plant", x: 1140, y: 660 },
+  { type: "plant", x: 1700, y: 60 },
+  { type: "plant", x: 1700, y: 660 },
+  { type: "plant", x: 470, y: 120 },
+  { type: "trash", x: 1080, y: 560 },
+  { type: "trash", x: 1340, y: 400 },
 ];
+
+import {
+  loadFurniture,
+  hasLayoutMigrationApplied,
+  markLayoutMigrationApplied,
+} from "./persistence";
+
+// Stable per-item signature for smooth layout migration (ported concept from
+// Claw3D createFurnitureSignature). Two layouts share an item iff every field
+// below matches, so the editor can detect "is this the old default layout?" and
+// replace only the matching items when the default layout is upgraded.
+export const createFurnitureSignature = (item: FurnitureSeed | FurnitureItem) =>
+  [
+    item.type,
+    item.x,
+    item.y,
+    item.w ?? "",
+    item.h ?? "",
+    item.r ?? "",
+    item.facing ?? "",
+    item.vertical ? 1 : 0,
+    item.elevation ?? "",
+  ].join(":");
+
+// Signature of the *current* default layout. Bumping the layout (adding/moving
+// default items) changes this set, letting the editor decide whether a saved
+// editor layout still represents the old default and should be refreshed.
+export const DEFAULT_LAYOUT_SIGNATURES = new Set(
+  DEFAULT_FURNITURE.map(createFurnitureSignature),
+);
+
+export const hasAllDefaultSignatures = (items: FurnitureItem[]) => {
+  if (items.length < DEFAULT_LAYOUT_SIGNATURES.size) return false;
+  const itemSignatures = new Set(items.map(createFurnitureSignature));
+  return [...DEFAULT_LAYOUT_SIGNATURES].every((signature) =>
+    itemSignatures.has(signature),
+  );
+};
+
+// Resolve the effective furniture layout. The very first load seeds the
+// migration flag and returns the default; later loads reuse a saved editor
+// layout if present so user edits survive reloads.
+export const resolveFurnitureLayout = (
+  namespace = "default",
+): FurnitureItem[] => {
+  if (!hasLayoutMigrationApplied(namespace)) {
+    markLayoutMigrationApplied(namespace);
+    return materializeDefaults();
+  }
+  return loadFurniture(namespace) ?? materializeDefaults();
+};
 
 export const materializeDefaults = (): FurnitureItem[] =>
   DEFAULT_FURNITURE.map((item, index) => ({ ...item, _uid: `office_${index}` }));
-
-void nextUid;

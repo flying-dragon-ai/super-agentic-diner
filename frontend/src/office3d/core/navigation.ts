@@ -1,7 +1,7 @@
 // Ported from Claw3D retro-office core/navigation.ts. Self-contained 25px grid
 // A* pathfinder with corner-clipping correction. Strips gym/qa/janitor extras.
 import { CANVAS_H, CANVAS_W } from "./constants";
-import { getItemBounds, ITEM_FOOTPRINT, ITEM_METADATA, snap } from "./geometry";
+import { getItemBounds, ITEM_METADATA } from "./geometry";
 import type { FacingPoint, FurnitureItem } from "./types";
 
 export const ROAM_POINTS = [
@@ -193,5 +193,3 @@ export const getDeskLocations = (items: FurnitureItem[]) =>
 
 export type { FacingPoint };
 export const ENTRY_POINT: FacingPoint = { x: 80, y: 360, facing: Math.PI / 2 };
-void ITEM_FOOTPRINT;
-void snap;

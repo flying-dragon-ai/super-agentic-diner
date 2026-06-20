@@ -3,13 +3,15 @@
 // map to 3D behaviors the sim/tick layer interprets.
 import type { FacingPoint } from "../office3d/core/types";
 
-// Canvas is 1800x1800. Desks spread across the floor; entry at left edge.
+// Canvas is 1800x720 (W x H). Cafe layout: bar (left x:0-480),
+// 2x2 round-table seating (center x:480-1180), lounge (right x:1200-1750).
+// Roles map to fixed standby points inside the canvas; entry/exit at the left-edge door.
 export const ROLE_DESK: Record<string, FacingPoint> = {
   barista: { x: 360, y: 540, facing: Math.PI },
   cashier: { x: 620, y: 320, facing: Math.PI },
-  waiter: { x: 880, y: 700, facing: Math.PI },
+  waiter: { x: 880, y: 660, facing: Math.PI },
   manager: { x: 1180, y: 320, facing: Math.PI },
-  customer: { x: 880, y: 1080, facing: 0 },
+  customer: { x: 880, y: 580, facing: 0 },
 };
 
 export const ROLE_COLOR: Record<string, string> = {
@@ -28,8 +30,8 @@ export const ROLE_LABEL: Record<string, string> = {
   customer: "访客",
 };
 
-export const ENTRY_POINT: FacingPoint = { x: 60, y: 900, facing: 0 };
-export const EXIT_POINT: FacingPoint = { x: 60, y: 900, facing: -Math.PI / 2 };
+export const ENTRY_POINT: FacingPoint = { x: 60, y: 360, facing: 0 };
+export const EXIT_POINT: FacingPoint = { x: 60, y: 360, facing: -Math.PI / 2 };
 
 export type ActionBehavior =
   | "enter"

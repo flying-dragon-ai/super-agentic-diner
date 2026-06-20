@@ -1,0 +1,21 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - link "3D 办公室" [ref=e4] [cursor=pointer]:
+      - /url: /3d/scene
+    - link "大屏" [ref=e5] [cursor=pointer]:
+      - /url: /3d/dashboard
+    - button "登录" [ref=e14] [cursor=pointer]
+  - generic [ref=e6]:
+    - generic [ref=e10]:
+      - generic [ref=e11]: Coffee AI Boss · 3D 咖啡厅
+      - generic [ref=e12]: "WS: open · 在场员工 1 · 焦点 无"
+    - generic [ref=e13]:
+      - generic [ref=e15]: order.intent_detected 02:26:24
+      - generic [ref=e16]: message.received 02:26:07
+      - generic [ref=e17]: restaurant.customer_entered 02:26:07
+      - generic [ref=e18]: order.intent_detected 02:24:55
+      - generic [ref=e19]: message.received 02:24:49
+      - generic [ref=e20]: restaurant.customer_entered 02:24:49
+      - generic [ref=e21]: order.intent_detected 02:23:08
+      - generic [ref=e22]: message.received 02:23:00
+      - generic [ref=e23]: restaurant.customer_entered 02:22:59

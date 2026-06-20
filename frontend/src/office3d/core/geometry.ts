@@ -47,16 +47,28 @@ export const ITEM_FOOTPRINT: Record<string, [number, number]> = {
   coffee_machine: [32, 34],
   fridge: [40, 80],
   water_cooler: [20, 54],
+  atm: [42, 38],
+  vending: [40, 60],
+  jukebox: [60, 40],
+  stove: [40, 40],
+  microwave: [30, 20],
+  wall_cabinet: [80, 20],
+  sink: [40, 40],
+  dishwasher: [60, 40],
+  pingpong: [100, 60],
   whiteboard: [10, 60],
   cabinet: [200, 40],
   computer: [30, 20],
   lamp: [30, 30],
   printer: [40, 35],
+  kanban_board: [130, 65],
   keyboard: [30, 14],
   mouse: [16, 10],
   trash: [20, 20],
   mug: [14, 14],
   clock: [20, 20],
+  coffee_cup: [10, 10],
+  espresso: [12, 12],
 };
 
 export const getItemBaseSize = (item: FurnitureItem) => {
@@ -70,32 +82,51 @@ export const ITEM_METADATA: Record<
   string,
   { blocksNavigation: boolean; navPadding?: number }
 > = {
+  // structural
   wall: { blocksNavigation: true },
   door: { blocksNavigation: false },
+  // seating / lounge
   chair: { blocksNavigation: false },
   couch: { blocksNavigation: true },
   couch_v: { blocksNavigation: true },
   beanbag: { blocksNavigation: true },
+  // desks / workstations
   desk_cubicle: { blocksNavigation: true, navPadding: 0 },
   executive_desk: { blocksNavigation: true },
+  kanban_board: { blocksNavigation: true },
+  // tables
   round_table: { blocksNavigation: true },
   table_rect: { blocksNavigation: true },
+  pingpong: { blocksNavigation: true },
+  // storage / shelving
   bookshelf: { blocksNavigation: true },
   cabinet: { blocksNavigation: true },
   wall_cabinet: { blocksNavigation: false },
+  // kitchen appliances (bar back-counter)
   fridge: { blocksNavigation: true },
+  stove: { blocksNavigation: true },
+  microwave: { blocksNavigation: false },
+  dishwasher: { blocksNavigation: true },
+  sink: { blocksNavigation: true },
   coffee_machine: { blocksNavigation: false },
+  vending: { blocksNavigation: true },
+  // cafe machines
+  atm: { blocksNavigation: true },
+  jukebox: { blocksNavigation: true },
+  // office equipment / props
   printer: { blocksNavigation: true },
   computer: { blocksNavigation: false },
   keyboard: { blocksNavigation: false },
   mouse: { blocksNavigation: false },
+  water_cooler: { blocksNavigation: true },
+  whiteboard: { blocksNavigation: true },
   plant: { blocksNavigation: true },
   lamp: { blocksNavigation: false },
   trash: { blocksNavigation: false },
   clock: { blocksNavigation: false },
   mug: { blocksNavigation: false },
-  water_cooler: { blocksNavigation: true },
-  whiteboard: { blocksNavigation: true },
+  coffee_cup: { blocksNavigation: false },
+  espresso: { blocksNavigation: false },
 };
 
 export const FURNITURE_ROTATION: Record<string, number> = {

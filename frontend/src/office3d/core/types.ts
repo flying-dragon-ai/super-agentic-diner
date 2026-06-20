@@ -30,6 +30,8 @@ export type RenderAgent = OfficeAgent & {
   bumpedUntil?: number;
   bumpTalkUntil?: number;
   collisionCooldownUntil?: number;
+  danceUntil?: number;
+  lastSeenAt?: number;
 };
 
 export type FurnitureItem = {

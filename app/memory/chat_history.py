@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import redis
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def _client() -> redis.Redis:
@@ -43,7 +46,14 @@ def get_history(user_id: int) -> list[dict]:
     """
     r = _client()
     raw = r.lrange(_key(user_id), 0, -1)  # LPUSH 后最新在前
-    return [json.loads(x) for x in reversed(raw)]  # 反转为时间正序（最早→最新）
+    messages: list[dict] = []
+    for item in reversed(raw):  # 反转为时间正序（最早→最新）
+        try:
+            messages.append(json.loads(item))
+        except (json.JSONDecodeError, TypeError):
+            # 单条脏数据不应让整个 /chat 瘫痪：跳过并告警
+            logger.warning("跳过损坏的对话历史条目 user_id=%s: %r", user_id, item[:80])
+    return messages
 
 
 def clear_history(user_id: int) -> None:
@@ -67,10 +77,17 @@ def set_pending_order(user_id: int, data: dict) -> None:
 
 
 def get_pending_order(user_id: int) -> dict | None:
-    """读取待确认订单，无则返回 None"""
-    raw = _client().get(_PENDING_KEY.format(user_id))
+    """读取待确认订单，无则返回 None。损坏的 JSON 会被丢弃并清理，避免反复报错。"""
+    r = _client()
+    key = _PENDING_KEY.format(user_id)
+    raw = r.get(key)
     if raw:
-        return json.loads(raw)
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            # 脏数据直接清掉，下次让用户重新下单，而不是反复抛错
+            logger.warning("丢弃损坏的待确认订单 user_id=%s: %r", user_id, raw[:80])
+            r.delete(key)
     return None
 
 

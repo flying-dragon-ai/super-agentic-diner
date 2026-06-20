@@ -1,13 +1,71 @@
 // Ported from Claw3D retro-office systems/sceneRuntime.tsx (GameLoop + Spotlight
-// only; PingPongBall/FloorRaycaster omitted as not needed for monitoring view).
-import { useFrame } from "@react-three/fiber";
-import { useRef, type RefObject } from "react";
+// + FloorRaycaster). PingPongBall is omitted (not needed for monitoring view).
+import { useFrame, useThree } from "@react-three/fiber";
+import { useEffect, useMemo, useRef, type RefObject } from "react";
 import * as THREE from "three";
 import { toWorld } from "../core/geometry";
 import type { RenderAgent } from "../core/types";
 
 export function GameLoop({ tick }: { tick: () => void }) {
   useFrame(() => tick());
+  return null;
+}
+
+// Projects pointer rays onto the ground plane (y=0) and reports world x/z via
+// onMove/onClick callbacks. Phase 4's furniture editor uses it for drag/place.
+export function FloorRaycaster({
+  enabled,
+  onMove,
+  onClick,
+}: {
+  enabled: boolean;
+  onMove: (wx: number, wz: number) => void;
+  onClick: (wx: number, wz: number) => void;
+}) {
+  const { camera, raycaster, gl } = useThree();
+  const floorPlane = useMemo(
+    () => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
+    [],
+  );
+
+  useEffect(() => {
+    if (!enabled) return;
+    const target = new THREE.Vector3();
+    const ndc = new THREE.Vector2();
+
+    const project = (
+      clientX: number,
+      clientY: number,
+    ): { x: number; z: number } | null => {
+      const rect = gl.domElement.getBoundingClientRect();
+      ndc.set(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      raycaster.setFromCamera(ndc, camera);
+      if (raycaster.ray.intersectPlane(floorPlane, target)) {
+        return { x: target.x, z: target.z };
+      }
+      return null;
+    };
+
+    const handleMove = (event: PointerEvent) => {
+      const point = project(event.clientX, event.clientY);
+      if (point) onMove(point.x, point.z);
+    };
+    const handleClick = (event: MouseEvent) => {
+      const point = project(event.clientX, event.clientY);
+      if (point) onClick(point.x, point.z);
+    };
+
+    gl.domElement.addEventListener("pointermove", handleMove);
+    gl.domElement.addEventListener("click", handleClick);
+    return () => {
+      gl.domElement.removeEventListener("pointermove", handleMove);
+      gl.domElement.removeEventListener("click", handleClick);
+    };
+  }, [enabled, camera, raycaster, gl, floorPlane, onMove, onClick]);
+
   return null;
 }
 

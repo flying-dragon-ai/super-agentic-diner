@@ -1,11 +1,9 @@
 // agent_id -> live RenderAgent state machine. The visualization events from
 // /ws/visualization push intents (enter/walk/work/deliver/message/leave/error)
 // into the store; tick() then advances motion toward those intents.
-import { astar, buildNavGrid, getDeskLocations, ENTRY_POINT as NAV_ENTRY } from "../office3d/core/navigation";
+import { astar, buildNavGrid, getDeskLocations } from "../office3d/core/navigation";
 import type { FurnitureItem, RenderAgent } from "../office3d/core/types";
 import { ENTRY_POINT, EXIT_POINT, ROLE_COLOR, ROLE_DESK, ROLE_LABEL, resolveAction, resolveRole } from "./roleMap";
-
-void NAV_ENTRY;
 
 export type AgentMeta = {
   id: string;
@@ -97,32 +95,38 @@ export function applyEvent(
 
   switch (behavior) {
     case "enter": {
+      agent.lastSeenAt = Date.now();
       agent.x = ENTRY_POINT.x;
       agent.y = ENTRY_POINT.y;
       routeTo(handle, agent, ROLE_DESK[role].x, ROLE_DESK[role].y);
       break;
     }
     case "walk_to_counter": {
+      agent.lastSeenAt = Date.now();
       routeTo(handle, agent, ROLE_DESK.cashier.x, ROLE_DESK.cashier.y);
       break;
     }
     case "walk_to_table": {
+      agent.lastSeenAt = Date.now();
       const tx = typeof payload.x === "number" ? payload.x : ROLE_DESK.customer.x;
       const ty = typeof payload.y === "number" ? payload.y : ROLE_DESK.customer.y;
       routeTo(handle, agent, tx, ty);
       break;
     }
     case "work": {
+      agent.lastSeenAt = Date.now();
       const desk = ROLE_DESK[role];
       if (Math.hypot(agent.x - desk.x, agent.y - desk.y) > 60) routeTo(handle, agent, desk.x, desk.y);
       agent.status = "working";
       break;
     }
     case "deliver": {
+      agent.lastSeenAt = Date.now();
       routeTo(handle, agent, ROLE_DESK.customer.x, ROLE_DESK.customer.y);
       break;
     }
     case "show_message": {
+      agent.lastSeenAt = Date.now();
       const text = typeof payload.text === "string" ? payload.text : "";
       handle.speech.set(agent.id, text);
       break;
@@ -137,6 +141,17 @@ export function applyEvent(
       break;
     }
   }
+}
+
+// Programmatic dance trigger (not a backend action — used by Phase 6 UI / social
+// interactions). Sets a dance window; tick() flips the agent to "dancing".
+export function triggerDance(handle: SimHandle, agentId: string, durationMs: number) {
+  const agent = handle.agents.find((a) => a.id === agentId);
+  if (!agent) return;
+  agent.danceUntil = Date.now() + durationMs;
+  agent.lastSeenAt = Date.now();
+  agent.state = "dancing";
+  agent.path = [];
 }
 
 export function clearSpeech(handle: SimHandle, id: string) {

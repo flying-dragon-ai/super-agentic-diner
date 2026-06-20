@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -48,6 +49,8 @@ from app.db.models import Product
 from app.domain_constants import WALLET_CURRENCY_CREDITS
 from app.services import wallet_service
 from app.services.catalog_service import decrement_stock
+
+logger = logging.getLogger(__name__)
 
 
 class SkillOrderError(Exception):
@@ -728,7 +731,7 @@ def _charge_evomap_and_complete(
         try:
             db.rollback()
         except Exception:
-            pass
+            logger.exception("支付对账回滚失败 consumer_id=%s", consumer.consumer_id)
         try:
             ledger.payment_status = PAYMENT_STATUS_NEEDS_RECONCILE
             ledger.payment_proof_json = encode_json(payment_proof)
@@ -737,10 +740,11 @@ def _charge_evomap_and_complete(
             db.add(ledger)
             db.commit()
         except Exception:
+            logger.exception("标记 NEEDS_RECONCILE 失败 consumer_id=%s", consumer.consumer_id)
             try:
                 db.rollback()
             except Exception:
-                pass
+                logger.exception("NEEDS_RECONCILE 回滚也失败 consumer_id=%s", consumer.consumer_id)
         try_publish_visualization_event(
             db,
             "order.failed",
@@ -1052,7 +1056,7 @@ def _resolve_coffee_names(db: Session, message: str) -> list[str]:
                 if name in coffee or coffee in name:
                     return [name]
     except Exception:
-        pass
+        logger.exception("LLM 解析咖啡名失败，回退 RAG 兜底 message=%r", message[:80])
 
     positive, negative = extract_keywords(message)
     if positive or negative:

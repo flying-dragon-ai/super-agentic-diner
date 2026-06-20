@@ -1,11 +1,13 @@
 [根目录](../CLAUDE.md) > **frontend** (3D 前端)
 
-# frontend/ — 3D 办公室 + 监控大屏
+# frontend/ — 3D 咖啡厅 + 监控大屏
 
 ## 变更记录 (Changelog)
 
 | 时间 | 动作 | 说明 |
 |------|------|------|
+| 2026-06-20 | 收尾修复+素材接入 | **移植残留清理 + cafe-extras 素材接入**：① roleMap 坐标超界真 bug 修复（`customer` y1080→580、`ENTRY/EXIT` y900→360，超出 `CANVAS_H=720`，从 Claw3D 1800×1800 抄来没适配；寻路目标曾塌缩到画布底边）+ 注释 1800x1800→1800x720；② 清理移植残留死代码（navigation `void ITEM_FOOTPRINT/snap`、agentStore `void NAV_ENTRY`、OfficeScene `roleDeskIndex`/`DESK_LOCS`/`ROLE_DESK`/`getDeskLocations` 整套 void 占位、main.py unused import `bridge_event_to_colyseus`、furnitureDefaults `void nextUid`）；③ **接入 cafe-extras CC0 素材**：`coffee_cup`(ppCoffeeCup)+`espresso`(ppEspresso) 作桌面摆件（吧台 2 件 + 4 圆桌各 1 杯），`FURNITURE_GLB/SCALE/TINT`+`ITEM_FOOTPRINT/METADATA` 各加 2 条，SCALE 经渲染目检调到 0.2/0.25；`ppCoffeeMachine` 保留二期储备（主线 kitchenCoffeeMachine 已在用） |
+| 2026-06-20 11:10 | 场景改造 | **office→咖啡厅**：① 修天气系统变暗 bug（`cameraLighting` 的 `DayNightCycle` 昼夜循环→`SceneLighting` 固定明亮白天：hemisphereLight 0.6+ambient 1.1+sun 1.8，根因是原 6 关键帧含 2 暗帧 sunIntensity 0.2-0.3 + 300s 周期）；② 重写 `furnitureDefaults` 为咖啡厅布局（吧台区 executive_desk+coffee_machine+3 高脚椅 / 客座区 4 组 round_table+chair 2×2 / 休闲区 couch+2 beanbag+单人椅 / 墙面 whiteboard 菜单板+bookshelf+lamp+plant）；③ `environment` 墙色 #8d6e63→#795548 暖棕、emissive 0.4→0.5；④ `furniture` FURNITURE_TINT 转暖咖啡色；⑤ `OfficeScene` 切 SceneLighting + 文案"3D 咖啡厅"；⑥ 下载 3 个 CC0 GLB 到 `cafe-extras/` 储备 |
 | 2026-06-20 10:05 | 增量对齐 | 第三次 init：精读 `screens/Dashboard.tsx` 全文，补全监控大屏布局（4 卡片 KPI + 最近订单 + 实时事件流）与 4s 轮询细节（`getRestaurantState` + `listEvents(30)` 双拉，事件流优先用本地 events 回退 `state.recent_events`）；同步根文档"唯一活跃 UI"定性 |
 | 2026-06-20 | 增量补扫 | 第二次 init：逐一精读 office3d/ 子模块（navigation/geometry/constants/agents/furniture/cameraLighting/sceneRuntime/environment/avatars）、sim/tick.ts 全文、auth/AuthPages.tsx 全文，补全坐标投影/A\*寻路/昼夜循环/Agent骨骼动画/表单实现细节 |
 | 2026-06-20 | 创建 | 初始化架构师首次生成 |
@@ -15,7 +17,7 @@
 ## 模块职责
 
 Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws/visualization` 事件流对接）。**2026-06-20 09:40 起，本模块是项目唯一活跃 UI**（像素 Colyseus 方案与独立 2D 对话页均已归档到 `_archive/`），后端根路由 `/` 已改为直出本前端构建产物。三大职责：
-1. **3D 办公室场景**（`/3d/scene`）：用 React-Three-Fiber 渲染带真实 GLB 家具的办公室，Agent（咖啡师/收银/服务员/主管/访客）按可视化事件驱动行走、工作、说话。内嵌聊天消费后端 `POST /chat`。
+1. **3D 咖啡厅场景**（`/3d/scene`）：用 React-Three-Fiber 渲染带真实 GLB 家具的咖啡厅（吧台/客座圆桌/沙发豆袋休闲区，2026-06-20 从办公室改造），Agent（咖啡师/收银/服务员/主管/访客）按可视化事件驱动行走、工作、说话。内嵌聊天消费后端 `POST /chat`。
 2. **监控大屏**（`/3d/dashboard`）：聚合 `/admin/restaurant-state`，展示今日订单/金额/来源分布/最近订单/事件流/在线员工。
 3. **账户登录**（`/3d/login`、`/3d/register`）：通过签名 Cookie 会话访问受保护页面。
 
@@ -72,10 +74,10 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
                        → sim/tick.makeTick (A* 寻路推进移动)
                        → office3d/objects/agents.AgentModel (渲染)
 ```
-`OfficeScene` 用 `materializeDefaults()` 生成 Claw3D 完整默认布局，`createSimStore().setFurniture()` 同时构建 nav grid；`GameLoop`（`useFrame`）每帧调用 `tick()`；事件经 `applyEvent` 转成行为意图（enter/walk_to_counter/work/deliver/...），`SpotlightEffect` 高亮被点击的 Agent。
+`OfficeScene` 用 `materializeDefaults()` 生成咖啡厅布局（吧台+客座+休闲，2026-06-20 从 Claw3D 办公室改造），`createSimStore().setFurniture()` 同时构建 nav grid；`GameLoop`（`useFrame`）每帧调用 `tick()`；事件经 `applyEvent` 转成行为意图（enter/walk_to_counter/work/deliver/...），`SpotlightEffect` 高亮被点击的 Agent。
 
 ### 角色映射（`sim/roleMap.ts`）— 后端契约镜像
-- `ROLE_DESK`（画布像素坐标，注意注释写 "1800x1800" 但实际常量 `CANVAS_W=1800/CANVAS_H=720`，customer 的 y=1080 超出画布高度，疑似历史遗留/已知问题）：
+- `ROLE_DESK`（画布像素坐标，`CANVAS_W=1800/CANVAS_H=720`；2026-06-20 已修复坐标超界：`customer` y1080→580、`ENTRY/EXIT` y900→360 压回画布内，注释同步为 1800x720）：
   - `barista` {360,540}、`cashier` {620,320}、`waiter` {880,700}、`manager` {1180,320}、`customer` {880,1080}
   - `ENTRY_POINT` {60,900}（左侧入口）、`EXIT_POINT` {60,900, facing -π/2}
 - `ROLE_COLOR` / `ROLE_LABEL`：颜色与中文名（咖啡师/收银员/服务员/主管/访客）
@@ -115,10 +117,10 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
   - `getDeskLocations`：筛选 `desk_cubicle`，返回 `{x+40, y-5}` 桌前定位点
   - `ENTRY_POINT={x:80,y:360,facing:π/2}`（注意：agentStore 实际用的是 roleMap 的 ENTRY_POINT {60,900}，这里的 navigation.ENTRY_POINT 被 `void NAV_ENTRY` 占位未用——两处入口常量不一致，属移植残留）
   - `ROAM_POINTS`：7 个漫游点（未在当前 tick 中使用，预留）
-- **`core/furnitureDefaults.ts`** — Claw3D 默认办公室布局（8 工位/厨房/沙发/机房/健身房/QA/美术室），`materializeDefaults()` 返回 `FurnitureItem[]`
-- **`scene/environment.tsx`** — `FloorAndWalls`：三层地板（深色底+中等色+米色面）+ 18 条地板纹线 + 四面墙（`wallColor=#8d6e63`，`emissive` 弱发光）
+- **`core/furnitureDefaults.ts`** — **咖啡厅布局**（2026-06-20 从 Claw3D 办公室改造）：吧台区（executive_desk L 吧台 + coffee_machine + computer 收银 + cabinet 后柜 + fridge + 3 chair 高脚椅）/ 客座区（4 组 round_table r:55 + 每组 4 chair，2×2 错落）/ 休闲区（couch 长沙发 + table_rect 茶几 + 2 beanbag 红蓝豆袋 + couch_v 单人椅）/ 墙面装饰（3 whiteboard 菜单板 + bookshelf 展示柜 + clock + 3 lamp 落地灯 + 6 plant + 3 trash）；`materializeDefaults()` 返回 `FurnitureItem[]`
+- **`scene/environment.tsx`** — `FloorAndWalls`：三层地板（深色底+中等色+米色面 `#c8a97e` 咖啡馆木地板感）+ 18 条地板纹线 + 四面墙（`wallColor=#795548` 暖棕，`emissiveIntensity=0.5`）
 - **`systems/cameraLighting.tsx`**：
-  - `DayNightCycle`：300 秒一个昼夜周期，6 个关键帧（黎明/白天/白天/黄昏/夜晚/深夜），每帧用 `useFrame` 在相邻关键帧间 lerp 环境光与方向光的颜色和强度；方向光带阴影（mapSize 1024，shadow-bias -0.0002）
+  - `SceneLighting`：**固定明亮白天灯光**（2026-06-20 改造；原 `DayNightCycle` 昼夜循环因 6 关键帧含 2 暗帧 sunIntensity 0.2-0.3 + 300s 周期被用户反馈"又暗又快"而整体移除）；`hemisphereLight`（天地环境光 intensity 0.6，治角落暗）+ `ambientLight`（intensity 1.1, color #f4e8d0）+ `directionalLight`（intensity 1.8, color #fff4e0，带阴影 mapSize 1024, shadow-bias -0.0002）
   - `OVERVIEW_CAMERA/TARGET/ZOOM` 复用 `DISTRICT_CAMERA_*` 常量
 - **`systems/sceneRuntime.tsx`**：
   - `GameLoop`：`useFrame(() => tick())`，纯驱动器
@@ -165,7 +167,7 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
 - **Playwright** 已装但无测试文件（覆盖缺口）。
 - 类型检查：`npm run build` 会先跑 `tsc --noEmit`。
 - 无单元测试框架。
-- 已知移植残留（非阻断）：navigation.ts 的 `ENTRY_POINT/ROAM_POINTS/ITEM_FOOTPRINT/snap` 用 `void` 占位未实际使用；roleMap 注释 "1800x1800" 与实际 `CANVAS_H=720` 不符，customer 桌位 y=1080 超界。
+- 移植残留（2026-06-20 已清理）：原 navigation `void ITEM_FOOTPRINT/snap`、agentStore `void NAV_ENTRY`、OfficeScene `roleDeskIndex`/`DESK_LOCS`/`ROLE_DESK`/`getDeskLocations` 整套 void 占位、main.py unused import `bridge_event_to_colyseus`、furnitureDefaults `void nextUid` 已全部清理；roleMap 坐标超界与注释不符已修。
 
 ## 常见问题 (FAQ)
 
@@ -181,7 +183,7 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
 |------|------|
 | `src/main.tsx` | React 挂载入口 |
 | `src/App.tsx` | 路由 + TopBar + AuthProvider |
-| `src/screens/OfficeScene.tsx` | 3D 办公室主场景（装配 Canvas+灯具+家具+Agent+聚光灯+GameLoop） |
+| `src/screens/OfficeScene.tsx` | 3D 咖啡厅主场景（装配 Canvas+灯具+家具+Agent+聚光灯+GameLoop） |
 | `src/screens/Dashboard.tsx` | 监控大屏（4s 双轮询 + 4 KPI 卡 + 最近订单 + 实时事件流） |
 | `src/auth/AuthProvider.tsx` | 账户 Context（login/register/logout/me） |
 | `src/auth/AuthPages.tsx` | 登录/注册表单（内联样式，支持匿名进入） |
@@ -193,10 +195,10 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
 | `src/office3d/core/constants.ts` | 坐标系/动画/相机常量 |
 | `src/office3d/core/geometry.ts` | 画布→世界投影、家具包围盒、阻塞元数据 |
 | `src/office3d/core/navigation.ts` | A\* 寻路 + nav grid 构建 + 桌位定位 |
-| `src/office3d/core/furnitureDefaults.ts` | Claw3D 默认办公室布局 |
+| `src/office3d/core/furnitureDefaults.ts` | 咖啡厅布局（吧台/客座/休闲，2026-06-20 从 office 改造） |
 | `src/office3d/core/types.ts` | OfficeAgent/RenderAgent/FurnitureItem 类型 |
 | `src/office3d/scene/environment.tsx` | 地板与墙体 |
-| `src/office3d/systems/cameraLighting.tsx` | 昼夜循环 + 概览相机 |
+| `src/office3d/systems/cameraLighting.tsx` | 固定明亮灯光（SceneLighting）+ 概览相机 |
 | `src/office3d/systems/sceneRuntime.tsx` | GameLoop + 聚光灯 |
 | `src/office3d/objects/furniture.tsx` | GLB 家具渲染（模板缓存+染色+阴影） |
 | `src/office3d/objects/agents.tsx` | 盒状人偶 AgentModel（骨骼动画+表情+气泡） |
