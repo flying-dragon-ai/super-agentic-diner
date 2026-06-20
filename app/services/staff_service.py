@@ -104,7 +104,38 @@ def ensure_web_customer_agent(db: Session, user_id: Any) -> AgentProfile:
         db.add(agent)
         db.commit()
         db.refresh(agent)
+    _collapse_duplicate_customer_agents(db, tool_name)
     return agent
+
+
+def _collapse_duplicate_customer_agents(db: Session, tool_name: str) -> None:
+    """Collapse any duplicate rows for a deterministic customer tool_name to one.
+
+    ``web:customer:{user_id}`` has no DB-level unique constraint (skill agents
+    legitimately share ``tool_name='codex'``, so a global unique index is wrong).
+    Two concurrent WS connects for the same user can each pass the
+    query-then-create check above and insert a duplicate, which would render twin
+    avatars. On every call we drop all but the oldest row for this tool_name so
+    the scene stays consistent. Best-effort: never raises into the caller.
+    """
+    try:
+        dupes = (
+            db.query(AgentProfile)
+            .filter(AgentProfile.tool_name == tool_name)
+            .order_by(AgentProfile.agent_id.asc())
+            .offset(1)
+            .all()
+        )
+        if not dupes:
+            return
+        for row in dupes:
+            db.delete(row)
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
 
 def _agent_payload(agent: AgentProfile, action_type: str, **extra: Any) -> dict[str, Any]:

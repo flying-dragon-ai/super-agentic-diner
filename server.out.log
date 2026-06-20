@@ -1,1 +1,7 @@
-用.venv,不带reload(稳定)
+用.venv
+INFO:     127.0.0.1:56008 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56009 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56010 - "GET /status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56047 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56047 - "GET /3d/assets/index-BGaNI7MB.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56047 - "GET /auth/me HTTP/1.1" 401 Unauthorized

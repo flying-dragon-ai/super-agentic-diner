@@ -1,14 +1,9 @@
-INFO:     Started server process [19056]
+INFO:     Started server process [2152]
 INFO:     Waiting for application startup.
 colyseus-server not found at D:\temp\EVOMAP\coffee-ai-boss\colyseus-server; skip launch
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
-INFO:     127.0.0.1:64964 - "WebSocket /ws/visualization" [accepted]
+INFO:     127.0.0.1:55981 - "WebSocket /ws/visualization" [accepted]
 INFO:     connection open
-INFO:     127.0.0.1:64965 - "WebSocket /ws/visualization" [accepted]
-INFO:     connection open
-INFO:     127.0.0.1:59960 - "WebSocket /ws/visualization" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:59709 - "WebSocket /ws/visualization" [accepted]
+INFO:     127.0.0.1:55983 - "WebSocket /ws/visualization" [accepted]
 INFO:     connection open

@@ -41,7 +41,7 @@ import {
   resolveFurnitureLayout,
 } from "../office3d/core/furnitureDefaults";
 import { saveFurniture } from "../office3d/core/persistence";
-import { createWallItem, nextUid, snap } from "../office3d/core/geometry";
+import { createWallItem, nextUid, normalizeDegrees, snap } from "../office3d/core/geometry";
 import type { FurnitureItem, RenderAgent } from "../office3d/core/types";
 import { createSimStore, applyEvent, clearSpeech } from "../sim/agentStore";
 import { makeTick } from "../sim/tick";
@@ -49,6 +49,7 @@ import { connectVisualization } from "../net/visualizationSocket";
 import type { SnapshotAgent, VisEvent } from "../net/api";
 import { ROLE_LABEL, resolveAction, resolveRole } from "../sim/roleMap";
 import { Palette, PALETTE } from "../ui/Palette";
+import { SelectedObjectPanel } from "../ui/SelectedObjectPanel";
 import { ImmersiveOverlay, type OverlayKind } from "../overlays/ImmersiveOverlay";
 import {
   HeatmapSystem,
@@ -274,6 +275,66 @@ export default function OfficeScene() {
     setDrag({ kind: "moving", uid });
   }, [editMode]);
 
+  // Single source of truth for the currently-selected item (kept in sync with
+  // selectedUid + furniture) so the editor panel can read live rot/lift values.
+  const selectedItem = useMemo(
+    () => furniture.find((it) => it._uid === selectedUid) ?? null,
+    [furniture, selectedUid],
+  );
+
+  // Selected-item transforms (ported from Claw3D RetroOffice3D:4862-4895). Both
+  // the keyboard handler and the SelectedObjectPanel buttons call these, so the
+  // two input paths can never drift. snap() aligns to the grid, normalizeDegrees
+  // keeps facing in [0,360), elevation clamps to the same range Claw3D uses.
+  const updateSelectedItem = useCallback(
+    (updater: (it: FurnitureItem) => FurnitureItem) => {
+      if (!selectedUid) return;
+      setFurniture((prev) =>
+        prev.map((it) => (it._uid === selectedUid ? updater(it) : it)),
+      );
+    },
+    [selectedUid],
+  );
+
+  const moveSelectedItem = useCallback(
+    (dx: number, dy: number, de = 0) =>
+      updateSelectedItem((it) => ({
+        ...it,
+        x: Math.max(0, Math.min(CANVAS_W, snap(it.x + dx))),
+        y: Math.max(0, Math.min(CANVAS_H, snap(it.y + dy))),
+        elevation: Math.max(-0.4, Math.min(2.5, (it.elevation ?? 0) + de)),
+      })),
+    [updateSelectedItem],
+  );
+
+  const rotateSelectedItem = useCallback(
+    (deltaDeg: number) =>
+      updateSelectedItem((it) => ({
+        ...it,
+        facing: normalizeDegrees((it.facing ?? 0) + deltaDeg),
+      })),
+    [updateSelectedItem],
+  );
+
+  const deleteSelectedItem = useCallback(() => {
+    if (!selectedUid) return;
+    setFurniture((prev) => prev.filter((it) => it._uid !== selectedUid));
+    setSelectedUid(null);
+  }, [selectedUid]);
+
+  const closeSelectedEditor = useCallback(() => {
+    setSelectedUid(null);
+    setDrag({ kind: "idle" });
+    setGhostPos(null);
+    setWallDrawStart(null);
+  }, []);
+
+  const resetLayout = useCallback(() => {
+    if (!window.confirm("恢复默认布局？当前所有编辑将丢失。")) return;
+    setFurniture(DEFAULT_FURNITURE);
+    setSelectedUid(null);
+  }, []);
+
   // Outside edit mode, clicking a cafe machine opens its immersive panel.
   const handleMachineActivate = useCallback((item: FurnitureItem) => {
     if (editMode) return;
@@ -284,33 +345,30 @@ export default function OfficeScene() {
   useEffect(() => {
     if (!editMode) return;
     const onKey = (e: KeyboardEvent) => {
+      // Don't hijack keys while typing in an input/textarea (e.g. the chat box).
+      const tag = document.activeElement?.tagName ?? "";
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
       if (!selectedUid) {
         if (e.key === "Escape") { setDrag({ kind: "idle" }); setGhostPos(null); setWallDrawStart(null); }
         return;
       }
       const step = e.shiftKey ? SNAP_GRID * 5 : SNAP_GRID;
-      const move = (dx: number, dy: number) => setFurniture((prev) => prev.map((it) => it._uid === selectedUid ? { ...it, x: Math.max(0, Math.min(CANVAS_W, it.x + dx)), y: Math.max(0, Math.min(CANVAS_H, it.y + dy)) } : it));
-      const elevate = (dir: number) => setFurniture((prev) => prev.map((it) => it._uid === selectedUid ? { ...it, elevation: Math.max(0, (it.elevation ?? 0) + dir * ELEVATION_STEP) } : it));
       switch (e.key) {
-        case "ArrowLeft": move(-step, 0); break;
-        case "ArrowRight": move(step, 0); break;
-        case "ArrowUp": move(0, -step); break;
-        case "ArrowDown": move(0, step); break;
-        case "PageUp": elevate(1); break;
-        case "PageDown": elevate(-1); break;
-        case "[": case "]":
-          setFurniture((prev) => prev.map((it) => it._uid === selectedUid ? { ...it, facing: ((it.facing ?? 0) + (e.key === "[" ? -ROTATION_STEP_DEG : ROTATION_STEP_DEG)) } : it));
-          break;
-        case "Delete": case "Backspace":
-          setFurniture((prev) => prev.filter((it) => it._uid !== selectedUid));
-          setSelectedUid(null);
-          break;
-        case "Escape": setSelectedUid(null); setDrag({ kind: "idle" }); setGhostPos(null); setWallDrawStart(null); break;
+        case "ArrowLeft": e.preventDefault(); moveSelectedItem(-step, 0); break;
+        case "ArrowRight": e.preventDefault(); moveSelectedItem(step, 0); break;
+        case "ArrowUp": e.preventDefault(); moveSelectedItem(0, -step); break;
+        case "ArrowDown": e.preventDefault(); moveSelectedItem(0, step); break;
+        case "PageUp": e.preventDefault(); moveSelectedItem(0, 0, ELEVATION_STEP); break;
+        case "PageDown": e.preventDefault(); moveSelectedItem(0, 0, -ELEVATION_STEP); break;
+        case "[": e.preventDefault(); rotateSelectedItem(-ROTATION_STEP_DEG); break;
+        case "]": e.preventDefault(); rotateSelectedItem(ROTATION_STEP_DEG); break;
+        case "Delete": case "Backspace": e.preventDefault(); deleteSelectedItem(); break;
+        case "Escape": closeSelectedEditor(); break;
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [editMode, selectedUid]);
+  }, [editMode, selectedUid, moveSelectedItem, rotateSelectedItem, deleteSelectedItem, closeSelectedEditor]);
 
   const ghostItem = useMemo(() => {
     if (drag.kind !== "placing" || !ghostPos) return null;
@@ -444,31 +502,15 @@ export default function OfficeScene() {
       {editMode && (
         <Palette activeType={drag.kind === "placing" ? drag.itemType : null} onPick={startPlacing} />
       )}
-      {editMode && selectedUid && (
-        <div style={{ position: "absolute", bottom: 12, left: 192, color: "#cfe0ff", fontFamily: "monospace", fontSize: 11, background: "rgba(8,12,20,0.85)", padding: "8px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.08)" }}>
-          <div style={{ color: "#fbbf24", marginBottom: 4 }}>已选中 · {selectedUid}</div>
-          <div>方向键移动 · PgUp/Dn 抬升 · [ ] 旋转 · Delete 删除 · Esc 取消</div>
-          <div style={{ marginTop: 4 }}>
-            <button
-              onClick={() => {
-                setFurniture((prev) => prev.filter((it) => it._uid !== selectedUid));
-                setSelectedUid(null);
-              }}
-              style={{ cursor: "pointer", marginRight: 8, padding: "3px 8px", background: "rgba(239,68,68,0.18)", color: "#fca5a5", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 4 }}
-            >
-              删除
-            </button>
-            <button
-              onClick={() => {
-                setFurniture(DEFAULT_FURNITURE);
-                setSelectedUid(null);
-              }}
-              style={{ cursor: "pointer", padding: "3px 8px", background: "rgba(96,165,250,0.18)", color: "#93c5fd", border: "1px solid rgba(96,165,250,0.4)", borderRadius: 4 }}
-            >
-              恢复默认布局
-            </button>
-          </div>
-        </div>
+      {editMode && selectedItem && (
+        <SelectedObjectPanel
+          item={selectedItem}
+          onMove={moveSelectedItem}
+          onRotate={rotateSelectedItem}
+          onClose={closeSelectedEditor}
+          onDelete={deleteSelectedItem}
+          onReset={resetLayout}
+        />
       )}
       <div style={{ position: "absolute", bottom: 12, right: 12, width: 360, maxHeight: 260, overflowY: "auto", background: "rgba(8,12,20,0.8)", color: "#cfe0ff", fontFamily: "monospace", fontSize: 11, padding: 8, borderRadius: 6 }}>
         {events.map((e) => (
