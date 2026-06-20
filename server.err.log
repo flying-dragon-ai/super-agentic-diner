@@ -1,47 +1,7 @@
-INFO:     Started server process [2152]
+INFO:     Will watch for changes in these directories: ['D:\\temp\\EVOMAP\\coffee-ai-boss']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [21404] using WatchFiles
+INFO:     Started server process [30564]
 INFO:     Waiting for application startup.
 colyseus-server not found at D:\temp\EVOMAP\coffee-ai-boss\colyseus-server; skip launch
 INFO:     Application startup complete.
-INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
-INFO:     127.0.0.1:55981 - "WebSocket /ws/visualization" [accepted]
-INFO:     connection open
-INFO:     127.0.0.1:55983 - "WebSocket /ws/visualization" [accepted]
-INFO:     connection open
-INFO:     127.0.0.1:56415 - "WebSocket /ws/visualization" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:62469 - "WebSocket /ws/visualization" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:53097 - "WebSocket /ws/visualization" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:53923 - "WebSocket /ws/visualization" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:59367 - "WebSocket /ws/visualization" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:56974 - "WebSocket /ws/visualization" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:58135 - "WebSocket /ws/visualization" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:52502 - "WebSocket /ws/visualization" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:52687 - "WebSocket /ws/visualization" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:63316 - "WebSocket /ws/visualization" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     127.0.0.1:61457 - "WebSocket /ws/visualization" [accepted]
-INFO:     connection open
-INFO:     connection closed
-INFO:     connection closed
-INFO:     connection closed
-INFO:     127.0.0.1:54044 - "WebSocket /ws/visualization" [accepted]
-INFO:     connection open
-INFO:     connection closed
