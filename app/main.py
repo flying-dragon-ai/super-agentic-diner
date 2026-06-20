@@ -1361,6 +1361,10 @@ def _snapshot_agents(db: Session) -> list[dict[str, Any]]:
 @app.websocket("/ws/visualization")
 async def visualization_websocket(websocket: WebSocket, db: Session = Depends(get_db)):
     try:
+        snapshot_agents = _snapshot_agents(db)
+    except Exception:
+        snapshot_agents = []
+    await visualization_hub.connect(websocket, agents=snapshot_agents)
     presence_payload: dict[str, Any] | None = None
     try:
         while True:

@@ -15,7 +15,8 @@
   - 注册流程：新增 Skill 注册 API，记录 Agent 工具身份、EvoMap 节点身份、消费者身份、免费次数和可视化角色；注册成功后广播消费者人物进入餐厅。
   - 点单流程：新增 Skill 专用点单 API，支持一句话点单并默认自动确认；它复用现有咖啡解析逻辑，但订单支付走 EvoMap 积分，不再扣本地 User.balance。
   - 免费次数：新增订单账本记录每个 EvoMap 用户的 Skill 成功订单数；第 1、2 单 payment_status=free，第 3 单起返回 payment_required。
-  - EvoMap 扣费：Skill 脚本在第三单起先检测 EvoMap 能力，再通过本地 Evolver ATP 能力发起积分消费，并把消费证明提交给后端；扣费失败则订单不创建。
+  - EvoMap 扣费（现行）：付费单（第 3 单起）由后端通过 EvoMap **node secret** 在服务端发起 service-order 扣费（`evomap_payment_service` 构造并提交服务订单），不再要求本地 Skill/Agent 运行 `evolver buy`。Skill 脚本只在收到 `payment_required` 后把 node secret 回传给 `/skill/orders`，由后端完成扣费与对账；扣费失败则订单不创建、账本标记 `needs_reconcile`。
+  - 历史设计（已废弃）：早期版本让 Skill 脚本自身运行 Evolver ATP CLI 扣积分再回传证明；现行已统一改为后端 node-secret 服务端扣费，Skill 仅做凭证透传。`evolver buy`/本地 ATP 流程不再作为主路径。
   - 可视化同步：Skill 注册、点单、等待支付、支付成功、制作、完成、失败都写入 VisualizationEvent 并通过 /ws/visualization 广播，驱动人物同步移动。
 
   ## API And Data Model
@@ -44,20 +45,7 @@
       1. 读取 RESTAURANT_API_BASE，默认 http://127.0.0.1:8000。
       2. 若无本地注册信息，先调用 /skill/register，并保存 consumer_id、agent_id、api_token 到当前 Agent 本地配置文件。
       3. 调用 /skill/orders 提交点单；前两单免费时直接返回订单结果。
-      4. 第三单起若收到 payment_required，执行 EvoMap preflight。
-      5. 若 EvoMap CLI/MCP/Skill 不可用，输出登录、下载、注册指引，并调用 agent.action=error 让人物停在收银台。
-      6. 若可用，运行 Evolver ATP 消费命令，随后用 evolver orders --json 拉取最近消费证明并回传 /skill/orders。
-      7. 后端确认证明后创建订单，广播 order.paid、coffee.making、order.completed。
-
-  - EvoMap preflight 判定：
-      - evolver --help 或本地 node_modules/.bin/evolver 可执行。
-      - A2A_HUB_URL 已配置，推荐为 https://evomap.ai。
-      - evolver orders --json 可成功返回，说明本地身份和 Hub 连接可用。
-      - 若检测到 MCP 配置但 ATP CLI 不可用，提示用户先登录或安装/启用 EvoMap Skill/MCP。
-
-  - Evolver ATP 命令默认形态：
-      - evolver buy <evomap_caps> --budget=<credits> --question="<A2A order request_id...>" --routing=fastest --verify=auto --timeout=120
-      - 成功后运行 evolver orders --role=consumer --limit=10 --json，按 request_id、budget、时间窗口匹配证明。
+  - 付费单凭证：Skill 收到 `payment_required`（含 `consumer_node_id`、`amount_credits`）后，将 EvoMap node secret 通过 `X-Evomap-Node-Secret` 请求头（或请求体 `evomap_node_secret`）回传给 `/skill/orders`；后端据此向 EvoMap Hub 发起 service-order 扣费。本地不再需要 `evolver` CLI / ATP 能力检测。
 
   - Skill 只暴露一个入口，不再要求外部 Agent 直接调用 /agents/register 或 /agents/{id}/actions。
 
@@ -86,7 +74,7 @@
   ## Assumptions
 
   - 唯一对外 Skill 名称采用 a2a-super-order，不保留第二个公开 Skill。
-  - 第三单起必须真实扣 EvoMap 积分；本地 mock 只允许测试错误分支，不作为成功验收。
+  - 第三单起必须真实扣 EvoMap 积分；付费单由后端 node-secret 在服务端扣费（需 Owner 在各工具 MCP 配置 `.trae`/`.zhipu`/`.qingyan`/`.codex` 的 `EVOMAP_API_KEY` 与 node secret 填真值），本地 mock 只允许测试错误分支，不作为成功验收。
   - 免费次数按 evomap_node_id 统计，而不是按本地 user_id 或临时 agent_id 统计。
   - Skill 订单使用 EvoMap 积分支付，不扣现有咖啡馆本地余额；网页 /chat 原有本地余额逻辑保持兼容。
-  - 当前阶段使用 Evolver ATP CLI 作为扣费通道；若 EvoMap 后续提供更直接的 MCP 扣费工具，再替换 evomap_payment_service 适配层。
+  - 服务员团队（`staff:barista`/`staff:cashier`/`staff:waiter`/`staff:manager`）由 `staff_service.py` 在启动时幂等预创建，下单完成流程按业务节点自动驱动服务员动作（见 `docs/agent-integration-api.md` 的「服务员编排时序」）。

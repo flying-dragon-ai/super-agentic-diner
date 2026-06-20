@@ -1,0 +1,11 @@
+[     421ms] [WARNING] <Router basename="/3d"> is not able to match the URL "/" because it does not start with the basename, so the <Router> won't render anything. @ http://localhost:8000/3d/assets/index-fAfYXGA4.js:57
+[     427ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:8000/favicon.ico:0
+[     428ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8000/auth/me:0
+[   10340ms] [WARNING] <Router basename="/3d"> is not able to match the URL "/" because it does not start with the basename, so the <Router> won't render anything. @ http://localhost:8000/3d/assets/index-fAfYXGA4.js:57
+[   10344ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8000/auth/me:0
+[   11979ms] [WARNING] <Router basename="/3d"> is not able to match the URL "/" because it does not start with the basename, so the <Router> won't render anything. @ http://localhost:8000/3d/assets/index-fAfYXGA4.js:57
+[   11983ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8000/auth/me:0
+[   12144ms] [WARNING] <Router basename="/3d"> is not able to match the URL "/" because it does not start with the basename, so the <Router> won't render anything. @ http://localhost:8000/3d/assets/index-fAfYXGA4.js:57
+[   12147ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8000/auth/me:0
+[   32160ms] [WARNING] <Router basename="/3d"> is not able to match the URL "/" because it does not start with the basename, so the <Router> won't render anything. @ http://localhost:8000/3d/assets/index-fAfYXGA4.js:57
+[   32163ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8000/auth/me:0

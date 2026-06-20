@@ -192,6 +192,39 @@ python .agents/skills/a2a-super-order/scripts/send_action.py --agent-id 1 --toke
 ## Schema Notes
 
 - MySQL is the only supported relational database for this project.
+- `staff_service.py` 幂等预创建 4 个固有服务员 agent（`staff:barista`/`staff:cashier`/`staff:waiter`/`staff:manager`），在 lifespan 启动时注册并广播 `agent.registered`。这些 staff 的 `metadata.source=staff`，不持有可登录 token，仅供编排层引用。
+- web 对话路径会为匿名 user 幂等创建一个顾客 agent（`web:customer:<user_id>`），其事件携带真实 `agent_id`（与 Skill 路径对齐），不再落 `agent_anon`。
+- 服务员编排发生在后端：`/chat` 与 `/skill/orders` 的完成流程（`_publish_web_completion_flow` / `_publish_skill_completion_flow`）在每个业务节点追加 `agent.action` 广播。编排节点到服务员动作的映射见下表。
+
+### 服务员编排时序
+
+| 业务节点（已有 restaurant.* 事件） | 追加的服务员 `agent.action`（`payload.action_type`） |
+|----------------------------------|--------------------------------------------------|
+| `restaurant.payment_completed`     | waiter → `walk_to_counter`；cashier → `take_order` |
+| `restaurant.preparation_progress`（grinding/brewing/plating） | barista → `prepare_coffee` |
+| `restaurant.order_ready`           | barista → `enter_scene`（回到工位、停止 work） |
+| `restaurant.order_delivered`       | waiter → `deliver_order` |
+| `restaurant.customer_left`         | waiter、cashier → `enter_scene`（复位） |
+
+编排是「尽力而为」：`ensure_staff_agents` / `ensure_web_customer_agent` 失败时静默降级，绝不阻断 `/chat`、订单或支付业务。
+
+### scene.snapshot 的 agents 字段
+
+`/ws/visualization` 连接时收到的 `scene.snapshot`，其 `payload.agents` 列出当前所有 active agent（4 个固有 staff + 最近活跃顾客），用于后连接页面立即渲染服务员人偶：
+
+```json
+{
+  "type": "scene.snapshot",
+  "payload": {
+    "events": [],
+    "agents": [
+      { "agent_id": 8, "tool_name": "staff:barista", "display_name": "咖啡师", "role_type": "barista", "sprite_seed": 100001, "status": "active" }
+    ]
+  }
+}
+```
+
+前端 `OfficeScene` 的 `onSnapshot` 据此预创建人偶；`onEvent` 做只读适配（兼容 `snake_case`、从 `agent.action` 外壳取 `payload.action_type`、把 `agent.registered` 映射为 `enter_scene`）。
 - `order` is shared by web dialog orders and `a2a-super-order` Skill orders.
 - `order.source_type` is constrained to `web_dialog` or `skill`.
 - `order.payment_status` is the order-level display/status field. Skill details remain in `skill_order_ledger.payment_status`.

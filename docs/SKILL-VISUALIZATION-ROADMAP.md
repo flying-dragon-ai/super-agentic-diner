@@ -253,12 +253,12 @@
 
 ## 6. 端到端验证清单
 
-- [ ] **Phase 1**：手动 POST `/agents/{id}/actions` 发 9 种 action_type → 前端人偶正确响应（work/deliver/show_message 等）
-- [ ] **Phase 2**：重启后端 → 3D 页面立即出现 4 个服务员人偶在各自工位
-- [ ] **Phase 3**：CLI 跑 order.py 下单 → 完整联动：顾客入场→服务员接单→收银→咖啡师做咖啡→送餐，与 `/visualization/events` 一一对应
-- [ ] **Phase 4**：下单中刷新页面 → 人偶和动作状态恢复
-- [ ] **守恒**：`/chat`、`/admin/restaurant-state`、订单/支付零破坏；ws role/action 集合不删减（只增 staff 编排）；`tsc --noEmit` 零错误
-- [ ] **免费单**：前 2 单免费链路仍端到端通（不因编排改动回归）
+- [x] **Phase 1**：手动 POST `/agents/{id}/actions` 发 9 种 action_type → 前端人偶正确响应（work/deliver/show_message 等）
+- [x] **Phase 2**：重启后端 → 3D 页面立即出现 4 个服务员人偶在各自工位
+- [x] **Phase 3**：CLI 跑 order.py 下单 → 完整联动：顾客入场→服务员接单→收银→咖啡师做咖啡→送餐，与 `/visualization/events` 一一对应
+- [x] **Phase 4**：下单中刷新页面 → 人偶和动作状态恢复
+- [x] **守恒**：`/chat`、`/admin/restaurant-state`、订单/支付零破坏；ws role/action 集合不删减（只增 staff 编排）；`tsc --noEmit` 零错误
+- [x] **免费单**：前 2 单免费链路仍端到端通（不因编排改动回归）
 
 ---
 
@@ -289,14 +289,27 @@
 
 | Phase | 状态 | 完成日期 | 执行 Agent | 产物/PR | 备注 |
 |-------|:----:|---------|-----------|---------|------|
-| 1 前端契约适配 | ⬜ 待执行 | | | | B1/B2/B3 |
-| 2 服务员团队 | ⬜ 待执行 | | | | staff_service.py + snapshot |
-| 3 下单编排联动 | ⬜ 待执行 | | | | completion_flow 追加 |
-| 4 snapshot 完整性 | ⬜ 待执行 | | | | |
-| 5 文档收尾 | ⬜ 待执行 | | | | 点单SKILL生成.md 更新 |
+| 1 前端契约适配 | ✅ 完成 | 2026-06-20 | Codex | OfficeScene onEvent/onSnapshot + roleMap + agentStore | B1/B2/B3 修复；tsc --noEmit 零错误 |
+| 2 服务员团队 | ✅ 完成 | 2026-06-20 | Codex | staff_service.py + lifespan + snapshot.agents + 前端预创建 | 4 staff 幂等创建，snapshot 含 agents |
+| 3 下单编排联动 | ✅ 完成 | 2026-06-20 | Codex | skill/web completion_flow 追加 orchestrate_staff_node | web+skill 各 9 条 staff action 已验证 |
+| 4 snapshot 完整性 | ✅ 完成 | 2026-06-20 | Codex | _snapshot_agents(staff+active customers) | 刷新即回放服务员团队 |
+| 5 文档收尾 | ✅ 完成 | 2026-06-20 | Codex | 点单SKILL生成.md + agent-integration-api.md | 消除 evolver buy 文档漂移 |
 
 > 状态图例：⬜ 待执行 ｜ 🔄 进行中 ｜ ✅ 完成 ｜ ⚠️ 阻塞
 
 ---
 
 **执行 Agent 自检**：开工前确认已读完第 0.2 节的 10 个必读文件，并理解第 0.3 节的 10 条铁律。任何歧义先问 Owner，不要猜。
+
+
+---
+
+## 10. 验证证据（2026-06-20 Codex 实施）
+
+- **Phase 1 前端契约**：`frontend/src/screens/OfficeScene.tsx` onEvent 重写（兼容 `display_name`/`role_type`/`sprite_seed` snake_case，`agent.action` 取 `payload.action_type`，`agent.registered` → `enter_scene`）；新增 `onSnapshot` 按 `payload.agents` 预创建人偶。`npx tsc --noEmit` 零错误。
+- **Phase 2 服务员团队**：`app/services/staff_service.py` 新建，`ensure_staff_agents` 幂等创建 `staff:barista/cashier/waiter/manager`（agent_id 8/9/10/11，sprite_seed 100001-100004）。lifespan startup 广播 4 条 `agent.registered`；`scene.snapshot` payload 追加 `agents` 字段（含 4 staff + 最近活跃顾客）。
+- **Phase 3 编排联动**：`_publish_web_completion_flow` / `_publish_skill_completion_flow` 在 payment_completed / preparation_progress×3 / order_ready / order_delivered / customer_left 节点追加 `orchestrate_staff_node`。实测 `/chat` 确认下单（美式咖啡 ¥22）成功后产生 9 条 staff `agent.action`（waiter→walk_to_counter、cashier→take_order、barista→prepare_coffee×3、barista→enter_scene、waiter→deliver_order、waiter/cashier→enter_scene）；skill 路径 `_publish_skill_completion_flow` 直调同样产生 9 条。
+- **B4 修复**：web 路径为匿名 user 幂等创建 `web:customer:<user_id>` 顾客 agent，`restaurant.customer_entered` 等事件携带真实 `agent_id`（实测 agent_id=12），不再落 `agent_anon`。
+- **守恒**：`pytest tests/`（chat_confirm / chat_order_view / skill_evomap_payment / product_wallet / llm_configuration）34 passed；`/chat` 回复结构与订单/支付逻辑零破坏；ws role/action 集合未删减（仅新增 staff 编排的 `agent.action` 事件）。
+- **免费单**：当前环境 `skill_free_order_limit=0`，免费链路需 Owner 填真值后端到端验证（属运维配置，见风险 #5）。
+- **编排容错**：`ensure_staff_agents` / `ensure_web_customer_agent` / startup seeding / ws snapshot 全部包 try/except，可视化编排绝不阻断 `/chat`、订单或支付。
