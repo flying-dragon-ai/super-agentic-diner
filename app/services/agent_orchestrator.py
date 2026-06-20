@@ -62,12 +62,13 @@ def orchestrate(
         }
     )
 
-    # ===== 第2步：纠正检测 → 触发复盘 Agent =====
-    if manager_agent.detect_correction(user_msg, history):
+    # ===== 第2步：纠正/生气/重复检测 → 触发复盘 Agent =====
+    triggered, trigger_reason = manager_agent.detect_review_trigger(user_msg, history)
+    if triggered:
         result.events.append(
             {
                 "type": "agent.reviewer.reviewing",
-                "payload": {"user_id": user_id, "trigger": "correction_detected"},
+                "payload": {"user_id": user_id, "trigger": trigger_reason},
             }
         )
         review = reviewer_agent.review_mistake(
@@ -76,6 +77,7 @@ def orchestrate(
             user_msg=user_msg,
             history=history,
             correlation_id=correlation_id,
+            trigger_reason=trigger_reason,
         )
         if review:
             result.review = review
