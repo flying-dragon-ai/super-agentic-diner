@@ -61,12 +61,43 @@ def _detect_exact_product(db: Session, user_msg: str) -> str | None:
     """检测用户消息是否包含精确的咖啡商品名。
 
     如"我要一杯柑橘冷萃" → 返回 "柑橘冷萃"。
-    用于跳过推荐 Agent，直接走下单流程（更快，且不会输出菜单列表）。
+    也支持部分匹配："美式" → "美式咖啡"，"拿铁" → "莓果拿铁"。
+    仅当唯一匹配时返回（"冷萃"同时匹配柑橘冷萃+椰香冷萃 → 不返回）。
     """
-    all_names = [p.name for p in get_all_products(db)]
-    for name in all_names:
-        if name in user_msg:
-            return name
+    all_products = get_all_products(db)
+    # 1. 全名匹配（最高优先级，无歧义）
+    for p in all_products:
+        if p.name in user_msg:
+            return p.name
+    # 2. 部分匹配：商品名去掉通用后缀后是用户消息的子串
+    #    如 "美式咖啡"→"美式"、"焦糖玛奇朵"→"焦糖"（去"咖啡"后缀后匹配）
+    matches = []
+    for p in all_products:
+        # 取商品名的核心部分（去掉"咖啡"后缀）
+        cores = set()
+        cores.add(p.name)  # 全名本身
+        if p.name.endswith("咖啡"):
+            cores.add(p.name[:-2])  # 美式咖啡 → 美式
+        for core in cores:
+            if len(core) >= 2 and core != p.name and core in user_msg:
+                matches.append(p.name)
+                break
+    # 唯一匹配才返回，多个匹配表示歧义（如"冷萃"→柑橘冷萃+椰香冷萃）
+    if len(matches) == 1:
+        return matches[0]
+    # 3. 用户消息中的 2 字词出现在商品名里（如"拿铁"在"莓果拿铁"中）
+    #    不歧义时（只匹配一款）即可返回；歧义时（"冷萃"匹配两款）返回 None
+    single_token_matches = []
+    _SKIP = {"咖啡"}  # 过于通用，跳过
+    for p in all_products:
+        for i in range(len(user_msg) - 1):
+            substr = user_msg[i:i+2]
+            if len(substr) >= 2 and substr not in _SKIP and substr in p.name:
+                if p.name not in single_token_matches:
+                    single_token_matches.append(p.name)
+                break
+    if len(single_token_matches) == 1:
+        return single_token_matches[0]
     return None
 
 

@@ -798,10 +798,13 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             clear_pending_order(req.user_id)
 
     # ===== 第2步：无待确认订单 → 调 LLM 理解用户意图 =====
-    # 加速：消息「明显不是下单」时跳过 parse_intent 的 LLM 调用，直接走 recommend，
-    # 把推荐/聊天路径从 2 次 LLM 调用降到 1 次（节省 1-5s）。
-    # 安全：拿不准时仍调 parse_intent；误判由 orchestrator._detect_exact_product 兜底。
-    if _is_clearly_non_order(req.message):
+    # 加速 1：消息含精确/部分商品名（"美式"→"美式咖啡"）→ 直接 order，跳过所有 LLM 调用
+    # 加速 2：消息「明显不是下单」时跳过 parse_intent，直接走 recommend
+    from app.services.agent_orchestrator import _detect_exact_product
+    exact_product = _detect_exact_product(db, req.message)
+    if exact_product:
+        intent = {"intent": "order", "coffee_name": exact_product, "reason": "exact_product_match"}
+    elif _is_clearly_non_order(req.message):
         intent = {"intent": "recommend", "reason": "heuristic_skip_parse_intent"}
     else:
         intent = llm.parse_intent(history, req.message)
@@ -824,6 +827,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
 
         # 第3.2路：LLM 显式给出了咖啡名（它能理解"一开始说的""刚才那杯"等引用）
         # 信任 LLM 的引用理解能力，排在历史盲扫之前
+        _llm_gave_unknown_coffee = False  # 标记 LLM 给了咖啡名但不在菜单
         if not coffees:
             coffee = intent.get("coffee_name")
             if coffee:
@@ -833,18 +837,23 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                 matched = [p for p in parts if p in valid_names]
                 if matched:
                     coffees = matched
+                else:
+                    # LLM 给了咖啡名但都不在菜单 → 用户说的是不存在的咖啡
+                    _llm_gave_unknown_coffee = True
 
         # 第3.3路：消息含描述性词（"无牛奶"/"果味"）→ RAG 关键词过滤
-        if not coffees:
+        # 跳过条件：LLM 已判定为不存在的咖啡（避免 RAG/历史误匹配）
+        if not coffees and not _llm_gave_unknown_coffee:
             positive, negative = extract_keywords(req.message)
             if positive or negative:
                 coffees = [r.name for r in retrieve(db, positive, negative)]
 
         # 第3.4路：以上都没命中 → 从 Redis 历史提取（最弱信号，兜底）
+        # 跳过条件：LLM 已判定为不存在的咖啡
         # 默认只看最近1条消息（1杯）；用户说「两杯/这些/都」时跨轮提取3条
         _MULTI_SIGNALS = ("两杯", "这些", "都", "全部", "三个", "两个", "这几杯", "都来", "全要")
         wants_multi = any(w in req.message for w in _MULTI_SIGNALS)
-        if not coffees:
+        if not coffees and not _llm_gave_unknown_coffee:
             scan = 3 if wants_multi else 1
             coffees = _resolve_coffees_from_history(db, history, max_messages=scan)
 
@@ -853,7 +862,19 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             coffees = coffees[:1]
 
         if not coffees:
-            reply = "不好意思，我没太确定您想买哪杯，能再说一下咖啡名字吗？"
+            # 区分：用户说了咖啡名但我们没有 vs 完全没说咖啡名
+            # 如果消息含咖啡品类词但没匹配任何产品 → 用户说的是不存在的咖啡
+            _COFFEE_TYPE_WORDS = (
+                "咖啡", "拿铁", "美式", "冷萃", "玛奇朵", "摩卡", "卡布", "卡布奇诺",
+                "澳白", "澳白咖啡", "flat white", "espresso", "意式", "浓缩",
+                "手冲", "挂耳", "速溶", "frappe", "frappuccino", "玛奇朵",
+            )
+            msg_lower = req.message.lower()
+            says_coffee_type = any(w.lower() in msg_lower for w in _COFFEE_TYPE_WORDS)
+            if says_coffee_type:
+                reply = "这款我们没有哦～您说的这个问题我们已经反馈给店长了，感谢您的光临！目前可以试试我们的美式、柑橘冷萃、椰香冷萃、焦糖玛奇朵或莓果拿铁～"
+            else:
+                reply = "不好意思，我没太确定您想买哪杯，能再说一下咖啡名字吗？"
             add_message(req.user_id, "user", req.message)
             add_message(req.user_id, "assistant", reply)
             _publish_web_restaurant_event(
