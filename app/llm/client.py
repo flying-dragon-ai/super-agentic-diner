@@ -219,3 +219,72 @@ def _strip_code_fence(text):
         if text.lower().startswith("json"):
             text = text[4:]
     return text.strip()
+
+
+# ============================================================
+# 多 Agent 协作提示词
+# ============================================================
+
+# 推荐 Agent(推荐): 基于 RAG 检索 + 历史经验，生成有理由的推荐
+RECOMMENDER_PROMPT = (
+    "你是智能咖啡馆的「推荐 Agent」，擅长把顾客的模糊口味需求精准匹配到具体咖啡。"
+    "你会收到：用户最新消息、最近对话、从《咖啡风味手册》检索到的候选咖啡、以及「历史经验」段落。"
+    "【重要规则】"
+    "1. 只能推荐候选列表里出现的咖啡，不得编造知识库里没有的饮品。"
+    "2. 价格必须与候选列表一致，不得自行拼凑优惠。"
+    "3. 如果「历史经验」提示该用户曾对某类推荐不满，必须主动避开或调整，并在推荐理由中提及。"
+    "4. 推荐时给出咖啡名称、价格、一句风味说明、一句为什么适合该用户。回复 120 字以内。"
+)
+
+# 复盘 Agent(事后复盘): 当用户表达「不是我要的 / 判断失误」时触发
+# 分析 AI(人工智能) 推荐哪里出错，输出结构化教训
+REVIEWER_PROMPT = """你是智能咖啡馆的「复盘 Agent」。当顾客对上一轮推荐表示不满或纠正时，你的任务是分析 AI(人工智能) 推荐哪里出了错，并把教训提炼成一条可复用的经验。
+
+你会收到：上一轮推荐了什么、用户最新消息（表达不满或纠正）、最近对话。
+
+请输出 JSON（只输出 JSON，不要其他文字）：
+{
+  "mistake_type": "失误类型，从以下选一个：wrong_flavor(口味误判) / missed_negation(漏听否定词) / wrong_category(选错品类) / wrong_price(价格误判) / other(其他)",
+  "recommended_item": "上一轮推荐的咖啡名",
+  "user_wanted": "根据用户纠正推断出他实际想要的口味或咖啡",
+  "insight": "一条给下次推荐的行动建议，30 字以内，用大白话",
+  "rating": 1到5的整数，1=完全误判，5=轻微偏差
+}
+"""
+
+# 经验继承 Agent(经验积累): 把复盘教训格式化为推荐 Agent 可用的简短指引
+EXPERIENCE_SYNTHESIS_PROMPT = (
+    "你是智能咖啡馆的「经验继承 Agent」。你会收到一条复盘教训（失误类型+用户实际想要的+行动建议）。"
+    "请把它压缩成 40 字以内的「推荐前必读」提示，让推荐 Agent(推荐) 下次面对同一用户时能直接避开这个坑。"
+    "只输出提示文本，不要 JSON 或额外说明。"
+)
+
+
+def chat_with_role(system_prompt: str, context: str, history, user_msg: str) -> str:
+    """通用多 Agent 调用入口：传入指定角色的 system prompt + 上下文 + 历史 + 用户消息。
+
+    和 chat() 不同：chat() 固定使用 SYSTEM_PROMPT（店长人设），本函数允许传入任意角色提示词，
+    供推荐 Agent / 复盘 Agent / 经验继承 Agent 复用同一套 _call_llm 基础设施。
+    """
+    if not has_real_key():
+        return ""
+    messages = [{"role": "system", "content": system_prompt}]
+    if context:
+        messages.append({"role": "system", "content": context})
+    if history:
+        messages.extend(history)
+    messages.append({"role": "user", "content": user_msg})
+    try:
+        return _call_llm(messages)
+    except Exception:
+        return ""
+
+
+def parse_json_response(text: str) -> dict | None:
+    """把 LLM(大模型) 输出解析成 dict，去掉代码围栏后 JSON.loads；失败返回 None。"""
+    if not text:
+        return None
+    try:
+        return json.loads(_strip_code_fence(text))
+    except (json.JSONDecodeError, TypeError):
+        return None

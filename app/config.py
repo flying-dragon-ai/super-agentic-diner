@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     evomap_credit_rate: str = "1"
     evomap_atp_caps: str = "a2a_super_order,coffee_order"
 
+    # EvoMap node identity（群体进化：发布教训 + 拉取社区经验）
+    evomap_node_id: str = ""
+    evomap_node_secret: str = ""
+    evomap_guild_id: str = ""
+
     # Auth session cookie signing (for the new account login). Set a strong
     # random value in .env; a dev default keeps local runs working.
     auth_secret_key: str = "dev-only-change-me-in-prod"

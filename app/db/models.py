@@ -496,3 +496,34 @@ class BalanceTransaction(Base):
         Index("idx_balance_txn_ledger", "ledger_id"),
         Index("idx_balance_txn_correlation", "correlation_id"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Agent collaboration: experience memory (experience_agent 双写 MySQL + Redis).
+# ---------------------------------------------------------------------------
+
+
+class AgentExperience(Base):
+    """复盘 Agent(事后复盘) 的经验存储，供推荐 Agent(推荐) 下次引用。
+
+    每条记录描述一次 AI(人工智能) 判断失误的教训：推荐了什么、用户实际想要什么、
+    失误类型(误判口味/漏听否定词/选错品类)、以及给下次推荐的行动建议。
+    """
+
+    __tablename__ = "agent_experience"
+
+    experience_id = Column(_PK, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, ForeignKey("user.user_id"), nullable=False)
+    agent_role = Column(String(32), nullable=False)
+    coffee_name = Column(String(128), nullable=True)
+    context_tags = Column(String(255), nullable=True)
+    insight = Column(Text, nullable=False)
+    rating = Column(Integer, nullable=True)
+    order_id = Column(BigInteger, nullable=True)
+    correlation_id = Column(String(128), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_agent_exp_user_tags", "user_id", "context_tags"),
+        Index("idx_agent_exp_created", "created_at"),
+    )

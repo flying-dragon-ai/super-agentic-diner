@@ -34,7 +34,7 @@ export function LoginPage() {
     e.preventDefault();
     setBusy(true);
     setErr("");
-    try { await login(username, password); nav("/scene"); }
+    try { await login(username, password); window.location.href = "/"; }
     catch (e2) { setErr(String((e2 as Error).message)); }
     finally { setBusy(false); }
   };
@@ -49,7 +49,6 @@ export function LoginPage() {
         <button style={btn} disabled={busy || !username || !password}>{busy ? "登录中…" : "登录"}</button>
         <div style={{ marginTop: 14, fontSize: 13, opacity: 0.7 }}>
           没有账号？<a style={{ color: "#8ab4ff" }} onClick={() => nav("/register")} href="#">注册</a>
-          <span style={{ marginLeft: 10 }}><a style={{ color: "#8ab4ff" }} onClick={() => nav("/scene")} href="#">匿名进入 3D</a></span>
         </div>
       </form>
     </div>
@@ -69,7 +68,7 @@ export function RegisterPage() {
     e.preventDefault();
     setBusy(true);
     setErr("");
-    try { await register(username, password, nickname || undefined); nav("/scene"); }
+    try { await register(username, password, nickname || undefined); window.location.href = "/"; }
     catch (e2) { setErr(String((e2 as Error).message)); }
     finally { setBusy(false); }
   };

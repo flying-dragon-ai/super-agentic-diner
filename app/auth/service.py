@@ -8,13 +8,16 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
+from decimal import Decimal
+
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.models import User, UserAccount
-from app.domain_constants import IDENTITY_STATUS_ACTIVE, IDENTITY_STATUSES
+from app.domain_constants import IDENTITY_STATUS_ACTIVE, IDENTITY_STATUSES, WALLET_CURRENCY_CNY
+from app.services import wallet_service
 
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -94,6 +97,14 @@ def register_account(db: Session, username: str, password: str, nickname: str | 
         updated_at=datetime.utcnow(),
     )
     db.add(account)
+    # 新用户注册赠送 ¥100 CNY 钱包（仅新注册触发，已有用户余额不变）
+    wallet_service.topup(
+        db,
+        user_id=user.user_id,
+        amount=Decimal("100.00"),
+        currency=WALLET_CURRENCY_CNY,
+        note="新用户注册赠送",
+    )
     db.commit()
     db.refresh(account)
     return account

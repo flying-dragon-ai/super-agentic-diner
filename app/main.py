@@ -1,19 +1,20 @@
 """FastAPI entrypoint for chat ordering and Agent visualization APIs."""
+import threading
 from datetime import datetime
 from typing import Any, Optional
 
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db.database import SessionLocal, get_db
+from app.db.database import get_db
 from app.db.models import (
     AgentProfile,
     EvomapConsumer,
@@ -42,6 +43,10 @@ from app.memory.chat_history import (
     set_pending_order,
 )
 from app.services.chat_service import extract_price, handle_message, match_by_price
+from app.services.agent_orchestrator import orchestrate as agent_orchestrate
+from app.services.agents.experience_agent import list_recent_experiences
+from app.services import evomap_evolution_service
+from app.services.agents.experience_agent import sync_community_experience as _sync_community_exp
 from app.rag.keywords import extract_keywords
 from app.rag.retrieval import retrieve
 from app.services.order_service import (
@@ -67,55 +72,40 @@ from app.services.visualization_service import (
     visualization_hub,
 )
 from app.colyseus_bridge import start_colyseus_server, stop_colyseus_server
-from app.services.staff_service import (
-    ensure_staff_agents,
-    ensure_web_customer_agent,
-    orchestrate_staff_node,
-    publish_agent_action,
-)
 
 app = FastAPI(title="智能咖啡馆 AI 店长")
+
+# EvoMap 心跳定时器（群体进化：保持节点在线 + 定时拉取社区经验）
+_evomap_heartbeat_thread: threading.Thread | None = None
+_evomap_heartbeat_stop = threading.Event()
+
+
+def _evomap_heartbeat_loop() -> None:
+    """后台心跳线程：每 5 分钟发心跳 + 拉取社区经验缓存到 Redis。"""
+    import time as _time
+    while not _evomap_heartbeat_stop.is_set():
+        try:
+            evomap_evolution_service.heartbeat()
+            _sync_community_exp()
+        except Exception:
+            pass  # 心跳失败不阻塞服务
+        _evomap_heartbeat_stop.wait(300)  # 5 分钟
+
 
 @app.on_event("startup")
 async def _startup_colyseus() -> None:
     start_colyseus_server()
-    await _seed_and_broadcast_staff()
-
-
-async def _seed_and_broadcast_staff() -> None:
-    """Ensure the fixed staff team exists and announce each member to the scene.
-
-    Best-effort: visualization seeding must never crash app boot.
-    """
-    db = SessionLocal()
-    try:
-        staff = ensure_staff_agents(db)
-        for role, agent in staff.items():
-            await visualization_hub.broadcast(
-                {
-                    "event_id": None,
-                    "type": "agent.registered",
-                    "agent_id": agent.agent_id,
-                    "payload": {
-                        "agent_id": agent.agent_id,
-                        "tool_name": agent.tool_name,
-                        "display_name": agent.display_name,
-                        "role_type": agent.role_type,
-                        "sprite_seed": agent.sprite_seed,
-                    },
-                    "correlation_id": f"staff:{role}",
-                    "created_at": datetime.utcnow().isoformat(),
-                }
-            )
-    except Exception:
-        pass
-    finally:
-        db.close()
+    # 启动 EvoMap 心跳（仅当配置了节点身份）
+    if settings.evomap_node_id and settings.evomap_node_secret:
+        _evomap_heartbeat_stop.clear()
+        _evomap_heartbeat_thread = threading.Thread(target=_evomap_heartbeat_loop, daemon=True)
+        _evomap_heartbeat_thread.start()
 
 
 @app.on_event("shutdown")
 async def _shutdown_colyseus() -> None:
     stop_colyseus_server()
+    _evomap_heartbeat_stop.set()
 
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -456,7 +446,6 @@ def _publish_web_restaurant_event(
     db: Session,
     event_type: str,
     *,
-    agent_id: int | None = None,
     req: ChatRequest,
     consumer_url: str | None,
     state: str,
@@ -490,7 +479,6 @@ def _publish_web_restaurant_event(
             satisfaction=satisfaction,
         ),
         correlation_id=req.request_id,
-        agent_id=agent_id,
     )
 
 
@@ -500,7 +488,6 @@ def _publish_web_completion_flow(
     req: ChatRequest,
     consumer_url: str | None,
     orders: list[Order],
-    agent_id: int | None = None,
 ) -> None:
     coffees = [{"name": order.coffee_name, "price": float(order.amount)} for order in orders]
     coffee_names = [order.coffee_name for order in orders]
@@ -514,13 +501,7 @@ def _publish_web_completion_flow(
         "total": total,
         "payment_status": PAYMENT_STATUS_PAID,
         "order_ids": order_ids,
-        "agent_id": agent_id,
     }
-    try:
-        staff = ensure_staff_agents(db)
-    except Exception:
-        staff = {}
-    correlation = req.request_id
     _publish_web_restaurant_event(
         db,
         "restaurant.payment_completed",
@@ -529,7 +510,6 @@ def _publish_web_completion_flow(
         satisfaction=88,
         **common,
     )
-    orchestrate_staff_node(db, staff, "payment_completed", correlation)
     for stage, label, patience in (
         ("grinding", "grinding beans", 78),
         ("brewing", "brewing coffee", 72),
@@ -545,11 +525,8 @@ def _publish_web_completion_flow(
             satisfaction=90,
             **common,
         )
-        orchestrate_staff_node(db, staff, "preparation_progress", correlation)
     _publish_web_restaurant_event(db, "restaurant.order_ready", state="ready", patience=70, satisfaction=92, **common)
-    orchestrate_staff_node(db, staff, "order_ready", correlation)
     _publish_web_restaurant_event(db, "restaurant.order_delivered", state="delivered", patience=74, satisfaction=94, **common)
-    orchestrate_staff_node(db, staff, "order_delivered", correlation)
     _publish_web_restaurant_event(
         db,
         "restaurant.customer_reviewed",
@@ -560,7 +537,6 @@ def _publish_web_completion_flow(
         **common,
     )
     _publish_web_restaurant_event(db, "restaurant.customer_left", state="left", patience=80, satisfaction=96, **common)
-    orchestrate_staff_node(db, staff, "customer_left", correlation)
 
 
 def _extract_agent_token(authorization: str | None, x_agent_token: str | None) -> str:
@@ -590,14 +566,6 @@ def _require_agent(
 def chat(req: ChatRequest, db: Session = Depends(get_db)):
     """Handle chat, recommendation, pending confirmation, and paid order flows."""
     consumer_url = _normalize_consumer_url(req.consumer_url)
-    web_customer = None
-    web_agent_id = None
-    try:
-        web_customer = ensure_web_customer_agent(db, req.user_id)
-        web_agent_id = web_customer.agent_id
-    except Exception:
-        web_customer = None
-        web_agent_id = None
     web_source_payload = {
         "source_type": ORDER_SOURCE_WEB_DIALOG,
         "payment_status": PAYMENT_STATUS_PAID,
@@ -609,19 +577,11 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         "restaurant.customer_entered",
         req=req,
         consumer_url=consumer_url,
-        agent_id=web_agent_id,
         state="entered",
         message=req.message,
         patience=100,
         satisfaction=80,
     )
-    if web_customer is not None:
-        publish_agent_action(
-            db,
-            web_customer,
-            "enter_scene",
-            correlation_id=req.request_id,
-        )
     _try_publish_visualization_event(
         db,
         "message.received",
@@ -739,7 +699,6 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                 req=req,
                 consumer_url=consumer_url,
                 orders=orders,
-                agent_id=web_agent_id,
             )
             _try_publish_visualization_event(
                 db,
@@ -768,13 +727,6 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         {"user_id": req.user_id, "intent": intent.get("intent", "chat"), **web_source_payload},
         correlation_id=req.request_id,
     )
-    # Waiter greets the customer as soon as an order intent is recognized.
-    if intent.get("intent") == "order":
-        try:
-            _staff = ensure_staff_agents(db)
-        except Exception:
-            _staff = {}
-        orchestrate_staff_node(db, _staff, "intent_detected", req.request_id)
 
     # ===== 第3步：LLM 判断为"下单"意图 → 解析具体是哪杯咖啡 =====
     # 四路优先级：价格匹配 > LLM显式名 > RAG关键词 > 历史提取
@@ -887,9 +839,22 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         )
         return ChatResponse(reply=reply)
 
-    # ===== 非下单意图（recommend/chat）→ 走 RAG 聊天流程 =====
-    # handle_message 内部：读Redis → 关键词提取 → LIKE检索 → LLM生成 → 写Redis
+    # ===== 非下单意图（recommend/chat）→ 多 Agent(智能体) 协作流程 =====
+    # 编排器按序调用：店长(意图)→推荐(RAG+经验)→[纠正检测]→复盘→经验继承
     clear_pending_order(req.user_id)
+    orch = agent_orchestrate(db, req.user_id, req.message, correlation_id=req.request_id)
+    # 发布编排器产生的所有 Agent 协作事件
+    for evt in orch.events:
+        _try_publish_visualization_event(
+            db,
+            evt["type"],
+            {**evt.get("payload", {}), **web_source_payload},
+            correlation_id=req.request_id,
+        )
+    # 若编排器已写对话历史并给出回复，直接返回
+    if orch.reply:
+        return ChatResponse(reply=orch.reply)
+    # 编排器降级（如无 LLM key）：回退到原 handle_message
     reply = handle_message(db, req.user_id, req.message)
     _try_publish_visualization_event(
         db,
@@ -1260,6 +1225,46 @@ def restaurant_state(limit: int = 50, db: Session = Depends(get_db)):
     }
 
 
+@app.get("/admin/agent-collaboration")
+def agent_collaboration_state(db: Session = Depends(get_db)):
+    """多 Agent(智能体) 协作面板数据：最近经验记录 + 协作事件统计。"""
+    experiences = list_recent_experiences(db, limit=20)
+    # 统计最近 200 条事件中各 Agent 的协作次数
+    agent_event_types = (
+        "agent.manager.intent",
+        "agent.recommender.suggested",
+        "agent.reviewer.reviewed",
+        "agent.experience.learned",
+        "agent.experience.applied",
+    )
+    rows = (
+        db.query(VisualizationEvent.event_type, func.count(VisualizationEvent.event_id))
+        .filter(
+            VisualizationEvent.event_type.in_(agent_event_types),
+        )
+        .group_by(VisualizationEvent.event_type)
+        .all()
+    )
+    stats = {row[0]: int(row[1]) for row in rows}
+    return {
+        "summary": {
+            "total_experiences": len(experiences),
+            "manager_actions": stats.get("agent.manager.intent", 0),
+            "recommender_actions": stats.get("agent.recommender.suggested", 0),
+            "reviewer_actions": stats.get("agent.reviewer.reviewed", 0),
+            "experience_learned": stats.get("agent.experience.learned", 0),
+            "experience_applied": stats.get("agent.experience.applied", 0),
+        },
+        "recent_experiences": experiences,
+    }
+
+
+@app.get("/admin/evomap/status")
+def evomap_status():
+    """EvoMap 群体进化节点状态（供大屏展示节点在线/积分/进化圈/社区经验）。"""
+    return evomap_evolution_service.get_node_status()
+
+
 def _public_agent(agent: AgentProfile | None) -> dict[str, Any] | None:
     if not agent:
         return None
@@ -1345,44 +1350,9 @@ def _presence_message_from_client(message: dict[str, Any]) -> dict[str, Any] | N
     }
 
 
-def _snapshot_agents(db: Session) -> list[dict[str, Any]]:
-    """Staff + recently active customer agents for scene.snapshot replay."""
-    staff = ensure_staff_agents(db)
-    rows = (
-        db.query(AgentProfile)
-        .filter(AgentProfile.status == IDENTITY_STATUS_ACTIVE)
-        .order_by(AgentProfile.last_seen_at.desc())
-        .limit(50)
-        .all()
-    )
-    staff_ids = {a.agent_id for a in staff.values()}
-    ordered = list(staff.values()) + [r for r in rows if r.agent_id not in staff_ids]
-    out: list[dict[str, Any]] = []
-    seen: set[int] = set()
-    for a in ordered:
-        if a.agent_id in seen:
-            continue
-        seen.add(a.agent_id)
-        out.append(
-            {
-                "agent_id": a.agent_id,
-                "tool_name": a.tool_name,
-                "display_name": a.display_name,
-                "role_type": a.role_type,
-                "sprite_seed": a.sprite_seed,
-                "status": a.status,
-            }
-        )
-    return out
-
-
 @app.websocket("/ws/visualization")
-async def visualization_websocket(websocket: WebSocket, db: Session = Depends(get_db)):
-    try:
-        snapshot_agents = _snapshot_agents(db)
-    except Exception:
-        snapshot_agents = []
-    await visualization_hub.connect(websocket, agents=snapshot_agents)
+async def visualization_websocket(websocket: WebSocket):
+    await visualization_hub.connect(websocket)
     presence_payload: dict[str, Any] | None = None
     try:
         while True:
@@ -1499,8 +1469,13 @@ def three_d_app_spa(full_path: str):
 
 
 @app.get("/")
-def index():
-    """Root: 2D 聊天页（AI 店长对话主页）。3D 咖啡厅场景在 /3d。"""
+def index(request: Request, db: Session = Depends(get_db)):
+    """Root: 未登录 → 302 跳 /3d/login；已登录 → 2D 聊天页。"""
+    from app.auth.router import current_account
+
+    account = current_account(request, db)
+    if not account:
+        return RedirectResponse(url="/3d/login", status_code=302)
     chat_index = _STATIC_DIR / "index.html"
     if chat_index.is_file():
         return FileResponse(chat_index)
