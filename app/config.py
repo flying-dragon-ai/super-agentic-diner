@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     # LLM 分阶段超时（秒）:连接 / 意图推断 / 生成 / 复盘;细分以避免单个环节长时间阻塞
     llm_connect_timeout_seconds: float = 3.0
     llm_intent_timeout_seconds: float = 4.0
-    llm_generation_timeout_seconds: float = 25.0
+    llm_generation_timeout_seconds: float = 40.0
     llm_review_timeout_seconds: float = 6.0
 
     # Chat memory.

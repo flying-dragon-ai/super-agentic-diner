@@ -268,15 +268,9 @@ def orchestrate(
         return result
 
     # ===== chat 意图：用店长人设闲聊（含桥接规则），不走推荐 Agent =====
-    # chat 用 SYSTEM_PROMPT（有性格+桥接规则），不走 RECOMMENDER_PROMPT（纯推荐）
-    from app.rag.keywords import extract_keywords as _ek
-    from app.rag.retrieval import retrieve as _rt
-    _pos, _neg = _ek(user_msg)
-    _kb = _rt(db, _pos, _neg) if _pos else []
-    if not _kb:
-        _kb = get_all_products(db)
-    _context = "\n---\n".join(f"{r.name}（¥{r.base_price}）：{r.description}" for r in _kb)
-    result.reply = llm.chat(history, user_msg, _context)
+    # chat 用 SYSTEM_PROMPT（有性格+桥接规则），传简短菜单列表（不是完整 RAG context）
+    _menu_brief = "、".join(f"{p.name}（¥{p.base_price}）" for p in get_all_products(db))
+    result.reply = llm.chat(history, user_msg, f"今日菜单：{_menu_brief}")
     result.applied_experience = False
     # chat 意图：只在用户明确要看菜单时弹卡片；纯闲聊不弹
     if _is_browse_all(user_msg):
