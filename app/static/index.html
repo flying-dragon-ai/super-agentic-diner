@@ -160,12 +160,15 @@
       width: 300px;
       min-width: 300px;
     }
-    /* Agent 灯只留圆点+emoji，隐藏文字 */
-    #agentStatus .agent-lamp span:last-child {
-      display: none;
-    }
+    /* Agent 灯缩小间距（竖排结构保持不变） */
     #agentStatus {
-      gap: 8px;
+      gap: 12px;
+    }
+    .agent-lamp .label {
+      font-size: 9px;
+    }
+    .agent-lamp .icon {
+      font-size: 12px;
     }
     header h1 {
       font-size: 18px;
@@ -186,11 +189,19 @@
       min-width: 0;
     }
     /* Agent 灯紧凑横排 */
+    /* Agent 灯紧凑横排居中 */
     #agentStatus {
-      gap: 6px;
+      gap: 14px;
       order: 3;
       width: 100%;
       padding: 0;
+      justify-content: center;
+    }
+    .agent-lamp .label {
+      font-size: 9px;
+    }
+    .agent-lamp .icon {
+      font-size: 12px;
     }
     /* 右侧按钮区紧凑 */
     #headRight {
@@ -332,22 +343,34 @@
   }
   .confirm-actions button:hover { background: #d49a66; }
 
-  /* ===== Agent 运行指示灯 ===== */
+  /* ===== Agent 运行指示灯（竖排：名字在上，圆点在下）===== */
   #agentStatus {
     display: flex;
-    gap: 14px;
-    align-items: center;
+    gap: 18px;
+    align-items: flex-end;
+    justify-content: center;
+    flex: 1;
     padding: 0 12px;
     flex-shrink: 0;
   }
   .agent-lamp {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 5px;
-    font-size: 11px;
+    gap: 4px;
+    font-size: 10px;
     color: #6a5a4a;
     transition: color .3s;
     white-space: nowrap;
+    line-height: 1.2;
+  }
+  .agent-lamp .label {
+    font-size: 10px;
+    opacity: 0.7;
+  }
+  .agent-lamp .icon {
+    font-size: 14px;
+    line-height: 1;
   }
   .agent-lamp .dot {
     width: 8px;
@@ -359,6 +382,9 @@
   }
   .agent-lamp.active {
     color: #f5ebe0;
+  }
+  .agent-lamp.active .label {
+    opacity: 1;
   }
   .agent-lamp.active .dot {
     background: #4caf50;
@@ -374,12 +400,12 @@
 <body>
 <header>
   <h1><span>☕</span>智能咖啡馆 · AI 店长</h1>
-  <!-- Agent 运行指示灯：用到哪个亮哪个，WebSocket 实时驱动 -->
+  <!-- Agent 运行指示灯：竖排居中，名字在上圆点在下，WebSocket 实时驱动 -->
   <div id="agentStatus">
-    <div class="agent-lamp" id="lamp-manager"><span class="dot"></span><span>🧠 店长</span></div>
-    <div class="agent-lamp" id="lamp-recommender"><span class="dot"></span><span>🎯 推荐</span></div>
-    <div class="agent-lamp" id="lamp-reviewer"><span class="dot"></span><span>🔍 复盘</span></div>
-    <div class="agent-lamp" id="lamp-experience"><span class="dot"></span><span>📚 经验</span></div>
+    <div class="agent-lamp" id="lamp-manager"><span class="label">店长</span><span class="icon">🧠</span><span class="dot"></span></div>
+    <div class="agent-lamp" id="lamp-recommender"><span class="label">推荐</span><span class="icon">🎯</span><span class="dot"></span></div>
+    <div class="agent-lamp" id="lamp-reviewer"><span class="label">复盘</span><span class="icon">🔍</span><span class="dot"></span></div>
+    <div class="agent-lamp" id="lamp-experience"><span class="label">经验</span><span class="icon">📚</span><span class="dot"></span></div>
   </div>
   <div id="headRight">
     <!-- 点击新开标签页打开 3D 咖啡厅场景(/3d) -->
