@@ -113,4 +113,4 @@ python scripts/send_action.py --agent-id <id> --token <token> --action walk_to_c
 
 ## License
 
-[MIT](./LICENSE) © EvoMap
+[MIT](./LICENSE) © code.tang
