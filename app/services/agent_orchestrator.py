@@ -20,6 +20,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.db.models import Product
+from app.llm import client as llm
 from app.memory.chat_history import add_message, get_history
 from app.services.agents import manager_agent, recommender_agent, reviewer_agent
 from app.services.chat_service import product_to_card, _is_browse_all, get_all_products
@@ -266,11 +267,18 @@ def orchestrate(
         add_message(user_id, "assistant", result.reply)
         return result
 
-    # ===== chat 意图：复用推荐 Agent（闲聊也能给点建议） =====
-    reco = recommender_agent.recommend(db, user_id, user_msg, history)
-    result.reply = reco["reply"]
-    result.applied_experience = reco["applied_experience"]
-    # chat 意图：只在用户明确要看菜单时弹卡片；纯闲聊不弹（让 LLM 用文字自然桥接）
+    # ===== chat 意图：用店长人设闲聊（含桥接规则），不走推荐 Agent =====
+    # chat 用 SYSTEM_PROMPT（有性格+桥接规则），不走 RECOMMENDER_PROMPT（纯推荐）
+    from app.rag.keywords import extract_keywords as _ek
+    from app.rag.retrieval import retrieve as _rt
+    _pos, _neg = _ek(user_msg)
+    _kb = _rt(db, _pos, _neg) if _pos else []
+    if not _kb:
+        _kb = get_all_products(db)
+    _context = "\n---\n".join(f"{r.name}（¥{r.base_price}）：{r.description}" for r in _kb)
+    result.reply = llm.chat(history, user_msg, _context)
+    result.applied_experience = False
+    # chat 意图：只在用户明确要看菜单时弹卡片；纯闲聊不弹
     if _is_browse_all(user_msg):
         all_products = db.query(Product).order_by(Product.base_price).all()
         result.products = [product_to_card(p) for p in all_products]
@@ -280,19 +288,11 @@ def orchestrate(
             "payload": {
                 "user_id": user_id,
                 "intent": "chat",
-                "applied_experience": reco["applied_experience"],
+                "applied_experience": False,
             },
         }
     )
     _emit_now(emit, "agent.recommender.suggested", result.events[-1]["payload"])
-    if reco["applied_experience"]:
-        result.events.append(
-            {
-                "type": "agent.experience.applied",
-                "payload": {"user_id": user_id, "intent": "chat"},
-            }
-        )
-        _emit_now(emit, "agent.experience.applied", result.events[-1]["payload"])
     add_message(user_id, "user", user_msg)
     add_message(user_id, "assistant", result.reply)
     return result
