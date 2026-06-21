@@ -27,7 +27,7 @@ D:\temp\EVOMAP\coffee-ai-boss-archive\2026-06-20-repo-slimming\
 - `output/imagegen/`: generated image experiments and prompts.
 - `logs/` plus root `server.*.log`: local run logs.
 - Root UI screenshots such as `cafe-redesign*.png` and `topbar-fix-verify.png`.
-- `docs/m1.mp3`: duplicate audio copy removed from docs; active copies remain
+- `docs/m1.mp3` and `docs/m2.mp3`: duplicate audio copies removed from docs; active copies remain
   under `frontend/public/sounds/` and `app/static/3d/sounds/`.
 
 Ignored dependency/build output such as `node_modules/` and `dist/` was not kept

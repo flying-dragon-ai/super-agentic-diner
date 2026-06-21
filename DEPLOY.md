@@ -169,6 +169,13 @@ docker run -d --name coffee-ai-boss \
   --restart unless-stopped \
   coffee-ai-boss:latest
 ```
+
+**首次启动后**在容器内执行一次 schema 初始化与迁移（脚本幂等，可安全重复执行）：
+```bash
+docker exec coffee-ai-boss python scripts/init_db.py
+docker exec coffee-ai-boss python scripts/migrate_order_sources.py
+```
+
 注意：容器内不含 MySQL/Redis，需 `.env` 指向可达的 db 地址（容器网络或宿主机 `host.docker.internal`）。
 
 ---

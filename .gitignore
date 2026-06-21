@@ -43,3 +43,25 @@ memory/atp-autobuyer-ledger.json
 
 # Local MCP backups may contain machine-specific paths or credentials.
 .mcp.json.backup
+
+# === Deployment prep: personal AI-editor / IDE configs (dev-only, not deployed) ===
+.idea/
+.cursor/
+.codex/
+.gemini/
+.trae/
+.zhipu/
+.qingyan/
+.kiro/
+
+# Local verification screenshots / smoke artifacts
+smoke-*.png
+3d-scene-*.png
+
+# Root-level evolver-only node manifest (not project deps; frontend/package.json IS tracked)
+/package.json
+/package-lock.json
+
+# Claude Code personal settings (keep shared CLAUDE.md / commands / hooks / skills)
+.claude/settings.local.json
+.claude/settings.local.json.backup

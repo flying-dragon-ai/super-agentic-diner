@@ -40,7 +40,7 @@ const EVENT_TEXT: Record<string, string> = {
   "order.paid": "支付完成，订单已确认",
   "order.failed": "订单处理失败",
   "order.reply": "店长已回复顾客",
-  "restaurant.customer_entered": "顾客进入咖啡厅",
+  "restaurant.customer_entered": "顾客进入EvoMap 进化咖啡馆",
   "restaurant.order_ticketed": "已生成点单小票",
   "restaurant.order_confirming": "正在确认订单内容",
   "restaurant.payment_requested": "已向顾客发起支付",
@@ -51,9 +51,9 @@ const EVENT_TEXT: Record<string, string> = {
   "restaurant.order_ready": "咖啡已制作完成",
   "restaurant.order_delivered": "咖啡已送达顾客",
   "restaurant.customer_reviewed": "顾客已完成评价",
-  "restaurant.customer_left": "顾客离开咖啡厅",
+  "restaurant.customer_left": "顾客离开EvoMap 进化咖啡馆",
   "restaurant.order_failed": "订单流程异常",
-  "agent.registered": "员工或顾客已进入咖啡厅",
+  "agent.registered": "员工或顾客已进入EvoMap 进化咖啡馆",
   "agent.action": "员工正在处理订单",
   "agent.manager.intent": "店长 Agent 已判断意图",
   "agent.recommender.suggesting": "推荐 Agent 正在生成建议",
@@ -71,7 +71,7 @@ const AGENT_ACTION_TEXT: Record<string, string> = {
   prepare_coffee: "咖啡师开始制作",
   deliver_order: "服务员正在送餐",
   show_message: "员工正在回复顾客",
-  leave_scene: "员工离开咖啡厅",
+  leave_scene: "员工离开EvoMap 进化咖啡馆",
 };
 
 function formatEvent(event: VisEvent) {
@@ -79,7 +79,7 @@ function formatEvent(event: VisEvent) {
     const actionType = typeof event.payload?.action_type === "string" ? event.payload.action_type : "";
     return AGENT_ACTION_TEXT[actionType] ?? EVENT_TEXT[event.type];
   }
-  return EVENT_TEXT[event.type] ?? "咖啡厅状态已更新";
+  return EVENT_TEXT[event.type] ?? "EvoMap 进化咖啡馆状态已更新";
 }
 
 function sourceText(sourceType: string) {
@@ -116,7 +116,7 @@ export default function Dashboard() {
   return (
     <div style={{ width: "100vw", height: "100vh", background: "#080c12", color: "#dfe8f5", fontFamily: "system-ui, sans-serif", padding: 24, boxSizing: "border-box", overflow: "auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <h1 style={{ margin: 0, fontSize: 24, letterSpacing: 2 }}>Coffee AI Boss · 实时监控大屏</h1>
+        <h1 style={{ margin: 0, fontSize: 24, letterSpacing: 2 }}>EvoMap 进化咖啡馆 · 实时监控大屏</h1>
         <span style={{ color: "#7fa6d8", fontSize: 13 }}>{new Date().toLocaleString("zh-CN")}</span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 16 }}>

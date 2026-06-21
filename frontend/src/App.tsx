@@ -40,7 +40,7 @@ function TopBar() {
         WebkitBackdropFilter: "blur(6px)",
       }}
     >
-      <Link to="/scene" style={navLink}>3D 咖啡厅</Link>
+      <Link to="/scene" style={navLink}>3D EvoMap 进化咖啡馆</Link>
       <Link to="/dashboard" style={navLink}>大屏</Link>
       <button
         onClick={() => toggleMute()}

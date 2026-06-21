@@ -75,7 +75,7 @@ const EVENT_TEXT: Record<string, string> = {
   "order.paid": "支付完成，订单已确认",
   "order.failed": "订单处理失败",
   "order.reply": "店长已回复顾客",
-  "restaurant.customer_entered": "顾客进入咖啡厅",
+  "restaurant.customer_entered": "顾客进入EvoMap 进化咖啡馆",
   "restaurant.order_ticketed": "已生成点单小票",
   "restaurant.order_confirming": "正在确认订单内容",
   "restaurant.payment_requested": "已向顾客发起支付",
@@ -86,9 +86,9 @@ const EVENT_TEXT: Record<string, string> = {
   "restaurant.order_ready": "咖啡已制作完成",
   "restaurant.order_delivered": "咖啡已送达顾客",
   "restaurant.customer_reviewed": "顾客已完成评价",
-  "restaurant.customer_left": "顾客离开咖啡厅",
+  "restaurant.customer_left": "顾客离开EvoMap 进化咖啡馆",
   "restaurant.order_failed": "订单流程异常",
-  "agent.registered": "员工已进入咖啡厅",
+  "agent.registered": "员工已进入EvoMap 进化咖啡馆",
   "presence.customer_joined": "在线顾客已进入",
   "presence.customer_moved": "在线顾客正在移动",
   "presence.customer_left": "在线顾客已离开",
@@ -101,7 +101,7 @@ const AGENT_ACTION_TEXT: Record<string, string> = {
   prepare_coffee: "咖啡师开始制作",
   deliver_order: "服务员正在送餐",
   show_message: "员工正在回复顾客",
-  leave_scene: "员工离开咖啡厅",
+  leave_scene: "员工离开EvoMap 进化咖啡馆",
 };
 
 function formatSceneEvent(event: VisEvent) {
@@ -109,7 +109,7 @@ function formatSceneEvent(event: VisEvent) {
     const actionType = typeof event.payload?.action_type === "string" ? event.payload.action_type : "";
     return AGENT_ACTION_TEXT[actionType] ?? "员工正在处理订单";
   }
-  return EVENT_TEXT[event.type] ?? "咖啡厅状态已更新";
+  return EVENT_TEXT[event.type] ?? "EvoMap 进化咖啡馆状态已更新";
 }
 
 export default function OfficeScene() {
@@ -470,17 +470,6 @@ export default function OfficeScene() {
     return null;
   }, [drag, ghostPos, wallDrawStart, worldToCanvas]);
 
-  // TEMP DEBUG — verify B1 drag fix, REMOVE after validation
-  if (typeof window !== "undefined") {
-    const w = window as unknown as Record<string, unknown>;
-    w.__officeDrag = drag;
-    w.__officeEdit = editMode;
-    w.__officeSel = selectedUid;
-    w.__officeSelItem = selectedItem
-      ? { type: selectedItem.type, x: selectedItem.x, y: selectedItem.y, facing: selectedItem.facing }
-      : null;
-  }
-
   return (
     <div style={{ position: "relative", width: "100vw", height: "100vh", background: "#0b0f14" }}>
       <Canvas
@@ -561,7 +550,7 @@ export default function OfficeScene() {
       </Canvas>
       <ImmersiveOverlay kind={overlay} onClose={() => setOverlay(null)} />
       <div style={{ position: "absolute", top: statusTop, left: 12, color: "#e8dfc0", fontFamily: "monospace", fontSize: 12, background: "rgba(0,0,0,0.55)", padding: "6px 10px", borderRadius: 6, maxWidth: "calc(100vw - 24px)" }}>
-        <div>Coffee AI Boss · 3D 咖啡厅</div>
+        <div>EvoMap 进化咖啡馆</div>
         <div style={{ opacity: 0.7 }}>WS: {status} · 在场员工 {sim.agents.length} · 焦点 {focusId ?? "无"}</div>
       </div>
       <div
@@ -627,7 +616,7 @@ export default function OfficeScene() {
       )}
       <div style={{ position: "absolute", bottom: 12, right: 12, width: "min(360px, calc(100vw - 24px))", maxHeight: eventLogMaxHeight, overflowY: "auto", background: "rgba(8,12,20,0.8)", color: "#cfe0ff", fontFamily: "monospace", fontSize: 11, padding: 8, borderRadius: 6 }}>
         <div style={{ color: "#9fb6d8", fontSize: 11, padding: "0 0 6px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-          咖啡厅动态
+          EvoMap 进化咖啡馆动态
         </div>
         {events.map((e) => {
           const text = formatSceneEvent(e);
