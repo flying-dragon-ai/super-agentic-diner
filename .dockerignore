@@ -1,0 +1,63 @@
+# Docker 构建上下文排除清单（减少镜像体积、避免泄漏本地凭证）
+# 运行所需 = app/ (含 app/static/3d 构建产物) + scripts/ + requirements.txt
+
+# VCS
+.git/
+.gitignore
+.gitattributes
+
+# Python 缓存 / 本地虚拟环境
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+
+# Node 源码与依赖（前端产物已在 app/static/3d，镜像免装 Node）
+frontend/
+package.json
+package-lock.json
+
+# AI 编辑器 / 工具配置（开发期，非运行所需）
+.idea/
+.cursor/
+.codex/
+.gemini/
+.trae/
+.zhipu/
+.qingyan/
+.kiro/
+.codestable/
+.claude/
+.evolver/
+.codegraph/
+.ccg/
+.agents/
+
+# 文档与测试（不打进运行镜像）
+docs/
+tests/
+*.md
+memory/
+output/
+.artifacts/
+.playwright-mcp/
+
+# 本地凭证（容器内通过环境变量 / secret 注入，绝不打包）
+.env
+.env.*
+!.env.example
+.local-consumer.env
+.mcp.json
+.mcp.json.backup
+
+# 本地运行产物
+*.log
+server.*.log
+coffee.db
+
+# 构建上下文自身
+Dockerfile
+.dockerignore
+docker-compose.yml

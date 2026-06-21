@@ -131,6 +131,12 @@ export default function OfficeScene() {
   );
   const [drag, setDrag] = useState<DragState>({ kind: "idle" });
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
+  // B1: synchronous flag — when a furniture/machine is clicked, the R3F event
+  // listener (registered first) runs and sets this true; the FloorRaycaster's
+  // native DOM click listener (registered later, same click event) reads it to
+  // skip the drag reset, otherwise drag never survives as "moving" and the
+  // follow-cursor drag is dead.
+  const justSelectedRef = useRef(false);
   const [hoverUid, setHoverUid] = useState<string | null>(null);
   const [ghostPos, setGhostPos] = useState<[number, number, number] | null>(null);
   const [wallDrawStart, setWallDrawStart] = useState<{ x: number; y: number } | null>(null);
@@ -299,6 +305,13 @@ export default function OfficeScene() {
   }, [worldToCanvas]);
 
   const handleFloorClick = useCallback((wx: number, wz: number) => {
+    // B1: clicking furniture fires the R3F listener first (sets justSelectedRef),
+    // then this native click listener. Skip the reset so drag=moving survives and
+    // the follow-cursor drag works. Flag is consumed here (reset to false).
+    if (justSelectedRef.current) {
+      justSelectedRef.current = false;
+      return;
+    }
     setDrag((d) => {
       if (d.kind === "placing") {
         const { cx, cy } = worldToCanvas(wx, wz);
@@ -344,6 +357,7 @@ export default function OfficeScene() {
     if (!editMode) return;
     setSelectedUid(uid);
     setDrag({ kind: "moving", uid });
+    justSelectedRef.current = true;
   }, [editMode]);
 
   // Single source of truth for the currently-selected item (kept in sync with
@@ -368,24 +382,29 @@ export default function OfficeScene() {
   );
 
   const moveSelectedItem = useCallback(
-    (dx: number, dy: number, de = 0) =>
+    (dx: number, dy: number, de = 0) => {
       updateSelectedItem((it) => ({
         ...it,
         x: Math.max(0, Math.min(CANVAS_W, snap(it.x + dx))),
         y: Math.max(0, Math.min(CANVAS_H, snap(it.y + dy))),
         elevation: Math.max(-0.4, Math.min(2.5, (it.elevation ?? 0) + de)),
-      })),
+      }));
+      // B2: precise nudge (panel button / keyboard) should end follow-cursor so
+      // the result isn't clobbered when the mouse re-enters the canvas. The
+      // follow-cursor path is handleFloorMove (setFurniture directly) and never
+      // goes through here, so it's unaffected.
+      setDrag({ kind: "idle" });
+    },
     [updateSelectedItem],
   );
 
-  const rotateSelectedItem = useCallback(
-    (deltaDeg: number) =>
-      updateSelectedItem((it) => ({
-        ...it,
-        facing: normalizeDegrees((it.facing ?? 0) + deltaDeg),
-      })),
-    [updateSelectedItem],
-  );
+  const rotateSelectedItem = useCallback((deltaDeg: number) => {
+    updateSelectedItem((it) => ({
+      ...it,
+      facing: normalizeDegrees((it.facing ?? 0) + deltaDeg),
+    }));
+    setDrag({ kind: "idle" });
+  }, [updateSelectedItem]);
 
   const deleteSelectedItem = useCallback(() => {
     if (!selectedUid) return;
@@ -450,6 +469,17 @@ export default function OfficeScene() {
     }
     return null;
   }, [drag, ghostPos, wallDrawStart, worldToCanvas]);
+
+  // TEMP DEBUG — verify B1 drag fix, REMOVE after validation
+  if (typeof window !== "undefined") {
+    const w = window as unknown as Record<string, unknown>;
+    w.__officeDrag = drag;
+    w.__officeEdit = editMode;
+    w.__officeSel = selectedUid;
+    w.__officeSelItem = selectedItem
+      ? { type: selectedItem.type, x: selectedItem.x, y: selectedItem.y, facing: selectedItem.facing }
+      : null;
+  }
 
   return (
     <div style={{ position: "relative", width: "100vw", height: "100vh", background: "#0b0f14" }}>

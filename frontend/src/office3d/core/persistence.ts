@@ -23,9 +23,9 @@ export const loadFurniture = (namespace = "default"): FurnitureItem[] | null => 
     const raw = localStorage.getItem(resolveStorageKey(STORAGE_KEY, namespace));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0
-      ? (parsed as FurnitureItem[])
-      : null;
+    // B3: accept an empty array — a user who deliberately deleted every piece
+    // should stay empty on refresh, not be restored to the default layout.
+    return Array.isArray(parsed) ? (parsed as FurnitureItem[]) : null;
   } catch {
     return null;
   }

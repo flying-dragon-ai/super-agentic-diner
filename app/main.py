@@ -150,6 +150,11 @@ if _3D_STATIC_DIR.is_dir():
     _3d_office_assets = _3D_STATIC_DIR / "office-assets"
     if _3d_office_assets.is_dir():
         app.mount("/3d/office-assets", StaticFiles(directory=_3d_office_assets), name="static-3d-office-assets")
+    _3d_sounds = _3D_STATIC_DIR / "sounds"
+    if _3d_sounds.is_dir():
+        # 3D 场景背景音乐（m1/m2 ...），构建产物来自 frontend/public/sounds/。
+        # 不挂载则会被 /3d/{full_path:path} SPA fallback 返回 HTML，Audio.play 静默失败。
+        app.mount("/3d/sounds", StaticFiles(directory=_3d_sounds), name="static-3d-sounds")
 
 # 咖啡菜单图片（app/imag/ 下的 PNG）
 _IMAG_DIR = Path(__file__).resolve().parent / "imag"
