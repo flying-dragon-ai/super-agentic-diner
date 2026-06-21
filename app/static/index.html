@@ -217,11 +217,56 @@
     transition: background .15s;
   }
   .confirm-actions button:hover { background: #d49a66; }
+
+  /* ===== Agent 运行指示灯 ===== */
+  #agentStatus {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    padding: 0 12px;
+    flex-shrink: 0;
+  }
+  .agent-lamp {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: #6a5a4a;
+    transition: color .3s;
+    white-space: nowrap;
+  }
+  .agent-lamp .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #4a3429;
+    transition: all .3s;
+    flex-shrink: 0;
+  }
+  .agent-lamp.active {
+    color: #f5ebe0;
+  }
+  .agent-lamp.active .dot {
+    background: #4caf50;
+    box-shadow: 0 0 10px #4caf50, 0 0 4px #4caf50;
+    animation: lamp-pulse 1s ease-in-out infinite;
+  }
+  @keyframes lamp-pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.3); opacity: 0.7; }
+  }
 </style>
 </head>
 <body>
 <header>
   <h1><span>☕</span>智能咖啡馆 · AI 店长</h1>
+  <!-- Agent 运行指示灯：用到哪个亮哪个，WebSocket 实时驱动 -->
+  <div id="agentStatus">
+    <div class="agent-lamp" id="lamp-manager"><span class="dot"></span><span>🧠 店长</span></div>
+    <div class="agent-lamp" id="lamp-recommender"><span class="dot"></span><span>🎯 推荐</span></div>
+    <div class="agent-lamp" id="lamp-reviewer"><span class="dot"></span><span>🔍 复盘</span></div>
+    <div class="agent-lamp" id="lamp-experience"><span class="dot"></span><span>📚 经验</span></div>
+  </div>
   <div id="headRight">
     <!-- 点击新开标签页打开 3D 咖啡厅场景(/3d) -->
     <button id="view3dBtn" onclick="window.open('/3d','_blank')">🌐 3D 咖啡厅</button>
@@ -486,21 +531,17 @@ async function send() {
   addMsg(text, 'user');
   const typing = addMsg('店长正在思考…', 'bot');
   typing.classList.add('typing');
+  // 进入思考态：用到的灯保持亮，结果返回后统一关闭
+  _lampsThinking = true;
+  // 立即点亮店长灯（请求已发出，店长 Agent 正在分析意图）
+  _lightAgentLamp('agent.manager.intent');
   $('sendBtn').disabled = true;
-  const controller = new AbortController();
-  const stillThinkingTimer = setTimeout(() => {
-    if (typing.classList.contains('typing')) {
-      typing.textContent = '店长还在生成推荐，请稍等…';
-    }
-  }, 6000);
-  const requestTimer = setTimeout(() => controller.abort(), 20000);
   try {
     const consumerUrl = window.location.href;
     const r = await fetch('/chat', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({user_id: USER_ID, message: text, consumer_url: consumerUrl}),
-      signal: controller.signal
+      body: JSON.stringify({user_id: USER_ID, message: text, consumer_url: consumerUrl})
     });
     // 先检查响应是否正常，再安全解析 JSON（防止 500 返回纯文本导致 JSON.parse 崩溃）
     if (!r.ok) {
@@ -513,6 +554,9 @@ async function send() {
     }
     const data = await r.json();
     typing.classList.remove('typing');
+    // 结果出来 → 退出思考态并关闭所有 Agent 灯
+    _lampsThinking = false;
+    _clearAllLamps();
     const menuRequest = isMenuRequest(text);
     // 优先使用后端返回的结构化产品数据渲染卡片（推荐/菜单场景均覆盖）
     if (data.products && data.products.length > 0) {
@@ -554,15 +598,13 @@ async function send() {
     refreshUser();
     refreshOrders();
   } catch (e) {
-    const message = e.name === 'AbortError'
-      ? '这次响应太久了，请稍后重试。为避免重复下单，我没有自动重发。'
-      : e.message;
-    typing.textContent = '⚠️ 网络错误：' + message;
+    typing.textContent = '⚠️ 网络错误：' + e.message;
     typing.classList.add('sys');
-    renderQuickMenu({userText: text, botText: message, stage: 'issue'});
+    // 出错也要关灯并退出思考态
+    _lampsThinking = false;
+    _clearAllLamps();
+    renderQuickMenu({userText: text, botText: e.message, stage: 'issue'});
   } finally {
-    clearTimeout(stillThinkingTimer);
-    clearTimeout(requestTimer);
     $('sendBtn').disabled = false;
   }
 }
@@ -627,6 +669,74 @@ async function refreshMode() {
   } catch(e) {}
 }
 
+// ===== Agent 运行指示灯（WebSocket 实时驱动）=====
+// 4 个 Agent(智能体)：店长 / 推荐 / 复盘 / 经验，事件前缀 → 灯 ID 映射
+const _AGENT_LAMPS = {
+  'agent.manager.': 'lamp-manager',
+  'agent.recommender.': 'lamp-recommender',
+  'agent.reviewer.': 'lamp-reviewer',
+  'agent.experience.': 'lamp-experience',
+};
+const _lampTimers = {};
+// 思考态标志：true=正在等 LLM 响应，灯保持亮；false=响应已返回，灯应熄灭
+let _lampsThinking = false;
+
+// 点亮某个 Agent 的灯
+function _lightAgent(eventType) {
+  _lightAgentLamp(eventType);
+}
+// 直接按事件类型点亮灯（send() 也调用此函数做即时反馈）
+function _lightAgentLamp(eventType) {
+  for (const prefix in _AGENT_LAMPS) {
+    if (eventType.startsWith(prefix)) {
+      const lampId = _AGENT_LAMPS[prefix];
+      const lamp = document.getElementById(lampId);
+      if (!lamp) break;
+      lamp.classList.add('active');
+      // 思考态：不自动熄灭，等结果出来统一关
+      // 非思考态：3 秒后自动熄灭（兜底，比如后台复盘异步事件）
+      if (_lampTimers[lampId]) clearTimeout(_lampTimers[lampId]);
+      if (!_lampsThinking) {
+        _lampTimers[lampId] = setTimeout(() => lamp.classList.remove('active'), 3000);
+      }
+      break;
+    }
+  }
+}
+// 关闭所有 Agent 灯（结果返回后调用）
+function _clearAllLamps() {
+  for (const lampId of Object.values(_AGENT_LAMPS)) {
+    const lamp = document.getElementById(lampId);
+    if (lamp) lamp.classList.remove('active');
+    if (_lampTimers[lampId]) { clearTimeout(_lampTimers[lampId]); delete _lampTimers[lampId]; }
+  }
+}
+
+// 连接 /ws/visualization，监听 agent.* 事件
+function _connectAgentWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = proto + '//' + location.host + '/ws/visualization';
+  try {
+    const ws = new WebSocket(wsUrl);
+    ws.onmessage = function(evt) {
+      try {
+        const data = JSON.parse(evt.data);
+        // 只关心 agent.* 事件（过滤掉 scene.snapshot / restaurant.* 等）
+        if (data.type && data.type.startsWith('agent.')) {
+          _lightAgent(data.type);
+        }
+      } catch(e) {}
+    };
+    ws.onclose = function() {
+      // 断线 5 秒后自动重连
+      setTimeout(_connectAgentWS, 5000);
+    };
+    ws.onerror = function() { ws.close(); };
+  } catch(e) {
+    setTimeout(_connectAgentWS, 5000);
+  }
+}
+
 // 未登录态：隐藏聊天区，显示登录引导
 function showLoginPrompt() {
   const chatBox = $('chat');
@@ -661,6 +771,7 @@ async function initAuth() {
     });
   }
   renderQuickMenu({scene: 'welcome'});
+  _connectAgentWS();  // 启动 Agent 指示灯 WebSocket
   const ok = await initAuth();
   if (!ok) return;
   addMsg('您好！我是咖啡馆 AI 店长 ☕\n\n告诉我您喜欢的口味，或者有什么忌口，我来为您推荐~\n（试试右侧的快捷按钮）', 'bot');
