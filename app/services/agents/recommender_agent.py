@@ -84,7 +84,8 @@ def recommend(
     kb_rows = retrieve(db, positive, negative)
     # 兜底：RAG 无结果 → 加载全部真实产品，杜绝 LLM(大模型) 幻觉
     if not kb_rows:
-        kb_rows = db.query(Product).order_by(Product.base_price).all()
+        from app.services.chat_service import get_all_products
+        kb_rows = get_all_products(db)
 
     # 第2步：★ 硬过滤 — 从经验提取规则，直接剔除已知错项
     hard_filters = get_hard_filters(user_id)

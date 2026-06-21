@@ -1,6 +1,5 @@
 """FastAPI entrypoint for chat ordering and Agent visualization APIs."""
 import asyncio
-import logging
 import threading
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -9,7 +8,7 @@ import anyio
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -45,10 +44,8 @@ from app.memory.chat_history import (
     get_pending_order,
     set_pending_order,
 )
-from app.services.catalog_service import AmbiguousProductError, get_product_by_name
-from app.services.chat_service import extract_price, handle_message, match_by_price
+from app.services.chat_service import extract_price, handle_message, match_by_price, get_all_products
 from app.services.agent_orchestrator import orchestrate as agent_orchestrate
-from app.services.agents import reviewer_agent
 from app.services.agents.experience_agent import list_recent_experiences
 from app.services import evomap_evolution_service
 from app.services.agents.experience_agent import sync_community_experience as _sync_community_exp
@@ -81,7 +78,6 @@ from app.auth import service as auth_service
 from app.colyseus_bridge import start_colyseus_server, stop_colyseus_server
 
 app = FastAPI(title="智能咖啡馆 AI 店长")
-logger = logging.getLogger(__name__)
 
 # EvoMap 心跳定时器（群体进化：保持节点在线 + 定时拉取社区经验）
 _evomap_heartbeat_thread: threading.Thread | None = None
@@ -154,9 +150,6 @@ if _3D_STATIC_DIR.is_dir():
     _3d_office_assets = _3D_STATIC_DIR / "office-assets"
     if _3d_office_assets.is_dir():
         app.mount("/3d/office-assets", StaticFiles(directory=_3d_office_assets), name="static-3d-office-assets")
-    _3d_sounds = _3D_STATIC_DIR / "sounds"
-    if _3d_sounds.is_dir():
-        app.mount("/3d/sounds", StaticFiles(directory=_3d_sounds), name="static-3d-sounds")
 
 # 咖啡菜单图片（app/imag/ 下的 PNG）
 _IMAG_DIR = Path(__file__).resolve().parent / "imag"
@@ -182,7 +175,7 @@ def _resolve_coffees_from_history(db, history, max_messages=1):
     max_messages=1：只看最近1条assistant消息（默认，避免前面聊过5杯就全选）
     max_messages=3：看最近3条（用户说"这两杯了"时用，跨多轮提取）
     """
-    all_coffees = [c.name for c in db.query(Product).all()]
+    all_coffees = [c.name for c in get_all_products(db)]
     found = []
     msg_count = 0
     for msg in reversed(history):
@@ -197,14 +190,8 @@ def _resolve_coffees_from_history(db, history, max_messages=1):
 
 
 def _lookup_price_from_product(db, coffee_name):
-    """从商品目录查价格（与扣款共用 get_product_by_name，保证报价=扣款价）。
-
-    未找到或简称歧义时返回 0.0；正常下单链路传精确名，不会触发歧义。
-    """
-    try:
-        product = get_product_by_name(db, coffee_name)
-    except AmbiguousProductError:
-        return 0.0
+    """从商品目录查价格，查不到返回 0"""
+    product = db.query(Product).filter(Product.name == coffee_name).first()
     return float(product.base_price) if product else 0.0
 
 
@@ -232,6 +219,47 @@ _CONFIRM_NEGATIVE_WORDS = (
     "怎么", "如何", "什么", "是否", "能不能", "可不可以",
 )
 _CONFIRM_QUESTION_MARKS = ("吗", "？", "?")
+
+# ======/chat 加速：启发式判断消息是否「明显不是下单」以跳过 parse_intent 的 LLM 调用/======
+# 触发条件：消息含订单/确认信号 → 必须调 parse_intent 提取 coffee_name 等细节；
+# 否则消息含推荐/口味/问号等信号 → 直接走 recommend，省一次 LLM 往返（约 1-5s）。
+_ORDER_HEURISTIC_WORDS = (
+    "买", "下单", "结账", "扣钱", "扣款", "付款", "买单", "从余额",
+    "来一杯", "来个", "来两杯", "要一杯", "要个", "要两杯",
+    "点一杯", "点个", "来份", "给我来", "整一杯", "整一个",
+    "就这个", "就它", "这两杯", "就买", "就点",
+)
+# 明确的推荐/聊天信号（仅在不含订单词时才触发跳过）
+_RECOMMEND_CHAT_HINTS = (
+    "推荐", "有什么", "介绍一下", "介绍下", "区别", "哪种", "换口味", "换个",
+    "多少钱", "几点", "为什么", "怎么", "如何", "？", "?", "吗",
+    "果味", "苦", "甜", "酸", "椰", "口味", "偏好", "忌口", "喜欢", "清爽",
+    "不要牛奶", "无奶", "不加奶", "深烘", "浅烘", "加冰", "热饮", "冷饮",
+)
+
+
+def _is_clearly_non_order(user_msg: str) -> bool:
+    """启发式：消息是否「明显不是下单」，可以跳过 parse_intent 的 LLM 调用。
+
+    保守策略：拿不准时返回 False（仍调 LLM），只在非常确定时才跳过省一次调用。
+    安全兜底：即便误判为「非下单」，orchestrator(编排器) 里的 _detect_exact_product
+    仍会从消息里捞出精确商品名（如「柑橘冷萃」）并改路由为 order。
+    """
+    msg = user_msg.strip()
+    if not msg:
+        return True  # 空消息不会下单
+    # 含疑问标记 → 提问而非下单（即使以「可以」开头也是提问，如「可以加冰吗」）
+    if any(w in msg for w in _CONFIRM_QUESTION_MARKS):
+        return True
+    # 含订单词或确认词 → 不能跳过
+    if any(w in msg for w in _ORDER_HEURISTIC_WORDS):
+        return False
+    if any(w in msg for w in _CONFIRM_STRONG):
+        return False
+    if len(msg) <= 6 and any(msg.startswith(w) for w in _CONFIRM_WEAK):
+        return False
+    # 没有订单词时，再看是否有推荐/聊天信号
+    return any(w in msg for w in _RECOMMEND_CHAT_HINTS)
 
 
 def _is_confirming(user_msg):
@@ -277,79 +305,6 @@ def _is_order_view_query(user_msg: str) -> bool:
     if "订单" not in msg:
         return False
     return any(hint in msg for hint in _ORDER_VIEW_HINTS)
-
-
-_FAST_ORDER_WORDS = (
-    "买", "下单", "结账", "来一杯", "来个", "来两杯", "要一杯", "要个", "要两杯",
-    "点一杯", "点个", "来份", "给我来", "整一杯", "整一个", "就这个", "就它",
-)
-_FAST_RECOMMEND_WORDS = (
-    "推荐", "菜单", "有什么", "有啥", "看看", "口味", "风味", "喜欢", "想喝",
-    "不要", "不加", "少糖", "清甜", "果味", "水果", "苦", "酸", "香", "换一个",
-    "换个", "再推荐", "介绍一下",
-)
-_FAST_NON_ORDER_WORDS = (
-    "推荐", "菜单", "有什么", "有啥", "多少钱", "价格", "介绍", "区别",
-    "吗", "？", "?",
-)
-_FAST_CONFIRM_WORDS = ("可以", "行", "好", "好的", "嗯", "要", "就这个", "就它", "就这杯")
-_MULTI_SIGNALS = ("两杯", "这些", "都", "全部", "三个", "两个", "这几杯", "都来", "全要")
-
-
-def _has_recent_recommendation(history: list[dict]) -> bool:
-    recent_bot = [
-        m.get("content", "")
-        for m in (history or [])
-        if m.get("role") == "assistant"
-    ][:2]
-    return any(
-        "推荐" in content
-        or "拿铁" in content
-        or "美式" in content
-        or "冷萃" in content
-        or "咖啡" in content
-        for content in recent_bot
-    )
-
-
-def _find_exact_product_name(db: Session, user_msg: str) -> str | None:
-    msg = user_msg.strip()
-    if not msg:
-        return None
-    names = [row.name for row in db.query(Product).all()]
-    for name in names:
-        if name and name in msg:
-            return name
-    return None
-
-
-def _fast_classify_chat_intent(db: Session, history: list[dict], user_msg: str) -> dict[str, Any] | None:
-    """Return an intent when local rules are strong enough to skip LLM latency."""
-    msg = user_msg.strip()
-    if not msg:
-        return {"intent": "chat", "reason": "empty_message"}
-
-    exact_product = _find_exact_product_name(db, msg)
-    has_order_word = any(word in msg for word in _FAST_ORDER_WORDS)
-    has_non_order_word = any(word in msg for word in _FAST_NON_ORDER_WORDS)
-
-    if exact_product and has_order_word and not has_non_order_word:
-        return {"intent": "order", "reason": "exact_product_and_order_word", "coffee_name": exact_product}
-
-    price = extract_price(msg)
-    if price is not None and has_order_word and not has_non_order_word and match_by_price(db, price):
-        return {"intent": "order", "reason": "price_and_order_word"}
-
-    if len(msg) <= 8 and any(msg.startswith(word) for word in _FAST_CONFIRM_WORDS) and _has_recent_recommendation(history):
-        return {"intent": "order", "reason": "short_confirmation_after_recommendation"}
-
-    if any(word in msg for word in _FAST_RECOMMEND_WORDS):
-        return {"intent": "recommend", "reason": "local_recommendation_signal"}
-
-    if has_order_word and not has_non_order_word:
-        return {"intent": "order", "reason": "local_order_signal"}
-
-    return None
 
 
 def _format_order_history_reply(db: Session, user_id: int) -> str:
@@ -400,6 +355,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     order_id: Optional[int] = None
+    products: Optional[list[dict]] = None  # 推荐/菜单场景的产品卡片数据
 
 
 class AgentRegisterRequest(BaseModel):
@@ -517,52 +473,6 @@ def _try_publish_visualization_event(
                 "created_at": datetime.utcnow().isoformat(),
             }
         )
-
-
-def _run_review_background(
-    *,
-    user_id: int,
-    user_msg: str,
-    history: list[dict],
-    correlation_id: str | None,
-    trigger_reason: str,
-    web_source_payload: dict[str, Any],
-) -> None:
-    """Run reviewer/experience LLM work after the user-facing response."""
-    db = SessionLocal()
-    try:
-        review = reviewer_agent.review_mistake(
-            db,
-            user_id=user_id,
-            user_msg=user_msg,
-            history=history,
-            correlation_id=correlation_id,
-            trigger_reason=trigger_reason,
-        )
-        if not review:
-            return
-        _try_publish_visualization_event(
-            db,
-            "agent.reviewer.reviewed",
-            {
-                "user_id": user_id,
-                "mistake_type": review.get("mistake_type"),
-                "rating": review.get("rating"),
-                "insight": review.get("insight"),
-                **web_source_payload,
-            },
-            correlation_id=correlation_id,
-        )
-        _try_publish_visualization_event(
-            db,
-            "agent.experience.learned",
-            {"user_id": user_id, "insight": review.get("insight", ""), **web_source_payload},
-            correlation_id=correlation_id,
-        )
-    except Exception:
-        logger.exception("后台复盘失败 user_id=%s correlation_id=%s", user_id, correlation_id)
-    finally:
-        db.close()
 
 
 def _web_restaurant_payload(
@@ -732,7 +642,7 @@ def _require_agent(
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(req: ChatRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+def chat(req: ChatRequest, db: Session = Depends(get_db)):
     """Handle chat, recommendation, pending confirmation, and paid order flows."""
     consumer_url = _normalize_consumer_url(req.consumer_url)
     web_source_payload = {
@@ -887,10 +797,16 @@ def chat(req: ChatRequest, background_tasks: BackgroundTasks, db: Session = Depe
             # （覆盖：修改订单"只要28的"、换一杯、重新选、闲聊等所有情况）
             clear_pending_order(req.user_id)
 
-    # ===== 第2步：无待确认订单 → 先走本地快路径，模糊输入才调 LLM 理解用户意图 =====
-    # 避免“我要一杯美式咖啡 / 来个28元的 / 看看菜单”这类确定请求先等外部 LLM。
-    intent = _fast_classify_chat_intent(db, history, req.message)
-    if intent is None:
+    # ===== 第2步：无待确认订单 → 调 LLM 理解用户意图 =====
+    # 加速 1：消息含精确/部分商品名（"美式"→"美式咖啡"）→ 直接 order，跳过所有 LLM 调用
+    # 加速 2：消息「明显不是下单」时跳过 parse_intent，直接走 recommend
+    from app.services.agent_orchestrator import _detect_exact_product
+    exact_product = _detect_exact_product(db, req.message)
+    if exact_product:
+        intent = {"intent": "order", "coffee_name": exact_product, "reason": "exact_product_match"}
+    elif _is_clearly_non_order(req.message):
+        intent = {"intent": "recommend", "reason": "heuristic_skip_parse_intent"}
+    else:
         intent = llm.parse_intent(history, req.message)
     _try_publish_visualization_event(
         db,
@@ -911,26 +827,33 @@ def chat(req: ChatRequest, background_tasks: BackgroundTasks, db: Session = Depe
 
         # 第3.2路：LLM 显式给出了咖啡名（它能理解"一开始说的""刚才那杯"等引用）
         # 信任 LLM 的引用理解能力，排在历史盲扫之前
+        _llm_gave_unknown_coffee = False  # 标记 LLM 给了咖啡名但不在菜单
         if not coffees:
             coffee = intent.get("coffee_name")
             if coffee:
                 # 处理 LLM 可能返回合并名 "柑橘冷萃和美式咖啡"
-                valid_names = [c.name for c in db.query(Product).all()]
+                valid_names = [c.name for c in get_all_products(db)]
                 parts = [p.strip() for p in coffee.replace("和", ",").replace("、", ",").split(",") if p.strip()]
                 matched = [p for p in parts if p in valid_names]
                 if matched:
                     coffees = matched
+                else:
+                    # LLM 给了咖啡名但都不在菜单 → 用户说的是不存在的咖啡
+                    _llm_gave_unknown_coffee = True
 
         # 第3.3路：消息含描述性词（"无牛奶"/"果味"）→ RAG 关键词过滤
-        if not coffees:
+        # 跳过条件：LLM 已判定为不存在的咖啡（避免 RAG/历史误匹配）
+        if not coffees and not _llm_gave_unknown_coffee:
             positive, negative = extract_keywords(req.message)
             if positive or negative:
                 coffees = [r.name for r in retrieve(db, positive, negative)]
 
         # 第3.4路：以上都没命中 → 从 Redis 历史提取（最弱信号，兜底）
+        # 跳过条件：LLM 已判定为不存在的咖啡
         # 默认只看最近1条消息（1杯）；用户说「两杯/这些/都」时跨轮提取3条
+        _MULTI_SIGNALS = ("两杯", "这些", "都", "全部", "三个", "两个", "这几杯", "都来", "全要")
         wants_multi = any(w in req.message for w in _MULTI_SIGNALS)
-        if not coffees:
+        if not coffees and not _llm_gave_unknown_coffee:
             scan = 3 if wants_multi else 1
             coffees = _resolve_coffees_from_history(db, history, max_messages=scan)
 
@@ -939,7 +862,19 @@ def chat(req: ChatRequest, background_tasks: BackgroundTasks, db: Session = Depe
             coffees = coffees[:1]
 
         if not coffees:
-            reply = "不好意思，我没太确定您想买哪杯，能再说一下咖啡名字吗？"
+            # 区分：用户说了咖啡名但我们没有 vs 完全没说咖啡名
+            # 如果消息含咖啡品类词但没匹配任何产品 → 用户说的是不存在的咖啡
+            _COFFEE_TYPE_WORDS = (
+                "咖啡", "拿铁", "美式", "冷萃", "玛奇朵", "摩卡", "卡布", "卡布奇诺",
+                "澳白", "澳白咖啡", "flat white", "espresso", "意式", "浓缩",
+                "手冲", "挂耳", "速溶", "frappe", "frappuccino", "玛奇朵",
+            )
+            msg_lower = req.message.lower()
+            says_coffee_type = any(w.lower() in msg_lower for w in _COFFEE_TYPE_WORDS)
+            if says_coffee_type:
+                reply = "这款我们没有哦～您说的这个问题我们已经反馈给店长了，感谢您的光临！目前可以试试我们的美式、柑橘冷萃、椰香冷萃、焦糖玛奇朵或莓果拿铁～"
+            else:
+                reply = "不好意思，我没太确定您想买哪杯，能再说一下咖啡名字吗？"
             add_message(req.user_id, "user", req.message)
             add_message(req.user_id, "assistant", reply)
             _publish_web_restaurant_event(
@@ -1010,7 +945,7 @@ def chat(req: ChatRequest, background_tasks: BackgroundTasks, db: Session = Depe
         return ChatResponse(reply=reply)
 
     # ===== 非下单意图（recommend/chat）→ 多 Agent(智能体) 协作流程 =====
-    # 同步路径只做意图/推荐；纠正检测命中时，复盘与经验继承放到后台执行。
+    # 编排器按序调用：店长(意图)→推荐(RAG+经验)→[纠正检测]→复盘→经验继承
     clear_pending_order(req.user_id)
     orch = agent_orchestrate(
         db,
@@ -1018,8 +953,6 @@ def chat(req: ChatRequest, background_tasks: BackgroundTasks, db: Session = Depe
         req.message,
         correlation_id=req.request_id,
         precomputed_intent=intent,
-        history=history,
-        include_review=False,
     )
     # 发布编排器产生的所有 Agent 协作事件
     for evt in orch.events:
@@ -1029,28 +962,18 @@ def chat(req: ChatRequest, background_tasks: BackgroundTasks, db: Session = Depe
             {**evt.get("payload", {}), **web_source_payload},
             correlation_id=req.request_id,
         )
-    if orch.review_trigger_reason:
-        background_tasks.add_task(
-            _run_review_background,
-            user_id=req.user_id,
-            user_msg=req.message,
-            history=history,
-            correlation_id=req.request_id,
-            trigger_reason=orch.review_trigger_reason,
-            web_source_payload=web_source_payload,
-        )
     # 若编排器已写对话历史并给出回复，直接返回
     if orch.reply:
-        return ChatResponse(reply=orch.reply)
+        return ChatResponse(reply=orch.reply, products=orch.products if orch.products else None)
     # 编排器降级（如无 LLM key）：回退到原 handle_message
-    reply = handle_message(db, req.user_id, req.message)
+    reply, products = handle_message(db, req.user_id, req.message)
     _try_publish_visualization_event(
         db,
         "order.reply",
         {"user_id": req.user_id, "intent": intent.get("intent", "chat"), **web_source_payload},
         correlation_id=req.request_id,
     )
-    return ChatResponse(reply=reply)
+    return ChatResponse(reply=reply, products=products if products else None)
 
 
 @app.post("/agents/register", response_model=AgentRegisterResponse)
@@ -1366,8 +1289,6 @@ def restaurant_state(limit: int = 50, db: Session = Depends(get_db)):
         .limit(50)
         .all()
     )
-    active_staff = [row for row in active_agents if row.role_type != "customer"]
-    active_customer_agents = [row for row in active_agents if row.role_type == "customer"]
     active_consumers = (
         db.query(EvomapConsumer)
         .filter(EvomapConsumer.status == IDENTITY_STATUS_ACTIVE)
@@ -1389,8 +1310,6 @@ def restaurant_state(limit: int = 50, db: Session = Depends(get_db)):
                 for source_type, count, amount in source_rows
             ],
             "active_agent_count": len(active_agents),
-            "active_staff_count": len(active_staff),
-            "active_customer_agent_count": len(active_customer_agents),
             "active_consumer_count": len(active_consumers),
         },
         "recent_orders": [
@@ -1783,7 +1702,7 @@ async def visualization_websocket(websocket: WebSocket):
 @app.get("/menu")
 def get_menu(db: Session = Depends(get_db)):
     """返回完整菜单（供前端图片卡片渲染），含名称、价格、标签、图片路径。"""
-    products = db.query(Product).order_by(Product.base_price).all()
+    products = get_all_products(db)
     return [
         {
             "name": p.name,
@@ -1859,12 +1778,6 @@ def status():
         "llm_status_reason": settings.llm_status_reason,
         "llm_base_url": settings.llm_base_url,
         "llm_model": settings.llm_model,
-        "llm_timeouts": {
-            "connect": settings.llm_connect_timeout_seconds,
-            "intent": settings.llm_intent_timeout_seconds,
-            "generation": settings.llm_generation_timeout_seconds,
-            "review": settings.llm_review_timeout_seconds,
-        },
     }
 
 

@@ -32,7 +32,12 @@ def _is_configured() -> bool:
 
 def _post_json(url: str, body: dict[str, Any], *, auth: bool = True) -> dict[str, Any] | None:
     """POST JSON 到 EvoMap Hub，返回响应 dict；失败返回 None（不抛异常）。"""
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        # Cloudflare(防火墙) 会封锁 Python-urllib(标准库默认 UA)，必须伪装成浏览器
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    }
     if auth:
         headers["Authorization"] = f"Bearer {settings.evomap_node_secret}"
     payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
@@ -47,7 +52,10 @@ def _post_json(url: str, body: dict[str, Any], *, auth: bool = True) -> dict[str
 
 def _get_json(url: str, *, auth: bool = True) -> dict[str, Any] | None:
     """GET JSON 从 EvoMap Hub；失败返回 None。"""
-    headers = {"Accept": "application/json"}
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    }
     if auth:
         headers["Authorization"] = f"Bearer {settings.evomap_node_secret}"
     req = Request(url, method="GET", headers=headers)
@@ -128,58 +136,59 @@ def record_lesson(
     user_context: str | None = None,
     rating: int | None = None,
 ) -> dict[str, Any] | None:
-    """把复盘 Agent 的教训发布到 EvoMap 进化记忆（POST /a2a/memory/record）。
+    """把复盘 Agent(事后复盘) 的教训发布到 EvoMap 进化记忆（POST /a2a/memory/record）。
 
+    正确格式：sender_id + status(failed|success) + signals 数组（REST 风格，非 envelope）。
     成功返回 Hub 响应；失败返回 None（不阻塞主流程）。
     """
     if not _is_configured():
         logger.debug("EvoMap 记忆发布跳过：未配置节点身份")
         return None
-    payload = {
-        "type": "lesson",
-        "domain": "coffee_recommendation",
-        "insight": insight,
-        "metadata": {
-            "mistake_type": mistake_type or "unknown",
-            "coffee_name": coffee_name or "",
-            "user_context": user_context or "",
-            "rating": rating,
-            "source": "coffee-ai-boss",
-        },
+    # rating 低 = 失败教训（纠正/生气）；rating 高 = 成功经验
+    status = "failed" if (rating is None or rating <= 2) else "success"
+    body = {
+        "sender_id": settings.evomap_node_id,
+        "status": status,
+        "signals": [
+            {
+                "content": insight,
+                "signals": [s for s in [coffee_name or "", mistake_type or "", user_context or ""] if s],
+                "domain": "coffee_recommendation",
+            }
+        ],
     }
-    body = _envelope("memory_record", payload)
     resp = _post_json(f"{_HUB}/a2a/memory/record", body)
     if resp:
-        logger.info("EvoMap 记忆发布成功: %s", insight[:50])
+        logger.info("EvoMap 记忆发布成功 (status=%s): %s", status, insight[:50])
     return resp
 
 
 def recall_community_lessons(domain: str = "coffee_recommendation", limit: int = 10) -> list[dict[str, Any]]:
     """检索社区同类经验（POST /a2a/memory/recall），返回教训列表。
 
+    正确格式：sender_id + query（REST 风格，非 envelope）。
     失败返回空列表（推荐 Agent 照常工作，不依赖社区经验）。
     """
     if not _is_configured():
         return []
-    payload = {
+    body = {
+        "sender_id": settings.evomap_node_id,
         "domain": domain,
         "limit": limit,
         "query": "coffee recommendation mistake lesson",
     }
-    body = _envelope("memory_recall", payload)
     resp = _post_json(f"{_HUB}/a2a/memory/recall", body)
     if not resp:
         return []
-    # 从 payload 提取教训列表（格式兼容多种可能）
-    lessons = resp.get("payload", {}).get("lessons") or resp.get("lessons") or resp.get("payload", {}).get("results") or []
-    return lessons if isinstance(lessons, list) else []
+    matches = resp.get("matches") or []
+    return matches if isinstance(matches, list) else []
 
 
 def get_memory_status() -> dict[str, Any] | None:
-    """获取记忆系统状态（GET /a2a/memory/status）。"""
+    """获取记忆系统状态（GET /a2a/memory/status?sender_id=<node_id>）。"""
     if not _is_configured():
         return None
-    return _get_json(f"{_HUB}/a2a/memory/status")
+    return _get_json(f"{_HUB}/a2a/memory/status?sender_id={settings.evomap_node_id}")
 
 
 # ============================================================

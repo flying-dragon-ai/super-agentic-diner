@@ -3,9 +3,9 @@
 被 /chat 调用，替代原来直接调 parse_intent + chat_service 的散装逻辑。
 编排流程：
   1. 店长 Agent 意图分析 → order / recommend / chat
-  2. 检测纠正信号 → 若是，复盘 Agent 分析失误 + 经验继承存储
+  2. 检测纠正信号 → 若是，复盘 Agent 后台异步执行（不阻塞推荐响应）
   3. recommend → 推荐 Agent（融合经验）生成回复
-  4. chat → 复用店长回复（或降级 chat_service）
+  4. chat → 复用推荐 Agent（闲聊也能给点建议）
   5. order → 不在此处理，返回意图由 main.py 继续下单流程
 
 返回 OrchestratorResult，main.py 据此执行下单 / 回复 + 发可视化事件。
@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -21,20 +22,82 @@ from sqlalchemy.orm import Session
 from app.db.models import Product
 from app.memory.chat_history import add_message, get_history
 from app.services.agents import manager_agent, recommender_agent, reviewer_agent
+from app.services.chat_service import product_to_card, _is_browse_all, get_all_products
 
 logger = logging.getLogger(__name__)
+
+
+def _run_review_background(
+    user_id: int,
+    user_msg: str,
+    history: list[dict],
+    correlation_id: str | None,
+    trigger_reason: str,
+) -> None:
+    """后台执行复盘 Agent（独立 db session，失败 swallow 不阻塞主流程）。
+
+    复盘只负责写经验（MySQL+Redis+EvoMap），不影响当前推荐响应。
+    """
+    try:
+        from app.db.database import SessionLocal
+
+        db = SessionLocal()
+        try:
+            reviewer_agent.review_mistake(
+                db,
+                user_id=user_id,
+                user_msg=user_msg,
+                history=history,
+                correlation_id=correlation_id,
+                trigger_reason=trigger_reason,
+            )
+        finally:
+            db.close()
+    except Exception:
+        logger.warning("后台复盘 Agent(事后复盘) 执行失败", exc_info=True)
 
 
 def _detect_exact_product(db: Session, user_msg: str) -> str | None:
     """检测用户消息是否包含精确的咖啡商品名。
 
     如"我要一杯柑橘冷萃" → 返回 "柑橘冷萃"。
-    用于跳过推荐 Agent，直接走下单流程（更快，且不会输出菜单列表）。
+    也支持部分匹配："美式" → "美式咖啡"，"拿铁" → "莓果拿铁"。
+    仅当唯一匹配时返回（"冷萃"同时匹配柑橘冷萃+椰香冷萃 → 不返回）。
     """
-    all_names = [p.name for p in db.query(Product).all()]
-    for name in all_names:
-        if name in user_msg:
-            return name
+    all_products = get_all_products(db)
+    # 1. 全名匹配（最高优先级，无歧义）
+    for p in all_products:
+        if p.name in user_msg:
+            return p.name
+    # 2. 部分匹配：商品名去掉通用后缀后是用户消息的子串
+    #    如 "美式咖啡"→"美式"、"焦糖玛奇朵"→"焦糖"（去"咖啡"后缀后匹配）
+    matches = []
+    for p in all_products:
+        # 取商品名的核心部分（去掉"咖啡"后缀）
+        cores = set()
+        cores.add(p.name)  # 全名本身
+        if p.name.endswith("咖啡"):
+            cores.add(p.name[:-2])  # 美式咖啡 → 美式
+        for core in cores:
+            if len(core) >= 2 and core != p.name and core in user_msg:
+                matches.append(p.name)
+                break
+    # 唯一匹配才返回，多个匹配表示歧义（如"冷萃"→柑橘冷萃+椰香冷萃）
+    if len(matches) == 1:
+        return matches[0]
+    # 3. 用户消息中的 2 字词出现在商品名里（如"拿铁"在"莓果拿铁"中）
+    #    不歧义时（只匹配一款）即可返回；歧义时（"冷萃"匹配两款）返回 None
+    single_token_matches = []
+    _SKIP = {"咖啡"}  # 过于通用，跳过
+    for p in all_products:
+        for i in range(len(user_msg) - 1):
+            substr = user_msg[i:i+2]
+            if len(substr) >= 2 and substr not in _SKIP and substr in p.name:
+                if p.name not in single_token_matches:
+                    single_token_matches.append(p.name)
+                break
+    if len(single_token_matches) == 1:
+        return single_token_matches[0]
     return None
 
 
@@ -48,8 +111,9 @@ class OrchestratorResult:
     events: list[dict[str, Any]] = field(default_factory=list)
     # 复盘结果（检测到纠正时填充）
     review: dict[str, Any] | None = None
-    review_trigger_reason: str | None = None
     applied_experience: bool = False
+    # 推荐/聊天路径涉及的产品卡片数据（供前端图片卡片渲染）
+    products: list[dict] = field(default_factory=list)
 
 
 def orchestrate(
@@ -59,21 +123,17 @@ def orchestrate(
     *,
     correlation_id: str | None = None,
     precomputed_intent: dict | None = None,
-    history: list[dict] | None = None,
-    include_review: bool = True,
 ) -> OrchestratorResult:
     """多 Agent(智能体) 协作主入口。
 
     参数 precomputed_intent：如果 main.py 已经调过 parse_intent，传入结果避免重复 LLM 调用。
-    参数 history：如果 main.py 已经读取 Redis 历史，传入以避免重复 I/O。
-    参数 include_review：用户同步路径可设为 False，把复盘放到后台执行。
     副作用：会写 Redis 对话历史（add_message），与原 /chat 行为一致。
     """
     result = OrchestratorResult()
-    history = history if history is not None else get_history(user_id)
+    history = get_history(user_id)
 
     # ===== 快速检测：消息含精确商品名 → 直接 order，跳过所有 LLM 调用 =====
-    exact_product = _detect_exact_product(db, user_msg) if precomputed_intent is None else None
+    exact_product = _detect_exact_product(db, user_msg)
     if exact_product:
         result.intent = "order"
         result.events.append(
@@ -99,46 +159,27 @@ def orchestrate(
         }
     )
 
-    # ===== 第2步：纠正/生气/重复检测 → 触发复盘 Agent =====
+    # ===== 第2步：纠正/生气/重复检测 → 触发复盘 Agent（后台异步，不阻塞推荐） =====
     triggered, trigger_reason = manager_agent.detect_review_trigger(user_msg, history)
     if triggered:
-        result.review_trigger_reason = trigger_reason
         result.events.append(
             {
                 "type": "agent.reviewer.reviewing",
                 "payload": {"user_id": user_id, "trigger": trigger_reason},
             }
         )
-        if not include_review:
-            review = None
-        else:
-            review = reviewer_agent.review_mistake(
-                db,
-                user_id=user_id,
-                user_msg=user_msg,
-                history=history,
-                correlation_id=correlation_id,
-                trigger_reason=trigger_reason,
-            )
-        if review:
-            result.review = review
-            result.events.append(
-                {
-                    "type": "agent.reviewer.reviewed",
-                    "payload": {
-                        "user_id": user_id,
-                        "mistake_type": review.get("mistake_type"),
-                        "rating": review.get("rating"),
-                        "insight": review.get("insight"),
-                    },
-                }
-            )
-            result.events.append(
-                {
-                    "type": "agent.experience.learned",
-                    "payload": {"user_id": user_id, "insight": review.get("insight", "")},
-                }
-            )
+        # 复盘在后台线程执行（独立 db session，不阻塞推荐响应，省 2-6 秒）
+        threading.Thread(
+            target=_run_review_background,
+            kwargs={
+                "user_id": user_id,
+                "user_msg": user_msg,
+                "history": list(history),  # 复制一份避免竞争
+                "correlation_id": correlation_id,
+                "trigger_reason": trigger_reason,
+            },
+            daemon=True,
+        ).start()
 
     # ===== 第3步：按意图分派 =====
     if intent == "order":
@@ -156,6 +197,12 @@ def orchestrate(
         reco = recommender_agent.recommend(db, user_id, user_msg, history)
         result.reply = reco["reply"]
         result.applied_experience = reco["applied_experience"]
+        # 看菜单请求：卡片展示全部产品；普通推荐：只展示候选产品
+        if _is_browse_all(user_msg):
+            all_products = get_all_products(db)
+            result.products = [product_to_card(p) for p in all_products]
+        else:
+            result.products = [product_to_card(p) for p in reco["candidates"]]
         result.events.append(
             {
                 "type": "agent.recommender.suggested",
@@ -183,6 +230,12 @@ def orchestrate(
     reco = recommender_agent.recommend(db, user_id, user_msg, history)
     result.reply = reco["reply"]
     result.applied_experience = reco["applied_experience"]
+    # 看菜单请求：卡片展示全部产品；普通推荐：只展示候选产品
+    if _is_browse_all(user_msg):
+        all_products = db.query(Product).order_by(Product.base_price).all()
+        result.products = [product_to_card(p) for p in all_products]
+    else:
+        result.products = [product_to_card(p) for p in reco["candidates"]]
     result.events.append(
         {
             "type": "agent.recommender.suggested",

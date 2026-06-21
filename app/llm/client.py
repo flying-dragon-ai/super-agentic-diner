@@ -7,37 +7,22 @@
 """
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 import json
+import time
 
 import httpx
 
 from app.config import settings
 
 _client: httpx.Client | None = None
-_llm_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="llm-call")
-
-
-def _timeout(read_timeout: float) -> httpx.Timeout:
-    return httpx.Timeout(
-        timeout=float(read_timeout),
-        connect=float(settings.llm_connect_timeout_seconds),
-    )
 
 
 def get_client() -> httpx.Client:
     global _client
     if _client is None:
-        _client = httpx.Client(timeout=_timeout(settings.llm_generation_timeout_seconds))
+        # 超时从 config(配置) 读取：默认 15s，避免单次 LLM 调用卡死整个请求
+        _client = httpx.Client(timeout=settings.llm_timeout_seconds)
     return _client
-
-
-def reset_client() -> None:
-    """Drop the cached HTTP client after tests or runtime settings changes."""
-    global _client
-    if _client is not None:
-        _client.close()
-        _client = None
 
 
 def has_real_key() -> bool:
@@ -52,32 +37,35 @@ def _chat_completions_url() -> str:
     return base_url + "/chat/completions"
 
 
-def _post_chat_completion(url: str, headers: dict[str, str], payload: dict, timeout: httpx.Timeout) -> str:
-    resp = get_client().post(url, headers=headers, json=payload, timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"].strip()
-
-
-def _call_llm(messages, *, timeout_seconds: float | None = None):
+def _call_llm(messages, temperature=0.7):
     """统一调用入口：POST {base_url}/chat/completions
 
-    Chat is a user-facing synchronous path, so this function intentionally does
-    not sleep/retry on slow providers. Callers catch failures and degrade.
+    temperature 默认 0.7（推荐/聊天）；意图分类/JSON 输出传 0.0 更稳定。
+    遇到 429 限流时自动重试 1 次（等 1.5 秒）。
     """
     url = _chat_completions_url()
     headers = {
         "Authorization": f"Bearer {settings.effective_llm_api_key}",
         "Content-Type": "application/json",
     }
-    payload = {"model": settings.llm_model, "messages": messages, "temperature": 0.7}
-    budget = float(timeout_seconds or settings.llm_generation_timeout_seconds)
-    timeout = _timeout(budget)
-    future = _llm_executor.submit(_post_chat_completion, url, headers, payload, timeout)
-    try:
-        return future.result(timeout=budget)
-    except FutureTimeoutError as exc:
-        future.cancel()
-        raise TimeoutError(f"LLM call exceeded {budget:.1f}s budget") from exc
+    payload = {"model": settings.llm_model, "messages": messages, "temperature": temperature}
+
+    for attempt in range(2):  # 最多 2 次（首次 + 1 次重试）
+        try:
+            resp = get_client().post(url, headers=headers, json=payload)
+        except httpx.HTTPError:
+            if attempt == 0:
+                time.sleep(1.5)
+                continue
+            raise
+        # 429 限流：等一下重试一次
+        if resp.status_code == 429 and attempt == 0:
+            time.sleep(1.5)
+            continue
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"].strip()
+    # 两次都 429
+    raise httpx.HTTPStatusError("rate limited (429)", request=resp.request, response=resp)
 
 
 # ============================================================
@@ -94,15 +82,18 @@ def _call_llm(messages, *, timeout_seconds: float | None = None):
 # 【任务二·LLM】系统提示词：定义 AI 店长的人设和行为规则
 # 包含禁编造规则，防止 LLM 凭空创造不存在的咖啡/套餐/价格
 SYSTEM_PROMPT = (
-    "你是「智能咖啡馆 AI 店长」，友好、专业、简洁。"
+    "你是「智能咖啡馆 AI 店长」，性格热情、幽默、健谈，像真实咖啡馆里那个总能记住熟客口味的店长。"
     "你会收到用户的最新消息、最近几轮对话上下文，以及从《咖啡风味手册》检索到的咖啡知识段落。"
-    "请基于检索到的资料进行推荐或回答。"
-    "【重要规则】"
-    "1. 只能推荐知识库中明确列出的咖啡，不得编造任何手册里没有的咖啡或饮品。"
-    "2. 不得编造套餐、组合、搭配、轻食、赠品等知识库里没有的内容。"
-    "3. 不得自行拼凑价格或组合优惠，所有价格必须与知识库一致。"
-    "4. 如果用户问的内容（如套餐、外卖、会员卡）知识库里没有，请诚实告知没有，并引导到现有的咖啡选择。"
-    "推荐时请给出咖啡名称、价格和简短风味说明。回复控制在150字以内。"
+    "\n\n【可以做的事】"
+    "1. 自由地和顾客闲聊、开玩笑、聊天气/心情/咖啡冷知识，让对话温暖自然，不必每句话都推销咖啡。"
+    "2. 基于检索到的资料推荐咖啡，给出名称、价格、风味说明、以及为什么适合 ta。"
+    "3. 顾客问的饮品/套餐/服务我们没有时，先大方承认「我们这没有 XXX」，然后主动推荐 1-2 款风味最接近的菜单咖啡作为替代（例：「我们没有抹茶拿铁，但有奶香顺滑的【生椰拿铁】，你可以试试」）。"
+    "4. 顾客描述模糊（如「想喝点暖的」「提神的」「不要太苦」）时，结合检索资料主动追问 1 个关键点或直接给 1-2 个最贴近的推荐。"
+    "\n\n【绝不能做的事】"
+    "1. 不得编造知识库里没有的咖啡名/价格/套餐/会员卡/外卖/赠品/轻食。如果不确定，宁可说「这个我们暂时没有」。"
+    "2. 不得报错价格——价格必须与检索段落里写的一致，不要自己算优惠。"
+    "3. 不要冷冰冰地只丢一句「没有」就结束——必须配套推荐替代品或追问需求。"
+    "\n\n【风格】回复 150 字以内，自然口语，可以用 1-2 个表情，避免机械式列表（除非顾客明确要看菜单）。"
 )
 
 
@@ -127,7 +118,7 @@ def chat(history, user_msg, context):
     messages.extend(history)
     messages.append({"role": "user", "content": user_msg})
     try:
-        return _call_llm(messages, timeout_seconds=settings.llm_generation_timeout_seconds)
+        return _call_llm(messages)
     except Exception:
         # LLM 限流/失败时，回退到用 RAG 检索结果直接回复（用户无感）
         return _mock_chat(context)
@@ -140,37 +131,13 @@ def _mock_chat(context: str) -> str:
     return "根据您的喜好，为您推荐：\n" + context + "\n\n请问想点哪一杯呢？告诉我就可以为您下单啦~"
 
 
-# 【任务三·LLM】意图分类提示词：让 LLM 把用户消息分为三种意图
-# 这是任务三"系统执行步骤"的第一步——LLM 理解用户想干什么
-# 三分类：order（下单）/ recommend（求推荐）/ chat（闲聊）
-INTENT_PROMPT = """你是对话意图分类器。结合对话历史，判断用户最新消息的意图，输出三分类之一：
+# 【任务三·LLM】意图分类提示词（精简版：~150 字，省 ~170 tokens/次）
+INTENT_PROMPT = """你是咖啡馆意图分类器。结合对话历史，判断用户最新消息的意图，只输出JSON：
+{"intent":"order|recommend|chat","reason":"简述","coffee_name":"咖啡名或空","quantity":1}
 
-## 三种意图
-
-**order** — 用户想购买/确认下单。典型特征：
-- 直接说要买/下单/结账/扣钱：「就买这杯」「下单」「结账」
-- 推荐后用简短肯定词回应：「可以」「行」「好的」「嗯」「要」「就这个」「就它了」「这两杯了」
-- 判断关键：消息简短 + 肯定/确认语气 + 对话历史中刚推荐过咖啡
-
-**recommend** — 用户想看推荐/描述口味偏好/问选择。典型特征：
-- 描述口味：「我想喝果味的」「不要牛奶」「苦一点的」
-- 要求推荐：「有什么推荐」「再来个」「换个口味」
-
-**chat** — 其他闲聊/询问。典型特征：
-- 问问题：「可以加冰吗」「几点关门」「多少钱」
-- 肯定词 + 附加内容：「可以加点糖吗」（不是纯确认，有附加需求）
-- 完全无关内容
-
-## 关键判别规则
-- 短肯定词（可以/行/好）+ 历史里有推荐 → order
-- 短肯定词 + 历史里无推荐 → chat（应反问用户想买什么）
-- 描述口味/问推荐 → recommend（即使用户说得很肯定）
-
-## 输出格式（只输出 JSON，无其他文字）
-{"intent":"order","reason":"简短理由","coffee_name":"咖啡名(来自上下文，可能为空)","quantity":1}
-{"intent":"recommend","reason":"简短理由"}
-{"intent":"chat","reason":"简短理由"}
-"""
+- order：明确要买/下单/确认（"来一杯""下单""就买它""好的""行"）+ 历史有推荐
+- recommend：描述口味/求推荐/看菜单（"果味的""不要牛奶""有什么推荐"）
+- chat：其他闲聊/询问（"几点关门""可以加冰吗"）"""
 
 # LLM 不可用时的兜底词。覆盖最常见的中文下单表达，避免 LLM 不可用时
 # 把"来一杯/要一杯/来个"这类明确的下单意图误判为闲聊。
@@ -200,10 +167,12 @@ def parse_intent(history, user_msg):
     # LLM 可用：完全信任语义理解
     if has_real_key():
         messages = [{"role": "system", "content": INTENT_PROMPT}]
-        messages.extend(history)
+        # 意图分类只需最近 2 轮（4 条消息），省 ~300 tokens
+        recent_history = history[-4:] if len(history) > 4 else history
+        messages.extend(recent_history)
         messages.append({"role": "user", "content": user_msg})
         try:
-            text = _call_llm(messages, timeout_seconds=settings.llm_intent_timeout_seconds)
+            text = _call_llm(messages, temperature=0.0)
             text = _strip_code_fence(text)
             result = json.loads(text)
             # 规范化 intent 字段（兼容旧值 place_order）
@@ -275,14 +244,7 @@ EXPERIENCE_SYNTHESIS_PROMPT = (
 )
 
 
-def chat_with_role(
-    system_prompt: str,
-    context: str,
-    history,
-    user_msg: str,
-    *,
-    timeout_seconds: float | None = None,
-) -> str:
+def chat_with_role(system_prompt: str, context: str, history, user_msg: str) -> str:
     """通用多 Agent 调用入口：传入指定角色的 system prompt + 上下文 + 历史 + 用户消息。
 
     和 chat() 不同：chat() 固定使用 SYSTEM_PROMPT（店长人设），本函数允许传入任意角色提示词，
@@ -297,10 +259,7 @@ def chat_with_role(
         messages.extend(history)
     messages.append({"role": "user", "content": user_msg})
     try:
-        return _call_llm(
-            messages,
-            timeout_seconds=timeout_seconds or settings.llm_generation_timeout_seconds,
-        )
+        return _call_llm(messages)
     except Exception:
         return ""
 

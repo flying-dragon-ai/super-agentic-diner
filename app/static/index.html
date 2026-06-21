@@ -198,6 +198,25 @@
     cursor: pointer; transition: background .15s;
   }
   .menu-card-btn:hover { background: #d49a66; }
+
+  /* 待确认订单的操作按钮（确认 / 下单） */
+  .confirm-actions {
+    margin-top: 12px;
+    display: flex;
+    gap: 10px;
+  }
+  .confirm-actions button {
+    padding: 8px 22px;
+    border-radius: 10px;
+    border: none;
+    background: #c08552;
+    color: #1a120b;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .confirm-actions button:hover { background: #d49a66; }
 </style>
 </head>
 <body>
@@ -217,9 +236,6 @@
     <div id="quick">
       <div id="quickMenu" aria-label="意图快捷菜单"></div>
       <button class="quick-clear" onclick="clearChat()">🗑 清空对话</button>
-    </div>
-    <div id="consumerUrlBar">
-      <input id="consumerUrlInput" placeholder="Order page URL" />
     </div>
     <div id="inputBar">
       <input id="msgInput" placeholder="和店长说点什么…" onkeydown="if(event.key==='Enter')send()" />
@@ -432,7 +448,7 @@ function renderMenuCards(menuItems) {
         `<div class="menu-card-name">${item.name}</div>` +
         `<div class="menu-card-price">${item.price.toFixed(2)}</div>` +
         `<div class="menu-card-tags">${tagsShort}</div>` +
-        `<button class="menu-card-btn" onclick="fill('我要一杯${item.name}')">点这杯</button>` +
+        `<button class="menu-card-btn" onclick="orderCoffee('${item.name}')">点这杯</button>` +
       `</div>`;
     cards.appendChild(card);
   });
@@ -455,6 +471,12 @@ function fill(text){
   renderQuickMenu({userText: text});
 }
 
+// 卡片"点这杯"按钮：填充消息后自动发送下单请求
+function orderCoffee(name) {
+  fill('我要一杯' + name);
+  send();
+}
+
 async function send() {
   if (USER_ID === null) { showLoginPrompt(); return; }
   const text = $('msgInput').value.trim();
@@ -473,7 +495,7 @@ async function send() {
   }, 6000);
   const requestTimer = setTimeout(() => controller.abort(), 20000);
   try {
-    const consumerUrl = $('consumerUrlInput')?.value.trim() || window.location.href;
+    const consumerUrl = window.location.href;
     const r = await fetch('/chat', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -491,13 +513,41 @@ async function send() {
     }
     const data = await r.json();
     typing.classList.remove('typing');
-    typing.textContent = data.reply;
-    renderQuickMenu({userText: text, botText: data.reply});
-    // 菜单请求：文字回复后追加图片卡片（水平滑动）
-    if (isMenuRequest(text)) {
+    const menuRequest = isMenuRequest(text);
+    // 优先使用后端返回的结构化产品数据渲染卡片（推荐/菜单场景均覆盖）
+    if (data.products && data.products.length > 0) {
+      typing.textContent = '为您找到以下咖啡，点击可直接下单：';
+      renderMenuCards(data.products);
+    } else if (menuRequest) {
+      // 兜底：后端未返回 products 时，前端自行拉取全量菜单
+      typing.textContent = '以下是我们的全部咖啡，左右滑动浏览：';
       const menu = await fetchMenu();
       if (menu && menu.length) renderMenuCards(menu);
+    } else {
+      // 待确认订单：截掉「确认下单请回复…」提示语，改为按钮
+      if (data.reply.includes('确认下单请回复')) {
+        const displayText = data.reply.split('确认下单请回复')[0].replace(/\n+$/, '').trimEnd();
+        typing.innerHTML = '';
+        const textDiv = document.createElement('div');
+        textDiv.textContent = displayText;
+        typing.appendChild(textDiv);
+        const actions = document.createElement('div');
+        actions.className = 'confirm-actions';
+        const confirmBtn = document.createElement('button');
+        confirmBtn.textContent = '✅ 确认';
+        confirmBtn.onclick = () => { fill('确认'); send(); };
+        const orderBtn = document.createElement('button');
+        orderBtn.textContent = '💰 下单';
+        orderBtn.onclick = () => { fill('下单'); send(); };
+        actions.appendChild(confirmBtn);
+        actions.appendChild(orderBtn);
+        typing.appendChild(actions);
+      } else {
+        typing.textContent = data.reply;
+      }
     }
+    // 快捷菜单场景推断仍用真实 reply（确保快捷按钮推荐不受显示替换影响）
+    renderQuickMenu({userText: text, botText: data.reply});
     if (data.order_id) {
       addMsg('✅ 已生成订单 #' + data.order_id, 'sys');
     }
@@ -604,7 +654,6 @@ async function initAuth() {
 
 // 初始化
 (async function init() {
-  if ($('consumerUrlInput')) $('consumerUrlInput').value = window.location.href;
   if ($('msgInput')) {
     $('msgInput').addEventListener('input', () => {
       quickState.selectedKey = '';

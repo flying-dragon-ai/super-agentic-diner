@@ -1,5 +1,6 @@
 """RAG-backed chat service for menu recommendations and product lookup."""
 import re
+import time
 
 from sqlalchemy.orm import Session
 
@@ -8,6 +9,36 @@ from app.llm import client as llm
 from app.memory.chat_history import add_message, get_history
 from app.rag.keywords import extract_keywords
 from app.rag.retrieval import retrieve
+
+
+# ===== Product 表 TTL 缓存（菜单极少变化，避免每请求全表扫描）=====
+_PRODUCT_CACHE: dict = {"data": None, "ts": 0.0}
+_PRODUCT_CACHE_TTL = 60  # 秒
+
+
+def get_all_products(db: Session) -> list[Product]:
+    """获取全部 Product（按 base_price 排序），60 秒内走缓存。
+
+    Product(产品) 表变更极少（仅下单扣库存），60s 缓存延迟可接受。
+    """
+    now = time.time()
+    if _PRODUCT_CACHE["data"] is None or now - _PRODUCT_CACHE["ts"] > _PRODUCT_CACHE_TTL:
+        _PRODUCT_CACHE["data"] = db.query(Product).order_by(Product.base_price).all()
+        _PRODUCT_CACHE["ts"] = now
+    return _PRODUCT_CACHE["data"]
+
+
+def product_to_card(p: Product) -> dict:
+    """序列化 Product(产品) 为前端图片卡片数据（与 /menu 格式一致）"""
+    return {
+        "name": p.name,
+        "price": float(p.base_price),
+        "tags": p.tags or "",
+        "category": p.category or "",
+        "description": (p.description or "")[:120],
+        "image": f"/imag/{p.name}.png",
+        "stock": p.stock,
+    }
 
 # 用户想看更多/全部产品时的触发词（注意："套餐"不在此列，它是组合套餐≠全部单品）
 _BROWSE_ALL_WORDS = (
@@ -73,7 +104,7 @@ def handle_message(db, user_id, user_msg):
             reply = llm.chat(history, user_msg, context)
             add_message(user_id, "user", user_msg)
             add_message(user_id, "assistant", reply)
-            return reply
+            return reply, [product_to_card(r) for r in kb_rows]
 
     # 第2步：【任务二·1】关键词提取 + RAG 检索
     # extract_keywords: jieba分词→去停用词→同义词扩展→否定词分离
@@ -84,13 +115,24 @@ def handle_message(db, user_id, user_msg):
 
     # 第2.5步：RAG 无结果 或 用户想看全部 → 加载所有真实产品，杜绝 LLM 幻觉
     # （不加载的话 LLM 会编造不存在的咖啡，如"危地马拉手冲""澳白"）
-    if not kb_rows or _is_browse_all(user_msg):
-        kb_rows = db.query(Product).order_by(Product.base_price).all()
+    no_match = not kb_rows
+    if no_match or _is_browse_all(user_msg):
+        kb_rows = get_all_products(db)
 
     # 第3步：把检索到的咖啡知识拼接成 context 字符串
-    context = "\n---\n".join(
+    # 当 RAG 无召回时，前置一段提示告诉 LLM："顾客想要的可能不在菜单，请婉拒并推荐相似替代"，
+    # 避免 LLM 闷头从全菜单里硬选，导致答非所问或像菜单广播器一样把全菜单列出来。
+    menu_text = "\n---\n".join(
         f"{r.name}（¥{r.base_price}）：{r.description}" for r in kb_rows
     )
+    if no_match and not _is_browse_all(user_msg):
+        context = (
+            "【RAG(检索) 注意】顾客描述的口味/品类没有精准命中菜单，下面是我们全部在售咖啡。"
+            "请先用一句话承认「我们没有顾客提到的那个」，再从下面挑 1-2 款风味最接近的主动推荐。"
+            "\n\n" + menu_text
+        )
+    else:
+        context = menu_text
 
     # 第4步：调 LLM 生成回复（传入对话历史 + RAG检索到的真实资料）
     reply = llm.chat(history, user_msg, context)
@@ -98,4 +140,4 @@ def handle_message(db, user_id, user_msg):
     # 第5步：写回 Redis 记忆（本轮对话，供下一轮使用）
     add_message(user_id, "user", user_msg)
     add_message(user_id, "assistant", reply)
-    return reply
+    return reply, [product_to_card(r) for r in kb_rows]

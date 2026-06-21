@@ -182,11 +182,11 @@ def seed() -> None:
             wallet_service.topup(
                 db,
                 user_id=1,
-                amount=Decimal("100.00"),
+                amount=Decimal("50.00"),
                 note="种子充值",
             )
             db.commit()
-            print("已为测试用户充值 ¥100.00 到 CNY 钱包")
+            print("已为测试用户充值 ¥50.00 到 CNY 钱包")
 
         _seed_legacy_kb(db)
         _seed_products(db)

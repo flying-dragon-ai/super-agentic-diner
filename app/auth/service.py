@@ -97,11 +97,11 @@ def register_account(db: Session, username: str, password: str, nickname: str | 
         updated_at=datetime.utcnow(),
     )
     db.add(account)
-    # 新用户注册赠送 ¥100 CNY 钱包（仅新注册触发，已有用户余额不变）
+    # 新用户注册赠送 ¥50 CNY 钱包（仅新注册触发，已有用户余额不变）
     wallet_service.topup(
         db,
         user_id=user.user_id,
-        amount=Decimal("100.00"),
+        amount=Decimal("50.00"),
         currency=WALLET_CURRENCY_CNY,
         note="新用户注册赠送",
     )
