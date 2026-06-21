@@ -8,16 +8,16 @@
   * { margin:0; padding:0; box-sizing:border-box; }
   body {
     font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
-    background: #2b2118;
-    color: #f5ebe0;
+    background: #f5f0e8;
+    color: #3d2f24;
     height: 100vh;
     display: flex;
     flex-direction: column;
   }
   header {
-    background: linear-gradient(135deg, #6f4e37, #4a3429);
+    background: linear-gradient(135deg, #c9a27e, #b08968);
     padding: 14px 24px;
-    box-shadow: 0 2px 10px rgba(0,0,0,.4);
+    box-shadow: 0 2px 10px rgba(0,0,0,.1);
     display: flex; align-items: center; justify-content: space-between;
     flex-shrink: 0;
   }
@@ -25,7 +25,7 @@
   header h1 span { margin-right: 8px; }
   #modeTag {
     font-size: 12px; padding: 4px 10px; border-radius: 12px;
-    background: rgba(255,255,255,.15);
+    background: rgba(0,0,0,.08);
   }
   #modeTag.llm { background: #4caf50; }
   #modeTag.mock { background: #ff9800; }
@@ -36,10 +36,10 @@
   /* 跳转 3D 咖啡厅的按钮 */
   #view3dBtn {
     font-size: 12px; padding: 5px 12px; border-radius: 12px; cursor: pointer;
-    background: #c08552; color: #1a120b; border: 1px solid #d49a66;
+    background: #c08552; color: #fff; border: 1px solid #b87545;
     font-weight: 600; transition: background .15s;
   }
-  #view3dBtn:hover { background: #d49a66; }
+  #view3dBtn:hover { background: #b87545; }
 
   main {
     flex: 1; display: flex; overflow: hidden;
@@ -58,14 +58,14 @@
   }
   @keyframes fade { from{opacity:0; transform: translateY(8px);} to{opacity:1;} }
   .msg.bot {
-    background: #3d2f24; align-self: flex-start;
+    background: #ede4d6; align-self: flex-start;
     border-bottom-left-radius: 4px;
   }
   .msg.user {
-    background: #c08552; color: #1a120b; align-self: flex-end; margin-left: auto;
+    background: #c08552; color: #fff; align-self: flex-end; margin-left: auto;
     border-bottom-right-radius: 4px;
   }
-  .msg.sys { background: rgba(255,152,0,.15); border:1px solid #ff9800; font-size:13px; }
+  .msg.sys { background: rgba(255,152,0,.12); border:1px solid #ff9800; font-size:13px; }
 
   #quick {
     display: flex; gap: 8px; padding: 8px 20px; flex-wrap: wrap; flex-shrink: 0;
@@ -75,7 +75,7 @@
     display: flex; gap: 8px; flex-wrap: wrap; min-width: 0;
   }
   #quick button {
-    background: #4a3429; color: #e8d5b7; border: 1px solid #6f4e37;
+    background: #e8dfd3; color: #5a4a3a; border: 1px solid #d0c0b0;
     padding: 6px 12px; border-radius: 16px; font-size: 12px; cursor: pointer;
     transition: all .15s;
     min-height: 30px;
@@ -83,75 +83,344 @@
     overflow-wrap: anywhere;
   }
   #quick button.intent-active {
-    background: #6f4e37; border-color: #c08552; color: #fff3df;
+    background: #d0c0b0; border-color: #c08552; color: #3d2f24;
   }
   #quick .quick-clear {
     margin-left: auto;
     flex: 0 0 auto;
   }
-  #quick button:hover { background: #6f4e37; }
+  #quick button:hover { background: #d8c8b8; }
 
   #inputBar {
-    display: flex; gap: 10px; padding: 16px 20px; background: #221a13; flex-shrink: 0;
+    display: flex; gap: 10px; padding: 16px 20px; background: #ebe5dd; flex-shrink: 0;
   }
   #consumerUrlBar {
-    display: flex; gap: 10px; padding: 10px 20px 0; background: #221a13; flex-shrink: 0;
+    display: flex; gap: 10px; padding: 10px 20px 0; background: #ebe5dd; flex-shrink: 0;
   }
   #consumerUrlInput {
-    flex: 1; background: #2d231b; color: #e8d5b7; border: 1px solid #4a3429;
+    flex: 1; background: #fff; color: #5a4a3a; border: 1px solid #d0c0b0;
     border-radius: 10px; padding: 9px 12px; font-size: 12px; outline: none;
   }
   #consumerUrlInput:focus { border-color: #c08552; }
   #msgInput {
-    flex: 1; background: #3d2f24; color: #f5ebe0; border: 1px solid #6f4e37;
+    flex: 1; background: #fff; color: #3d2f24; border: 1px solid #d0c0b0;
     border-radius: 12px; padding: 12px 16px; font-size: 14px; outline: none;
   }
   #msgInput:focus { border-color: #c08552; }
   #sendBtn {
-    background: #c08552; color: #1a120b; border: none; border-radius: 12px;
+    background: #c08552; color: #fff; border: none; border-radius: 12px;
     padding: 0 24px; font-size: 14px; font-weight: 600; cursor: pointer;
     transition: background .15s;
   }
-  #sendBtn:hover { background: #d49a66; }
+  #sendBtn:hover { background: #b87545; }
   #sendBtn:disabled { opacity: .5; cursor: not-allowed; }
 
   /* 侧栏 */
   #side {
-    width: min(46vw, 520px); min-width: 420px; background: #221a13; padding: 20px; overflow-y: auto;
-    border-left: 1px solid #3d2f24; flex-shrink: 0;
+    width: min(46vw, 520px); min-width: 420px; background: #ebe5dd; padding: 20px; overflow-y: auto;
+    border-left: 1px solid #d8ccc0; flex-shrink: 0;
   }
   #side h3 {
-    font-size: 13px; color: #c08552; text-transform: uppercase;
+    font-size: 13px; color: #a06b3e; text-transform: uppercase;
     letter-spacing: 1px; margin-bottom: 12px; padding-bottom: 8px;
-    border-bottom: 1px solid #3d2f24;
+    border-bottom: 1px solid #d8ccc0;
   }
   .card {
-    background: #3d2f24; border-radius: 12px; padding: 14px; margin-bottom: 16px;
+    background: #f5f0e8; border-radius: 12px; padding: 14px; margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
   }
   .card .row { display: flex; justify-content: space-between; margin: 4px 0; font-size: 14px; }
-  .card .row .val { color: #e8d5b7; font-weight: 600; }
-  .card .big { font-size: 26px; color: #d49a66; font-weight: 700; margin: 8px 0; }
+  .card .row .val { color: #5a4a3a; font-weight: 600; }
+  .card .big { font-size: 26px; color: #b87545; font-weight: 700; margin: 8px 0; }
   .order-item {
-    background: #4a3429; border-radius: 8px; padding: 8px 10px; margin: 6px 0;
+    background: #f0e8dc; border-radius: 8px; padding: 8px 10px; margin: 6px 0;
     font-size: 13px;
   }
-  .order-item .name { color: #e8d5b7; }
+  .order-item .name { color: #5a4a3a; }
   .order-item .meta { color: #8a7a6a; font-size: 11px; }
-  #emptyTip { color: #6a5a4a; font-size: 13px; text-align: center; padding: 16px 0; }
+  #emptyTip { color: #a0918a; font-size: 13px; text-align: center; padding: 16px 0; }
 
-  @media (max-width: 920px) {
-    main { flex-direction: column; }
+  /* ===== 响应式：三档断点（桌面 / 平板 / 手机）===== */
+  /* 手机侧栏切换按钮 + 遮罩层（桌面隐藏，仅手机显示）*/
+  #sideToggle {
+    display: none;
+    font-size: 12px; padding: 5px 12px; border-radius: 12px; cursor: pointer;
+    background: #e8dfd3; color: #5a4a3a; border: 1px solid #d0c0b0;
+    font-weight: 600; transition: background .15s;
+  }
+  #sideToggle:hover { background: #d8c8b8; }
+  #sideOverlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.3); z-index: 99;
+  }
+  #sideOverlay.show { display: block; }
+
+  /* ----- 平板（768-1023px）：侧栏缩窄，Agent 灯隐藏文字 ----- */
+  @media (max-width: 1023px) {
     #side {
-      width: 100%;
+      width: 300px;
+      min-width: 300px;
+    }
+    /* Agent 灯缩小间距（竖排结构保持不变） */
+    #agentStatus {
+      gap: 12px;
+    }
+    .agent-lamp .label {
+      font-size: 9px;
+    }
+    .agent-lamp .icon {
+      font-size: 12px;
+    }
+    header h1 {
+      font-size: 18px;
+    }
+  }
+
+  /* ----- 手机（<768px）：侧栏抽屉式 + header 两行 + 卡片自适应 ----- */
+  @media (max-width: 767px) {
+    /* header 两行布局 */
+    header {
+      flex-wrap: wrap;
+      padding: 10px 12px;
+      gap: 8px;
+    }
+    header h1 {
+      font-size: 16px;
+      flex: 1;
       min-width: 0;
-      border-left: none;
-      border-top: 1px solid #3d2f24;
+    }
+    /* Agent 灯紧凑横排 */
+    /* Agent 灯紧凑横排居中 */
+    #agentStatus {
+      gap: 14px;
+      order: 3;
+      width: 100%;
+      padding: 0;
+      justify-content: center;
+    }
+    .agent-lamp .label {
+      font-size: 9px;
+    }
+    .agent-lamp .icon {
+      font-size: 12px;
+    }
+    /* 右侧按钮区紧凑 */
+    #headRight {
+      gap: 6px;
+    }
+    #view3dBtn, #logoutBtn {
+      font-size: 11px;
+      padding: 4px 8px;
+    }
+    /* 手机侧栏切换按钮显示 */
+    #sideToggle {
+      display: block;
+    }
+    /* 聊天区占满 */
+    #chat {
+      flex: 1;
+    }
+    #messages {
+      padding: 12px;
+    }
+    .msg {
+      max-width: 90%;
+    }
+    /* 输入区紧凑 */
+    #inputBar {
+      padding: 10px 12px;
+      gap: 8px;
+    }
+    #msgInput {
+      padding: 10px 12px;
+      font-size: 13px;
+    }
+    #sendBtn {
+      padding: 0 16px;
+      font-size: 13px;
+    }
+    /* 快捷菜单按钮自适应 */
+    #quick {
+      padding: 6px 12px;
+    }
+    #quick button {
+      max-width: none;
+      font-size: 11px;
+      padding: 5px 10px;
+    }
+    /* 菜单卡片窄一点 */
+    .menu-card {
+      flex: 0 0 140px;
+    }
+    .menu-card img {
+      height: 100px;
+    }
+    /* 侧栏抽屉式：默认隐藏在右侧外，点击滑入 */
+    #side {
+      position: fixed;
+      top: 0;
+      right: 0;
+      height: 100vh;
+      width: 85vw;
+      min-width: 0;
+      z-index: 100;
+      transform: translateX(100%);
+      transition: transform .25s ease;
+      border-left: 1px solid #d8ccc0;
+      border-top: none;
+      padding: 16px;
+    }
+    #side.side-open {
+      transform: translateX(0);
+    }
+  }
+
+  /* ===== 暗色模式（跟随系统 prefers-color-scheme: dark）===== */
+  @media (prefers-color-scheme: dark) {
+    body {
+      background: #2b2118;
+      color: #f5ebe0;
+    }
+    header {
+      background: linear-gradient(135deg, #6f4e37, #4a3429);
+      box-shadow: 0 2px 10px rgba(0,0,0,.4);
+    }
+    #modeTag {
+      background: rgba(255,255,255,.15);
+    }
+    #logoutBtn {
+      background: #4a3429 !important;
+      color: #e8d5b7 !important;
+      border-color: #6f4e37 !important;
+    }
+    #sideToggle {
+      background: #4a3429;
+      color: #e8d5b7;
+      border-color: #6f4e37;
+    }
+    #sideToggle:hover { background: #6f4e37; }
+    #sideOverlay {
+      background: rgba(0,0,0,.5);
+    }
+    /* Bot 气泡 */
+    .msg.bot {
+      background: #3d2f24;
+    }
+    /* User 气泡 */
+    .msg.user {
+      color: #1a120b;
+    }
+    /* 快捷按钮 */
+    #quick button {
+      background: #4a3429;
+      color: #e8d5b7;
+      border-color: #6f4e37;
+    }
+    #quick button.intent-active {
+      background: #6f4e37;
+      border-color: #c08552;
+      color: #fff3df;
+    }
+    #quick button:hover { background: #6f4e37; }
+    /* 输入区 */
+    #inputBar {
+      background: #221a13;
+    }
+    #consumerUrlBar {
+      background: #221a13;
+    }
+    #consumerUrlInput {
+      background: #2d231b;
+      color: #e8d5b7;
+      border-color: #4a3429;
+    }
+    #msgInput {
+      background: #3d2f24;
+      color: #f5ebe0;
+      border-color: #6f4e37;
+    }
+    #sendBtn {
+      color: #1a120b;
+    }
+    #sendBtn:hover { background: #d49a66; }
+    /* 侧栏 */
+    #side {
+      background: #221a13;
+      border-left-color: #3d2f24;
+    }
+    #side h3 {
+      color: #c08552;
+      border-bottom-color: #3d2f24;
+    }
+    .card {
+      background: #3d2f24;
+      box-shadow: none;
+    }
+    .card .row .val {
+      color: #e8d5b7;
+    }
+    .card .big {
+      color: #d49a66;
+    }
+    .order-item {
+      background: #4a3429;
+    }
+    .order-item .name {
+      color: #e8d5b7;
+    }
+    #emptyTip {
+      color: #6a5a4a;
+    }
+    /* 菜单卡片 */
+    .menu-cards::-webkit-scrollbar-thumb { background: #6f4e37; }
+    .menu-card {
+      background: linear-gradient(135deg, #4a3429, #3d2f24);
+      border-color: rgba(192,133,82,.25);
+      box-shadow: none;
+    }
+    .menu-card img {
+      background: #2b2118;
+    }
+    .menu-card-name {
+      color: #f5ebe0;
+    }
+    .menu-card-price {
+      color: #d49a66;
+    }
+    .menu-card-tags {
+      color: #8a7a6a;
+    }
+    .menu-card-btn {
+      color: #1a120b;
+    }
+    .menu-card-btn:hover { background: #d49a66; }
+    /* 确认按钮 */
+    .confirm-actions button {
+      color: #1a120b;
+    }
+    .confirm-actions button:hover { background: #d49a66; }
+    /* 滚动条 */
+    ::-webkit-scrollbar-thumb { background: #4a3429; }
+    .typing { color: #8a7a6a; }
+    /* Agent 灯 */
+    .agent-lamp {
+      color: #6a5a4a;
+    }
+    .agent-lamp .dot {
+      background: #4a3429;
+    }
+    .agent-lamp.active {
+      color: #f5ebe0;
+    }
+    /* 手机侧栏抽屉 */
+    #side {
+      border-left-color: #3d2f24;
     }
   }
 
   /* 滚动条 */
   ::-webkit-scrollbar { width: 6px; }
-  ::-webkit-scrollbar-thumb { background: #4a3429; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb { background: #d0c0b0; border-radius: 3px; }
   .typing { color: #8a7a6a; font-style: italic; }
 
   /* 菜单图片卡片（水平滚动） */
@@ -160,13 +429,14 @@
     scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
   }
   .menu-cards::-webkit-scrollbar { height: 5px; }
-  .menu-cards::-webkit-scrollbar-thumb { background: #6f4e37; border-radius: 3px; }
+  .menu-cards::-webkit-scrollbar-thumb { background: #c0b0a0; border-radius: 3px; }
   .menu-card {
     flex: 0 0 160px; scroll-snap-align: start;
-    background: linear-gradient(135deg, #4a3429, #3d2f24);
+    background: linear-gradient(135deg, #f5f0e8, #ede4d6);
     border-radius: 14px; overflow: hidden; cursor: pointer;
-    border: 1px solid rgba(192,133,82,.25);
+    border: 1px solid rgba(192,133,82,.3);
     transition: transform .18s, border-color .18s;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
   }
   .menu-card:hover {
     transform: translateY(-4px);
@@ -174,30 +444,30 @@
   }
   .menu-card img {
     width: 100%; height: 120px; object-fit: cover;
-    display: block; background: #2b2118;
+    display: block; background: #f0e6d8;
   }
   .menu-card-body {
     padding: 10px 12px 12px;
   }
   .menu-card-name {
-    font-size: 14px; font-weight: 600; color: #f5ebe0;
+    font-size: 14px; font-weight: 600; color: #3d2f24;
     margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .menu-card-price {
-    font-size: 16px; font-weight: 700; color: #d49a66;
+    font-size: 16px; font-weight: 700; color: #b87545;
   }
   .menu-card-price::before { content: '¥'; font-size: 12px; margin-right: 1px; }
   .menu-card-tags {
-    font-size: 11px; color: #8a7a6a; margin-top: 4px;
+    font-size: 11px; color: #9a8a7a; margin-top: 4px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .menu-card-btn {
     display: block; width: 100%; margin-top: 8px;
     padding: 6px 0; border-radius: 8px; border: none;
-    background: #c08552; color: #1a120b; font-size: 12px; font-weight: 600;
+    background: #c08552; color: #fff; font-size: 12px; font-weight: 600;
     cursor: pointer; transition: background .15s;
   }
-  .menu-card-btn:hover { background: #d49a66; }
+  .menu-card-btn:hover { background: #b87545; }
 
   /* 待确认订单的操作按钮（确认 / 下单） */
   .confirm-actions {
@@ -210,41 +480,57 @@
     border-radius: 10px;
     border: none;
     background: #c08552;
-    color: #1a120b;
+    color: #fff;
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
     transition: background .15s;
   }
-  .confirm-actions button:hover { background: #d49a66; }
+  .confirm-actions button:hover { background: #b87545; }
 
-  /* ===== Agent 运行指示灯 ===== */
+  /* ===== Agent 运行指示灯（竖排：名字在上，圆点在下）===== */
   #agentStatus {
     display: flex;
-    gap: 14px;
-    align-items: center;
+    gap: 18px;
+    align-items: flex-end;
+    justify-content: center;
+    flex: 1;
     padding: 0 12px;
     flex-shrink: 0;
   }
   .agent-lamp {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 5px;
-    font-size: 11px;
-    color: #6a5a4a;
+    gap: 4px;
+    font-size: 10px;
+    color: #3d2f24;
     transition: color .3s;
     white-space: nowrap;
+    line-height: 1.2;
+  }
+  .agent-lamp .label {
+    font-size: 10px;
+    opacity: 0.85;
+  }
+  .agent-lamp .icon {
+    font-size: 14px;
+    line-height: 1;
   }
   .agent-lamp .dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: #4a3429;
+    background: #c0b8b0;
     transition: all .3s;
     flex-shrink: 0;
   }
   .agent-lamp.active {
-    color: #f5ebe0;
+    color: #1a120b;
+  }
+  .agent-lamp.active .label {
+    opacity: 1;
+    font-weight: 600;
   }
   .agent-lamp.active .dot {
     background: #4caf50;
@@ -262,19 +548,23 @@
   <h1><span>☕</span>EvoMap 进化咖啡馆</h1>
   <!-- Agent 运行指示灯：用到哪个亮哪个，WebSocket 实时驱动 -->
   <div id="agentStatus">
-    <div class="agent-lamp" id="lamp-manager"><span class="dot"></span><span>🧠 店长</span></div>
-    <div class="agent-lamp" id="lamp-recommender"><span class="dot"></span><span>🎯 推荐</span></div>
-    <div class="agent-lamp" id="lamp-reviewer"><span class="dot"></span><span>🔍 复盘</span></div>
-    <div class="agent-lamp" id="lamp-experience"><span class="dot"></span><span>📚 经验</span></div>
+    <div class="agent-lamp" id="lamp-manager"><span class="label">店长🧠</span><span class="dot"></span></div>
+    <div class="agent-lamp" id="lamp-recommender"><span class="label">推荐🎯</span><span class="dot"></span></div>
+    <div class="agent-lamp" id="lamp-reviewer"><span class="label">复盘🔍</span><span class="dot"></span></div>
+    <div class="agent-lamp" id="lamp-experience"><span class="label">经验📚</span><span class="dot"></span></div>
   </div>
   <div id="headRight">
     <!-- 点击新开标签页打开 3D 咖啡厅场景(/3d) -->
     <button id="view3dBtn" onclick="window.open('/3d','_blank')">🌐 3D 咖啡厅</button>
     <!-- 登出后回到登录页 -->
-    <button id="logoutBtn" onclick="doLogout()" style="font-size:12px;padding:5px 12px;border-radius:12px;cursor:pointer;background:#4a3429;color:#e8d5b7;border:1px solid #6f4e37;font-weight:600;transition:background .15s;">🚪 登出</button>
+    <button id="logoutBtn" onclick="doLogout()" style="font-size:12px;padding:5px 12px;border-radius:12px;cursor:pointer;background:#e8dfd3;color:#5a4a3a;border:1px solid #d0c0b0;font-weight:600;transition:background .15s;">🚪 登出</button>
+    <!-- 手机侧栏切换按钮（桌面隐藏，仅手机显示） -->
+    <button id="sideToggle" onclick="toggleSide()">📋 信息</button>
     <span id="modeTag">加载中…</span>
   </div>
 </header>
+<!-- 手机侧栏遮罩层 -->
+<div id="sideOverlay" onclick="toggleSide()"></div>
 <main>
   <div id="chat">
     <div id="messages"></div>
@@ -669,6 +959,12 @@ async function refreshMode() {
   } catch(e) {}
 }
 
+// 手机侧栏抽屉开关（点击"📋 信息"按钮或遮罩层触发）
+function toggleSide() {
+  $('side').classList.toggle('side-open');
+  $('sideOverlay').classList.toggle('show');
+}
+
 // ===== Agent 运行指示灯（WebSocket 实时驱动）=====
 // 4 个 Agent(智能体)：店长 / 推荐 / 复盘 / 经验，事件前缀 → 灯 ID 映射
 const _AGENT_LAMPS = {
@@ -742,9 +1038,9 @@ function showLoginPrompt() {
   const chatBox = $('chat');
   if (!chatBox) return;
   chatBox.innerHTML =
-    '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#e8d5b7;gap:16px">' +
+    '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#3d2f24;gap:16px">' +
       '<div style="font-size:18px">请先登录后再使用 AI 店长服务</div>' +
-      '<a href="/3d/login" style="background:#c08552;color:#1a120b;padding:10px 28px;border-radius:10px;text-decoration:none;font-weight:600">去登录</a>' +
+      '<a href="/3d/login" style="background:#c08552;color:#fff;padding:10px 28px;border-radius:10px;text-decoration:none;font-weight:600">去登录</a>' +
     '</div>';
 }
 
