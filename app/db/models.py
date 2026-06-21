@@ -79,6 +79,13 @@ class UserAccount(Base):
         onupdate=datetime.utcnow,
     )
 
+    __table_args__ = (
+        CheckConstraint(
+            f"status IN ({', '.join(repr(value) for value in sorted(IDENTITY_STATUSES))})",
+            name="ck_user_account_status",
+        ),
+    )
+
 
 class Order(Base):
     """Paid coffee order for a local customer."""

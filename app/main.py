@@ -77,7 +77,7 @@ from app.services import staff_service
 from app.auth import service as auth_service
 from app.colyseus_bridge import start_colyseus_server, stop_colyseus_server
 
-app = FastAPI(title="智能咖啡馆 AI 店长")
+app = FastAPI(title="EvoMap 进化咖啡馆")
 
 # EvoMap 心跳定时器（群体进化：保持节点在线 + 定时拉取社区经验）
 _evomap_heartbeat_thread: threading.Thread | None = None
@@ -150,6 +150,9 @@ if _3D_STATIC_DIR.is_dir():
     _3d_office_assets = _3D_STATIC_DIR / "office-assets"
     if _3d_office_assets.is_dir():
         app.mount("/3d/office-assets", StaticFiles(directory=_3d_office_assets), name="static-3d-office-assets")
+    _3d_evomap_materials = _3D_STATIC_DIR / "evomap-materials"
+    if _3d_evomap_materials.is_dir():
+        app.mount("/3d/evomap-materials", StaticFiles(directory=_3d_evomap_materials), name="static-3d-evomap-materials")
     _3d_sounds = _3D_STATIC_DIR / "sounds"
     if _3d_sounds.is_dir():
         # 3D 场景背景音乐（m1/m2 ...），构建产物来自 frontend/public/sounds/。

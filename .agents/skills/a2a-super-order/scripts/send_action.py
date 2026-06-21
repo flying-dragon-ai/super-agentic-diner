@@ -25,6 +25,8 @@ def request_json(url: str, token: str, payload: dict) -> dict:
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         raise SystemExit(f"send action failed: HTTP {exc.code} {body}") from exc
+    except urllib.error.URLError as exc:
+        raise SystemExit(f"send action failed: 无法连接服务器: {exc.reason}") from exc
 
 
 def parse_payload(raw: str | None) -> dict:
@@ -40,7 +42,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Send a restaurant Agent visualization action.")
     parser.add_argument("--base-url", default=os.getenv("RESTAURANT_API_BASE", "http://127.0.0.1:8000"))
     parser.add_argument("--agent-id", default=os.getenv("RESTAURANT_AGENT_ID"), required=not os.getenv("RESTAURANT_AGENT_ID"))
-    parser.add_argument("--token", default=os.getenv("RESTAURANT_AGENT_TOKEN"), required=not os.getenv("RESTAURANT_AGENT_TOKEN"))
+    parser.add_argument(
+        "--token",
+        default=os.getenv("RESTAURANT_AGENT_TOKEN"),
+        required=not os.getenv("RESTAURANT_AGENT_TOKEN"),
+        help="Agent API token. Prefer the RESTAURANT_AGENT_TOKEN env var to avoid leaking the token in the process list.",
+    )
     parser.add_argument("--action", required=True)
     parser.add_argument("--target")
     parser.add_argument("--message")

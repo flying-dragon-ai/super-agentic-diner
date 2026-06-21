@@ -1,7 +1,7 @@
 // Ported from Claw3D objects/furniture.tsx. Loads the real GLB furniture models
 // (copied from Claw3D public/office-assets) with Claw3D's exact per-type scale,
 // tint, and rotation so the office renders faithfully instead of placeholder boxes.
-import { useGLTF } from "@react-three/drei";
+import { Text, useGLTF, useTexture } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
@@ -220,6 +220,76 @@ function CupProp({ item }: { item: FurnitureItem }) {
   );
 }
 
+function EvoMapTerminalProp({
+  item,
+  isSelected,
+  isHovered,
+  editMode,
+  onPointerDown,
+  onPointerOver,
+  onPointerOut,
+}: FurnitureModelProps) {
+  const logo = useTexture("/3d/evomap-materials/evomap-logo-white.svg");
+  const icon = useTexture("/3d/evomap-materials/evomap-icon.svg");
+  const [wx, , wz] = toWorld(item.x, item.y);
+  const elev = (item.elevation ?? 0) + 0.04;
+  const rotY = getItemRotationRadians(item);
+  const active = isSelected || (editMode && isHovered);
+  const accent = item.color ?? "#22d3ee";
+
+  return (
+    <group
+      position={[wx, elev, wz]}
+      rotation={[0, rotY, 0]}
+      onPointerDown={onPointerDown}
+      onPointerOver={onPointerOver}
+      onPointerOut={onPointerOut}
+    >
+      <mesh position={[0, 0.03, 0]} castShadow receiveShadow>
+        <boxGeometry args={[1.15, 0.06, 0.46]} />
+        <meshStandardMaterial color="#101820" roughness={0.72} metalness={0.18} />
+      </mesh>
+      <mesh position={[0, 0.43, -0.18]} rotation={[-0.1, 0, 0]} castShadow receiveShadow>
+        <boxGeometry args={[1.2, 0.72, 0.08]} />
+        <meshStandardMaterial
+          color="#07111a"
+          emissive={accent}
+          emissiveIntensity={active ? 0.42 : 0.18}
+          roughness={0.42}
+          metalness={0.32}
+        />
+      </mesh>
+      <mesh position={[0, 0.47, -0.222]} rotation={[-0.1, 0, 0]}>
+        <planeGeometry args={[0.86, 0.25]} />
+        <meshBasicMaterial map={logo} transparent opacity={0.92} toneMapped={false} />
+      </mesh>
+      <mesh position={[-0.48, 0.22, -0.225]} rotation={[-0.1, 0, 0]}>
+        <planeGeometry args={[0.18, 0.18]} />
+        <meshBasicMaterial map={icon} transparent opacity={0.9} toneMapped={false} />
+      </mesh>
+      <Text
+        position={[0.18, 0.22, -0.228]}
+        rotation={[-0.1, 0, 0]}
+        fontSize={0.055}
+        color="#8be9ff"
+        anchorX="center"
+        anchorY="middle"
+      >
+        Gene · Capsule · Swarm
+      </Text>
+      <mesh position={[0, 0.11, 0.02]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.23, 0.26, 48]} />
+        <meshBasicMaterial color={accent} transparent opacity={active ? 0.72 : 0.36} depthWrite={false} />
+      </mesh>
+      <mesh position={[0, 0.11, 0.02]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.36, 0.37, 64]} />
+        <meshBasicMaterial color="#34d399" transparent opacity={0.26} depthWrite={false} />
+      </mesh>
+      <pointLight position={[0, 0.42, -0.08]} color={accent} intensity={active ? 0.7 : 0.35} distance={2.2} />
+    </group>
+  );
+}
+
 export function FurnitureModel({
   item,
   isSelected = false,
@@ -231,6 +301,19 @@ export function FurnitureModel({
 }: FurnitureModelProps) {
   if (item.type === "coffee_cup" || item.type === "espresso") {
     return <CupProp item={item} />;
+  }
+  if (item.type === "evomap_terminal") {
+    return (
+      <EvoMapTerminalProp
+        item={item}
+        isSelected={isSelected}
+        isHovered={isHovered}
+        editMode={editMode}
+        onPointerDown={onPointerDown}
+        onPointerOver={onPointerOver}
+        onPointerOut={onPointerOut}
+      />
+    );
   }
   const glbPath = FURNITURE_GLB[item.type] ?? FURNITURE_GLB.table_rect;
   const { scene } = useGLTF(glbPath);

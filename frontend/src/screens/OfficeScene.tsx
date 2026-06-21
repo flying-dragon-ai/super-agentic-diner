@@ -7,7 +7,7 @@ import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FloorAndWalls } from "../office3d/scene/environment";
+import { FloorAndWalls, EvoMapAmbientLayer } from "../office3d/scene/environment";
 import { MenuBoardArt, CafePendantLights } from "../office3d/scene/environment";
 import {
   SceneLighting,
@@ -37,6 +37,7 @@ import {
   SNAP_GRID,
 } from "../office3d/core/constants";
 import {
+  ensureEvoMapSceneMaterials,
   materializeDefaults,
   resolveFurnitureLayout,
 } from "../office3d/core/furnitureDefaults";
@@ -54,7 +55,6 @@ import { ChatPanel } from "../ui/ChatPanel";
 import { ImmersiveOverlay, type OverlayKind } from "../overlays/ImmersiveOverlay";
 import { initSceneMusic, stopSceneMusic } from "../sounds/sceneMusic";
 import {
-  HeatmapSystem,
   TrailSystem,
   AdaptiveDprController,
   useColorMap,
@@ -172,8 +172,12 @@ export default function OfficeScene() {
       const server = await fetchServerLayout();
       if (cancelled) return;
       if (server && server.length > 0) {
-        setFurniture(server);
-        saveFurniture(server);
+        const upgraded = ensureEvoMapSceneMaterials(server);
+        setFurniture(upgraded);
+        saveFurniture(upgraded);
+        if (upgraded.length !== server.length) {
+          void pushServerLayout(upgraded);
+        }
       } else {
         pushServerLayout(furniture);
       }
@@ -508,6 +512,7 @@ export default function OfficeScene() {
         <Suspense fallback={null}>
           <SceneLighting />
           <FloorAndWalls />
+          <EvoMapAmbientLayer />
           <CafePendantLights />
           <MenuBoardArt position={[0, 1.6, -6.3]} />
           {furniture.map((item) => {
@@ -566,6 +571,8 @@ export default function OfficeScene() {
           <FloorRaycaster enabled={editMode} onMove={handleFloorMove} onClick={handleFloorClick} />
           <CameraAnimator presetRef={presetRef} orbitRef={orbitRef} />
           <FollowCamController followRef={followRef} agentsRef={agentsRef} agentLookupRef={lookupRef} />
+          <TrailSystem agentsRef={agentsRef} colorMap={colorMap} />
+          <AdaptiveDprController />
           <GameLoop tick={tick} />
         </Suspense>
         <OrbitControls

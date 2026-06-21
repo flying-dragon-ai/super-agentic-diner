@@ -35,6 +35,7 @@ export const PALETTE: PaletteEntry[] = [
   { type: "stove", label: "Stove", icon: "🔥", defaults: { w: 40, h: 40 } },
   { type: "sink", label: "Sink", icon: "🚰", defaults: { w: 40, h: 40 } },
   { type: "coffee_cup", label: "Coffee Cup", icon: "☕", defaults: { elevation: 0.5 } },
+  { type: "evomap_terminal", label: "EvoMap Terminal", icon: "GEP", defaults: { w: 80, h: 42, facing: 0, color: "#22d3ee" } },
 ];
 
 export type PaletteProps = {

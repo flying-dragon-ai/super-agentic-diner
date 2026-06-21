@@ -18,6 +18,7 @@ export const DEFAULT_FURNITURE: FurnitureSeed[] = [
   { type: "trash", x: 300, y: 210 },
   { type: "espresso", x: 155, y: 142, elevation: 0.69 },
   { type: "coffee_cup", x: 205, y: 142, elevation: 0.69 },
+  { type: "evomap_terminal", x: 300, y: 120, facing: 18, color: "#22d3ee" },
 
   // --- Seating area (center, x:480-1180): 4 round-table groups in a 2x2 grid ---
   // MEASURED FACT: FurnitureModel renders each GLB centered on its item.x,y
@@ -64,6 +65,7 @@ export const DEFAULT_FURNITURE: FurnitureSeed[] = [
   { type: "round_table", x: 1530, y: 300, r: 40 },
   { type: "chair", x: 1530, y: 228, facing: 0 },
   { type: "chair", x: 1530, y: 372, facing: 180 },
+  { type: "evomap_terminal", x: 1390, y: 360, facing: 212, color: "#34d399" },
 
   // --- Wall props + decor ---
   // --- Cafe machines (Phase 5a): self-checkout, vending, jukebox ---
@@ -128,6 +130,21 @@ export const hasAllDefaultSignatures = (items: FurnitureItem[]) => {
   return [...DEFAULT_LAYOUT_SIGNATURES].every((signature) =>
     itemSignatures.has(signature),
   );
+};
+
+const EVOMAP_TERMINAL_DEFAULT_ITEMS = DEFAULT_FURNITURE
+  .map((item, index) => ({ ...item, _uid: `office_${index}` }))
+  .filter((item): item is FurnitureItem => item.type === "evomap_terminal");
+
+// Server layouts created before the EvoMap pass do not contain the new material
+// props. Add only the missing terminal signatures so user-edited furniture stays
+// in place while the scene receives the branded 3D elements.
+export const ensureEvoMapSceneMaterials = (items: FurnitureItem[]) => {
+  const signatures = new Set(items.map(createFurnitureSignature));
+  const missing = EVOMAP_TERMINAL_DEFAULT_ITEMS.filter(
+    (item) => !signatures.has(createFurnitureSignature(item)),
+  );
+  return missing.length > 0 ? [...items, ...missing] : items;
 };
 
 // Resolve the effective furniture layout. The very first load seeds the
