@@ -27,6 +27,24 @@ from app.services.chat_service import product_to_card, _is_browse_all, get_all_p
 logger = logging.getLogger(__name__)
 
 
+def _extract_products_from_reply(db: Session, reply: str) -> list[dict]:
+    """从 LLM 回复文本中提取提到的咖啡名，生成产品卡片。
+
+    扫描 reply 中出现的每个 Product 名（全名匹配），
+    返回匹配到的产品卡片列表（去重，保持首次出现顺序）。
+    """
+    if not reply:
+        return []
+    all_products = get_all_products(db)
+    cards = []
+    seen = set()
+    for p in all_products:
+        if p.name in reply and p.name not in seen:
+            cards.append(product_to_card(p))
+            seen.add(p.name)
+    return cards
+
+
 def _emit_now(emit, event_type: str, payload: dict) -> None:
     """实时推送 agent 事件（如果有 emit 回调）。
 
@@ -217,12 +235,12 @@ def orchestrate(
         reco = recommender_agent.recommend(db, user_id, user_msg, history)
         result.reply = reco["reply"]
         result.applied_experience = reco["applied_experience"]
-        # 看菜单请求：卡片展示全部产品；普通推荐：只展示候选产品
+        # 看菜单请求：卡片展示全部产品；否则从回复文本提取提到的咖啡名生成卡片
         if _is_browse_all(user_msg):
             all_products = get_all_products(db)
             result.products = [product_to_card(p) for p in all_products]
         else:
-            result.products = [product_to_card(p) for p in reco["candidates"]]
+            result.products = _extract_products_from_reply(db, reco["reply"])
         result.events.append(
             {
                 "type": "agent.recommender.suggested",
@@ -252,10 +270,12 @@ def orchestrate(
     reco = recommender_agent.recommend(db, user_id, user_msg, history)
     result.reply = reco["reply"]
     result.applied_experience = reco["applied_experience"]
-    # 看菜单请求：展示全部产品卡片；纯闲聊不弹卡片（让 LLM 用文字自然桥接）
+    # 看菜单请求：展示全部产品卡片；否则从回复文本提取提到的咖啡名生成卡片
     if _is_browse_all(user_msg):
         all_products = db.query(Product).order_by(Product.base_price).all()
         result.products = [product_to_card(p) for p in all_products]
+    else:
+        result.products = _extract_products_from_reply(db, reco["reply"])
     result.events.append(
         {
             "type": "agent.recommender.suggested",
