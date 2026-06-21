@@ -48,6 +48,7 @@ class OrchestratorResult:
     events: list[dict[str, Any]] = field(default_factory=list)
     # 复盘结果（检测到纠正时填充）
     review: dict[str, Any] | None = None
+    review_trigger_reason: str | None = None
     applied_experience: bool = False
 
 
@@ -58,17 +59,21 @@ def orchestrate(
     *,
     correlation_id: str | None = None,
     precomputed_intent: dict | None = None,
+    history: list[dict] | None = None,
+    include_review: bool = True,
 ) -> OrchestratorResult:
     """多 Agent(智能体) 协作主入口。
 
     参数 precomputed_intent：如果 main.py 已经调过 parse_intent，传入结果避免重复 LLM 调用。
+    参数 history：如果 main.py 已经读取 Redis 历史，传入以避免重复 I/O。
+    参数 include_review：用户同步路径可设为 False，把复盘放到后台执行。
     副作用：会写 Redis 对话历史（add_message），与原 /chat 行为一致。
     """
     result = OrchestratorResult()
-    history = get_history(user_id)
+    history = history if history is not None else get_history(user_id)
 
     # ===== 快速检测：消息含精确商品名 → 直接 order，跳过所有 LLM 调用 =====
-    exact_product = _detect_exact_product(db, user_msg)
+    exact_product = _detect_exact_product(db, user_msg) if precomputed_intent is None else None
     if exact_product:
         result.intent = "order"
         result.events.append(
@@ -97,20 +102,24 @@ def orchestrate(
     # ===== 第2步：纠正/生气/重复检测 → 触发复盘 Agent =====
     triggered, trigger_reason = manager_agent.detect_review_trigger(user_msg, history)
     if triggered:
+        result.review_trigger_reason = trigger_reason
         result.events.append(
             {
                 "type": "agent.reviewer.reviewing",
                 "payload": {"user_id": user_id, "trigger": trigger_reason},
             }
         )
-        review = reviewer_agent.review_mistake(
-            db,
-            user_id=user_id,
-            user_msg=user_msg,
-            history=history,
-            correlation_id=correlation_id,
-            trigger_reason=trigger_reason,
-        )
+        if not include_review:
+            review = None
+        else:
+            review = reviewer_agent.review_mistake(
+                db,
+                user_id=user_id,
+                user_msg=user_msg,
+                history=history,
+                correlation_id=correlation_id,
+                trigger_reason=trigger_reason,
+            )
         if review:
             result.review = review
             result.events.append(

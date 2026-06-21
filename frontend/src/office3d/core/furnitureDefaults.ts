@@ -136,11 +136,18 @@ export const hasAllDefaultSignatures = (items: FurnitureItem[]) => {
 export const resolveFurnitureLayout = (
   namespace = "default",
 ): FurnitureItem[] => {
+  const saved = loadFurniture(namespace);
+  if (saved) {
+    if (!hasLayoutMigrationApplied(namespace)) {
+      markLayoutMigrationApplied(namespace);
+    }
+    return saved;
+  }
   if (!hasLayoutMigrationApplied(namespace)) {
     markLayoutMigrationApplied(namespace);
     return materializeDefaults();
   }
-  return loadFurniture(namespace) ?? materializeDefaults();
+  return materializeDefaults();
 };
 
 export const materializeDefaults = (): FurnitureItem[] =>

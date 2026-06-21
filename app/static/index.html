@@ -465,12 +465,20 @@ async function send() {
   const typing = addMsg('店长正在思考…', 'bot');
   typing.classList.add('typing');
   $('sendBtn').disabled = true;
+  const controller = new AbortController();
+  const stillThinkingTimer = setTimeout(() => {
+    if (typing.classList.contains('typing')) {
+      typing.textContent = '店长还在生成推荐，请稍等…';
+    }
+  }, 6000);
+  const requestTimer = setTimeout(() => controller.abort(), 20000);
   try {
     const consumerUrl = $('consumerUrlInput')?.value.trim() || window.location.href;
     const r = await fetch('/chat', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({user_id: USER_ID, message: text, consumer_url: consumerUrl})
+      body: JSON.stringify({user_id: USER_ID, message: text, consumer_url: consumerUrl}),
+      signal: controller.signal
     });
     // 先检查响应是否正常，再安全解析 JSON（防止 500 返回纯文本导致 JSON.parse 崩溃）
     if (!r.ok) {
@@ -496,10 +504,15 @@ async function send() {
     refreshUser();
     refreshOrders();
   } catch (e) {
-    typing.textContent = '⚠️ 网络错误：' + e.message;
+    const message = e.name === 'AbortError'
+      ? '这次响应太久了，请稍后重试。为避免重复下单，我没有自动重发。'
+      : e.message;
+    typing.textContent = '⚠️ 网络错误：' + message;
     typing.classList.add('sys');
-    renderQuickMenu({userText: text, botText: e.message, stage: 'issue'});
+    renderQuickMenu({userText: text, botText: message, stage: 'issue'});
   } finally {
+    clearTimeout(stillThinkingTimer);
+    clearTimeout(requestTimer);
     $('sendBtn').disabled = false;
   }
 }

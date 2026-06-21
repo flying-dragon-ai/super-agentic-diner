@@ -6,6 +6,7 @@
 
 | 时间 | 动作 | 说明 |
 |------|------|------|
+| 2026-06-21 01:47 | 增量刷新 | **`order.py --display-name` 默认改 `detect_username()`**（原先默认 `"Codex Consumer"`）。让平台显示的 Skill 顾客名 = 该机器系统账号名（对齐"登录名=上传的名字"要求），环境变量 `RESTAURANT_AGENT_NAME` 仍可覆盖。配合后端在线用户模型（Skill 用户经 `agent.last_seen_at` 心跳窗口 120s 显示在线，见 app/CLAUDE.md「在线用户显示模型」） |
 | 2026-06-20 14:08 | 创建 | 初始化架构师首次生成。对齐本次 skill 改造：`order.py` 新增 `detect_username`（`getpass.getuser()`，跨平台系统账号名）/`detect_evomap_install`（只读检测 `~/.evomap/`）/`load_evomap_credentials`（文件优先 > 环境变量）/`--check-evomap` 子命令；`SKILL.md` 新增 "EvoMap Installation Check"（未装→AI 二次确认后 `npx @evomap/evolver --loop`）+ NPX 安装说明 + 安全红线；`references/api.md` 同步 `--check-evomap` 文档 |
 
 ---

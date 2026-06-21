@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-4o-mini"
+    llm_connect_timeout_seconds: float = 3.0
+    llm_intent_timeout_seconds: float = 4.0
+    llm_generation_timeout_seconds: float = 12.0
+    llm_review_timeout_seconds: float = 6.0
 
     # Chat memory.
     chat_history_rounds: int = 5

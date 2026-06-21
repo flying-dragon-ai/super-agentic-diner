@@ -1,5 +1,6 @@
 """FastAPI entrypoint for chat ordering and Agent visualization APIs."""
 import asyncio
+import logging
 import threading
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -8,7 +9,7 @@ import anyio
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -47,6 +48,7 @@ from app.memory.chat_history import (
 from app.services.catalog_service import AmbiguousProductError, get_product_by_name
 from app.services.chat_service import extract_price, handle_message, match_by_price
 from app.services.agent_orchestrator import orchestrate as agent_orchestrate
+from app.services.agents import reviewer_agent
 from app.services.agents.experience_agent import list_recent_experiences
 from app.services import evomap_evolution_service
 from app.services.agents.experience_agent import sync_community_experience as _sync_community_exp
@@ -79,6 +81,7 @@ from app.auth import service as auth_service
 from app.colyseus_bridge import start_colyseus_server, stop_colyseus_server
 
 app = FastAPI(title="智能咖啡馆 AI 店长")
+logger = logging.getLogger(__name__)
 
 # EvoMap 心跳定时器（群体进化：保持节点在线 + 定时拉取社区经验）
 _evomap_heartbeat_thread: threading.Thread | None = None
@@ -276,6 +279,79 @@ def _is_order_view_query(user_msg: str) -> bool:
     return any(hint in msg for hint in _ORDER_VIEW_HINTS)
 
 
+_FAST_ORDER_WORDS = (
+    "买", "下单", "结账", "来一杯", "来个", "来两杯", "要一杯", "要个", "要两杯",
+    "点一杯", "点个", "来份", "给我来", "整一杯", "整一个", "就这个", "就它",
+)
+_FAST_RECOMMEND_WORDS = (
+    "推荐", "菜单", "有什么", "有啥", "看看", "口味", "风味", "喜欢", "想喝",
+    "不要", "不加", "少糖", "清甜", "果味", "水果", "苦", "酸", "香", "换一个",
+    "换个", "再推荐", "介绍一下",
+)
+_FAST_NON_ORDER_WORDS = (
+    "推荐", "菜单", "有什么", "有啥", "多少钱", "价格", "介绍", "区别",
+    "吗", "？", "?",
+)
+_FAST_CONFIRM_WORDS = ("可以", "行", "好", "好的", "嗯", "要", "就这个", "就它", "就这杯")
+_MULTI_SIGNALS = ("两杯", "这些", "都", "全部", "三个", "两个", "这几杯", "都来", "全要")
+
+
+def _has_recent_recommendation(history: list[dict]) -> bool:
+    recent_bot = [
+        m.get("content", "")
+        for m in (history or [])
+        if m.get("role") == "assistant"
+    ][:2]
+    return any(
+        "推荐" in content
+        or "拿铁" in content
+        or "美式" in content
+        or "冷萃" in content
+        or "咖啡" in content
+        for content in recent_bot
+    )
+
+
+def _find_exact_product_name(db: Session, user_msg: str) -> str | None:
+    msg = user_msg.strip()
+    if not msg:
+        return None
+    names = [row.name for row in db.query(Product).all()]
+    for name in names:
+        if name and name in msg:
+            return name
+    return None
+
+
+def _fast_classify_chat_intent(db: Session, history: list[dict], user_msg: str) -> dict[str, Any] | None:
+    """Return an intent when local rules are strong enough to skip LLM latency."""
+    msg = user_msg.strip()
+    if not msg:
+        return {"intent": "chat", "reason": "empty_message"}
+
+    exact_product = _find_exact_product_name(db, msg)
+    has_order_word = any(word in msg for word in _FAST_ORDER_WORDS)
+    has_non_order_word = any(word in msg for word in _FAST_NON_ORDER_WORDS)
+
+    if exact_product and has_order_word and not has_non_order_word:
+        return {"intent": "order", "reason": "exact_product_and_order_word", "coffee_name": exact_product}
+
+    price = extract_price(msg)
+    if price is not None and has_order_word and not has_non_order_word and match_by_price(db, price):
+        return {"intent": "order", "reason": "price_and_order_word"}
+
+    if len(msg) <= 8 and any(msg.startswith(word) for word in _FAST_CONFIRM_WORDS) and _has_recent_recommendation(history):
+        return {"intent": "order", "reason": "short_confirmation_after_recommendation"}
+
+    if any(word in msg for word in _FAST_RECOMMEND_WORDS):
+        return {"intent": "recommend", "reason": "local_recommendation_signal"}
+
+    if has_order_word and not has_non_order_word:
+        return {"intent": "order", "reason": "local_order_signal"}
+
+    return None
+
+
 def _format_order_history_reply(db: Session, user_id: int) -> str:
     """返回最近订单的对话式摘要，供 /chat 直接回复，避免落入推荐 RAG。"""
     rows = (
@@ -441,6 +517,52 @@ def _try_publish_visualization_event(
                 "created_at": datetime.utcnow().isoformat(),
             }
         )
+
+
+def _run_review_background(
+    *,
+    user_id: int,
+    user_msg: str,
+    history: list[dict],
+    correlation_id: str | None,
+    trigger_reason: str,
+    web_source_payload: dict[str, Any],
+) -> None:
+    """Run reviewer/experience LLM work after the user-facing response."""
+    db = SessionLocal()
+    try:
+        review = reviewer_agent.review_mistake(
+            db,
+            user_id=user_id,
+            user_msg=user_msg,
+            history=history,
+            correlation_id=correlation_id,
+            trigger_reason=trigger_reason,
+        )
+        if not review:
+            return
+        _try_publish_visualization_event(
+            db,
+            "agent.reviewer.reviewed",
+            {
+                "user_id": user_id,
+                "mistake_type": review.get("mistake_type"),
+                "rating": review.get("rating"),
+                "insight": review.get("insight"),
+                **web_source_payload,
+            },
+            correlation_id=correlation_id,
+        )
+        _try_publish_visualization_event(
+            db,
+            "agent.experience.learned",
+            {"user_id": user_id, "insight": review.get("insight", ""), **web_source_payload},
+            correlation_id=correlation_id,
+        )
+    except Exception:
+        logger.exception("后台复盘失败 user_id=%s correlation_id=%s", user_id, correlation_id)
+    finally:
+        db.close()
 
 
 def _web_restaurant_payload(
@@ -610,7 +732,7 @@ def _require_agent(
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(req: ChatRequest, db: Session = Depends(get_db)):
+def chat(req: ChatRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """Handle chat, recommendation, pending confirmation, and paid order flows."""
     consumer_url = _normalize_consumer_url(req.consumer_url)
     web_source_payload = {
@@ -765,9 +887,11 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             # （覆盖：修改订单"只要28的"、换一杯、重新选、闲聊等所有情况）
             clear_pending_order(req.user_id)
 
-    # ===== 第2步：无待确认订单 → 调 LLM 理解用户意图 =====
-    # LLM 返回三分类之一：order（下单）/ recommend（求推荐）/ chat（闲聊）
-    intent = llm.parse_intent(history, req.message)
+    # ===== 第2步：无待确认订单 → 先走本地快路径，模糊输入才调 LLM 理解用户意图 =====
+    # 避免“我要一杯美式咖啡 / 来个28元的 / 看看菜单”这类确定请求先等外部 LLM。
+    intent = _fast_classify_chat_intent(db, history, req.message)
+    if intent is None:
+        intent = llm.parse_intent(history, req.message)
     _try_publish_visualization_event(
         db,
         "order.intent_detected",
@@ -805,7 +929,6 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
 
         # 第3.4路：以上都没命中 → 从 Redis 历史提取（最弱信号，兜底）
         # 默认只看最近1条消息（1杯）；用户说「两杯/这些/都」时跨轮提取3条
-        _MULTI_SIGNALS = ("两杯", "这些", "都", "全部", "三个", "两个", "这几杯", "都来", "全要")
         wants_multi = any(w in req.message for w in _MULTI_SIGNALS)
         if not coffees:
             scan = 3 if wants_multi else 1
@@ -887,7 +1010,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         return ChatResponse(reply=reply)
 
     # ===== 非下单意图（recommend/chat）→ 多 Agent(智能体) 协作流程 =====
-    # 编排器按序调用：店长(意图)→推荐(RAG+经验)→[纠正检测]→复盘→经验继承
+    # 同步路径只做意图/推荐；纠正检测命中时，复盘与经验继承放到后台执行。
     clear_pending_order(req.user_id)
     orch = agent_orchestrate(
         db,
@@ -895,6 +1018,8 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         req.message,
         correlation_id=req.request_id,
         precomputed_intent=intent,
+        history=history,
+        include_review=False,
     )
     # 发布编排器产生的所有 Agent 协作事件
     for evt in orch.events:
@@ -903,6 +1028,16 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             evt["type"],
             {**evt.get("payload", {}), **web_source_payload},
             correlation_id=req.request_id,
+        )
+    if orch.review_trigger_reason:
+        background_tasks.add_task(
+            _run_review_background,
+            user_id=req.user_id,
+            user_msg=req.message,
+            history=history,
+            correlation_id=req.request_id,
+            trigger_reason=orch.review_trigger_reason,
+            web_source_payload=web_source_payload,
         )
     # 若编排器已写对话历史并给出回复，直接返回
     if orch.reply:
@@ -1231,6 +1366,8 @@ def restaurant_state(limit: int = 50, db: Session = Depends(get_db)):
         .limit(50)
         .all()
     )
+    active_staff = [row for row in active_agents if row.role_type != "customer"]
+    active_customer_agents = [row for row in active_agents if row.role_type == "customer"]
     active_consumers = (
         db.query(EvomapConsumer)
         .filter(EvomapConsumer.status == IDENTITY_STATUS_ACTIVE)
@@ -1252,6 +1389,8 @@ def restaurant_state(limit: int = 50, db: Session = Depends(get_db)):
                 for source_type, count, amount in source_rows
             ],
             "active_agent_count": len(active_agents),
+            "active_staff_count": len(active_staff),
+            "active_customer_agent_count": len(active_customer_agents),
             "active_consumer_count": len(active_consumers),
         },
         "recent_orders": [
@@ -1720,6 +1859,12 @@ def status():
         "llm_status_reason": settings.llm_status_reason,
         "llm_base_url": settings.llm_base_url,
         "llm_model": settings.llm_model,
+        "llm_timeouts": {
+            "connect": settings.llm_connect_timeout_seconds,
+            "intent": settings.llm_intent_timeout_seconds,
+            "generation": settings.llm_generation_timeout_seconds,
+            "review": settings.llm_review_timeout_seconds,
+        },
     }
 
 

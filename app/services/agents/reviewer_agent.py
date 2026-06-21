@@ -13,6 +13,7 @@ import logging
 
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.llm import client as llm
 from app.services.agents import experience_agent
 
@@ -63,6 +64,7 @@ def review_mistake(
         context=context,
         history=[],
         user_msg=user_msg,
+        timeout_seconds=settings.llm_review_timeout_seconds,
     )
     result = llm.parse_json_response(raw)
     if not result or "insight" not in result:
@@ -76,6 +78,7 @@ def review_mistake(
         context=f"失误类型={result.get('mistake_type','')}\n用户实际想要={result.get('user_wanted','')}\n建议={insight_text}",
         history=[],
         user_msg="请压缩成推荐前必读提示",
+        timeout_seconds=settings.llm_review_timeout_seconds,
     )
     final_insight = synthesized.strip() if synthesized else insight_text
 

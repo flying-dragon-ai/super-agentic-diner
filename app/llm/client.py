@@ -7,21 +7,37 @@
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 import json
-import time
 
 import httpx
 
 from app.config import settings
 
 _client: httpx.Client | None = None
+_llm_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="llm-call")
+
+
+def _timeout(read_timeout: float) -> httpx.Timeout:
+    return httpx.Timeout(
+        timeout=float(read_timeout),
+        connect=float(settings.llm_connect_timeout_seconds),
+    )
 
 
 def get_client() -> httpx.Client:
     global _client
     if _client is None:
-        _client = httpx.Client(timeout=60.0)
+        _client = httpx.Client(timeout=_timeout(settings.llm_generation_timeout_seconds))
     return _client
+
+
+def reset_client() -> None:
+    """Drop the cached HTTP client after tests or runtime settings changes."""
+    global _client
+    if _client is not None:
+        _client.close()
+        _client = None
 
 
 def has_real_key() -> bool:
@@ -36,9 +52,17 @@ def _chat_completions_url() -> str:
     return base_url + "/chat/completions"
 
 
-def _call_llm(messages):
+def _post_chat_completion(url: str, headers: dict[str, str], payload: dict, timeout: httpx.Timeout) -> str:
+    resp = get_client().post(url, headers=headers, json=payload, timeout=timeout)
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"].strip()
+
+
+def _call_llm(messages, *, timeout_seconds: float | None = None):
     """统一调用入口：POST {base_url}/chat/completions
-    遇到 429 限流时自动重试 1 次（等 1.5 秒）。
+
+    Chat is a user-facing synchronous path, so this function intentionally does
+    not sleep/retry on slow providers. Callers catch failures and degrade.
     """
     url = _chat_completions_url()
     headers = {
@@ -46,23 +70,14 @@ def _call_llm(messages):
         "Content-Type": "application/json",
     }
     payload = {"model": settings.llm_model, "messages": messages, "temperature": 0.7}
-
-    for attempt in range(2):  # 最多 2 次（首次 + 1 次重试）
-        try:
-            resp = get_client().post(url, headers=headers, json=payload)
-        except httpx.HTTPError:
-            if attempt == 0:
-                time.sleep(1.5)
-                continue
-            raise
-        # 429 限流：等一下重试一次
-        if resp.status_code == 429 and attempt == 0:
-            time.sleep(1.5)
-            continue
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"].strip()
-    # 两次都 429
-    raise httpx.HTTPStatusError("rate limited (429)", request=resp.request, response=resp)
+    budget = float(timeout_seconds or settings.llm_generation_timeout_seconds)
+    timeout = _timeout(budget)
+    future = _llm_executor.submit(_post_chat_completion, url, headers, payload, timeout)
+    try:
+        return future.result(timeout=budget)
+    except FutureTimeoutError as exc:
+        future.cancel()
+        raise TimeoutError(f"LLM call exceeded {budget:.1f}s budget") from exc
 
 
 # ============================================================
@@ -112,7 +127,7 @@ def chat(history, user_msg, context):
     messages.extend(history)
     messages.append({"role": "user", "content": user_msg})
     try:
-        return _call_llm(messages)
+        return _call_llm(messages, timeout_seconds=settings.llm_generation_timeout_seconds)
     except Exception:
         # LLM 限流/失败时，回退到用 RAG 检索结果直接回复（用户无感）
         return _mock_chat(context)
@@ -188,7 +203,7 @@ def parse_intent(history, user_msg):
         messages.extend(history)
         messages.append({"role": "user", "content": user_msg})
         try:
-            text = _call_llm(messages)
+            text = _call_llm(messages, timeout_seconds=settings.llm_intent_timeout_seconds)
             text = _strip_code_fence(text)
             result = json.loads(text)
             # 规范化 intent 字段（兼容旧值 place_order）
@@ -260,7 +275,14 @@ EXPERIENCE_SYNTHESIS_PROMPT = (
 )
 
 
-def chat_with_role(system_prompt: str, context: str, history, user_msg: str) -> str:
+def chat_with_role(
+    system_prompt: str,
+    context: str,
+    history,
+    user_msg: str,
+    *,
+    timeout_seconds: float | None = None,
+) -> str:
     """通用多 Agent 调用入口：传入指定角色的 system prompt + 上下文 + 历史 + 用户消息。
 
     和 chat() 不同：chat() 固定使用 SYSTEM_PROMPT（店长人设），本函数允许传入任意角色提示词，
@@ -275,7 +297,10 @@ def chat_with_role(system_prompt: str, context: str, history, user_msg: str) -> 
         messages.extend(history)
     messages.append({"role": "user", "content": user_msg})
     try:
-        return _call_llm(messages)
+        return _call_llm(
+            messages,
+            timeout_seconds=timeout_seconds or settings.llm_generation_timeout_seconds,
+        )
     except Exception:
         return ""
 

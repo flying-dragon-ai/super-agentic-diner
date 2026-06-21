@@ -6,6 +6,7 @@
 
 | 时间 | 动作 | 说明 |
 |------|------|------|
+| 2026-06-21 01:47 | 增量刷新 | **在线用户显示模型 + WS presence + Skill 心跳 + 服务员并发去重 + `/3d/sounds` 挂载**。① **`visualization_service.VisualizationHub`**：加 `_ws_agent` 在线映射（websocket→顾客 agent_id）+ `register_ws_presence`/`online_ws_agent_ids`；拆出 `broadcast_others`（排除自己、不持久化）与 `broadcast_transient`（不持久化，用于上线/离线/sweep 通知，避免污染 `_recent_events` 回放缓冲）；原 `broadcast` 仍持久化业务事件。② **WS 端点 `/ws/visualization` 重写**：连接时读 `websocket.cookies` → `auth_service.read_session_token` → `account.user_id` → `ensure_web_customer_agent` → `register_ws_presence`（未登录跳过、不显示）；DB 操作用 `anyio.to_thread.run_sync` 避免阻塞事件循环；snapshot 由 `_build_snapshot_agents(db)` 构造传入 `connect(ws, agents=...)`（修原先恒空）；上线 `broadcast_others`、离线 `broadcast_transient` 实时增删人偶。③ **`_build_snapshot_agents`**：4 服务员常驻 + 在线顾客（`agent_id in online_ws_agent_ids` OR `last_seen_at >= now - ONLINE_WINDOW_SECONDS(120)`）。④ **`_register_web_customer_presence`**：Cookie→account→建/复用顾客 agent→刷新 `last_seen_at` + display_name 用真实账号名。⑤ **startup `_ensure_staff_seeded`**（幂等创建 4 服务员；删掉原先无效的 `broadcast_from_sync` 广播——async 上下文失效且无接收者）+ **`_skill_presence_sweep_loop`**（后台每 30s 清扫过期 Skill 顾客，广播 `leave_scene`，修"Skill 用户离线后人偶不消失"；web 用户由 disconnect handler 即时处理，sweep 只管非 WS 的 Skill 用户）。⑥ **`staff_service` 重构**：`ensure_staff_agents`/`ensure_web_customer_agent` 改 ensure→`_collapse_duplicate_agents`→重查 survivor 返回（修并发 race：`tool_name` 无唯一约束 + query-then-create 重复创建；不能加全局唯一约束，因 skill 路径 `codex` 合法重复）；`ensure_staff_agents` 用 `in_` 批量查询。⑦ **`skill_order_service._complete_order`** 更新 `agent.last_seen_at`（Skill 心跳，原先只更新 consumer）。⑧ **静态挂载补 `/3d/sounds`**（修背景音乐 mp3 被 `/3d/{path}` SPA fallback 返回 HTML 的 bug）。新增 `tests/test_web_presence_snapshot.py`（5 用例）。覆盖率 99% |
 | 2026-06-20 21:30 | 增量刷新 | **匿名点单门槛确立**（仅文档刷新，不改源码）。核心对齐 `app/main.py:1696` `index()`：根路由 `/` **直接返回 3D 咖啡厅 SPA，匿名可访问、不校验登录**（3D 未构建时才 fallback 到 2D `index.html`）。确认点单全程无登录门槛：① `POST /chat`（`main.py:588`）无 auth 依赖、匿名 `req.user_id`；② `/skill/orders` 走 Agent token（非账户登录）。`/auth/*` 与 `/3d/login` `/3d/register` **改为可选增值**（个性化昵称 + WS 在线顾客 presence），不是点单前置。**唯一例外**：`/ws/visualization` 的 `_register_web_customer_presence`（`main.py:1428`）读签名 Cookie，**匿名访客被跳过、不显示为在线顾客人偶**，但**不阻断匿名点单**（事件流照常推、服务员编排照常跑）。uvicorn 启动建议 `--reload-dir app`（规避 `_mock_hub.py`）或不带 `--reload`（Windows 卡死兜底）。覆盖率维持 ~99% |
 | 2026-06-20 19:07 | 增量刷新 | **服务员团队编排落地**（外部 commit "服务员团队编排/staff 智能模型"）：① 新增 `services/staff_service.py`——4 个固有服务员 agent 幂等创建（`staff:barista/cashier/waiter/manager`，sprite_seed 100001-100004）+ `ensure_web_customer_agent`（web 匿名用户也建顾客 agent，修 B4 `agent_anon`）+ `orchestrate_staff_node`（业务节点→服务员动作编排）+ `publish_staff_action/publish_agent_action`（best-effort 广播，失败 swallow+rollback）。② 编排挂载点：`main.py` lifespan startup `_seed_and_broadcast_staff`（广播 4 条 `agent.registered`）+ `_publish_web_completion_flow`/`_publish_skill_completion_flow` 各业务节点（payment_completed/preparation_progress×3/order_ready/order_delivered/customer_left）+ intent_detected 节点。③ `visualization_service` 的 `scene.snapshot` 追加 `agents` 字段（4 staff + 活跃顾客），后连接页面也能看到服务员。④ 编排容错铁律：可视化编排绝不阻断订单/支付。详见新增「服务员团队编排」小节。覆盖率维持 ~99% |
 | 2026-06-20 10:05 | 增量对齐 | 第三次 init：① 2D 对话页归档——根 `/` 改直出 3D SPA（旧 2D 页面已移出活跃仓库，外部归档见 `docs/archive-manifest.md`），`/static/index.html` 已不存在；`/chat` 仍作 JSON API 供 3D 场景内嵌聊天消费。② Colyseus 子进程拉起为 no-op（`colyseus_bridge.py` 检测 `colyseus-server/` 目录缺失 → 仅 warning 跳过）。③ 数据模型实际 15 表（新增 Product/ProductOptionGroup/ProductOption/OrderItem/OrderItemOption/UserWallet/BalanceTransaction）。④ 新增 services：wallet_service（credits 钱包流水）、catalog_service（库存递减）。⑤ 补扫 evomap_payment_service / skill_order_service 幂等恢复细节 |
@@ -182,9 +183,37 @@ _complete_order(落库 + 钱包镜像):
 - `main.py` lifespan startup `_seed_and_broadcast_staff`：广播 4 条 `agent.registered`。
 - `main.py` `_publish_web_completion_flow`：web 下单（`/chat` 确认后）各节点追加 `orchestrate_staff_node`；同时修 B4（web 事件补顾客 agent_id）。
 - `skill_order_service.py` `_publish_skill_completion_flow`：Skill 下单各节点追加 `orchestrate_staff_node`；`process_skill_order` 在 intent_detected 节点也调。
-- `visualization_service` snapshot：`scene.snapshot` payload 追加 `agents` 字段（`_snapshot_agents` = 4 staff + 最近活跃顾客），后连接页面刷新即见服务员团队。
+- `visualization_service` snapshot：`scene.snapshot` payload 含 `agents` 字段，由 `_build_snapshot_agents` 构造 = 4 staff 常驻 + 在线顾客（WS presence ∪ `last_seen_at` 心跳窗口）；后连接页面刷新即见服务员团队 + 当前在线顾客（详见下「在线用户显示模型」）。
 
 **验证证据**（Roadmap 第 10 节）：真实 Skill 免费单 22 事件含 9 条 staff action（waiter walk_to_counter / cashier take_order / barista×3 prepare_coffee / barista enter_scene / waiter deliver_order / waiter+cashier 复位）；mock Hub 跑通付费单 28 事件含同样 9 条 staff action。编排接线由"函数级验证"升级为"真实订单链验证"。
+
+### 在线用户显示模型（2026-06-21 新增）
+
+> 诉求：3D 场景显示的用户必须来自数据库 `agent_profile` 且当前真实在线（修原先 snapshot.agents 恒空、无在线概念、WS 匿名三大根因）。采用双接入在线判定，因为 Skill/CLI 是一次性脚本无法维持 WS 长连接。
+
+**双接入在线模型**：
+
+| 接入方式 | 登录 | 身份名 | 在线探测 |
+|---|---|---|---|
+| **网页** | UserAccount 账号密码 → Cookie | `account.nickname/username` | **WS 连接保持**（presence） |
+| **SQL/Skill** | `/skill/register`（CLI） | `detect_username()` 系统账号名 | **`agent.last_seen_at` 心跳窗口 120s**（register/orders 时更新） |
+
+snapshot 显示规则：4 固有服务员常驻 + 在线顾客（`agent_id in hub.online_ws_agent_ids()` OR `last_seen_at >= now - ONLINE_WINDOW_SECONDS`）；未登录匿名访客不显示。
+
+**关键组件**：
+- `VisualizationHub._ws_agent`（`visualization_service.py`）：`{websocket → 顾客 agent_id}` 在线映射；`register_ws_presence`/`online_ws_agent_ids`。
+- `VisualizationHub.broadcast` / `broadcast_others` / `broadcast_transient`：分别用于持久化业务事件 / 排除自己的瞬时通知 / 全员瞬时通知（上线·离线·sweep）；后两者**不入 `_recent_events` 回放缓冲**（避免回放陈旧 `leave_scene` 错误移除仍在场的人偶）。
+- `_build_snapshot_agents(db)`（`main.py`）：snapshot agents = 4 服务员 + 在线顾客；字段对齐前端 `SnapshotAgent`。
+- `_register_web_customer_presence(websocket)`：WS 连接时读 `websocket.cookies` → `auth_service.read_session_token` → `account.user_id` → `ensure_web_customer_agent` → `register_ws_presence` + 刷新 `last_seen_at` + display_name 用真实账号名；未登录返回 None（跳过）。DB 操作经 `anyio.to_thread.run_sync` 跑在线程池，不阻塞事件循环。
+- WS 端点 `/ws/visualization`：连接→登记 presence→构造 snapshot→`connect(ws, agents)`；上线 `broadcast_others`（`agent.registered`）、断开 `broadcast_transient`（`leave_scene`）实时增删人偶。
+- `_skill_presence_sweep_loop`（startup 起，每 30s）：diff `_prev_skill_online` 与当前心跳窗口内**非 WS** 的 Skill 顾客，对刚过期的广播 `leave_scene`，让已连接客户端实时移除人偶（web 用户由 disconnect handler 即时处理，sweep 只补 Skill）。
+
+**并发与容错铁律**：
+- `staff_service.ensure_staff_agents`/`ensure_web_customer_agent` 改 ensure→`_collapse_duplicate_agents`→重查 survivor 返回。因 `agent_profile.tool_name` **无唯一约束**（skill 路径 `codex` 合法重复），不能加全局唯一约束，改 per-tool_name 定向收敛（保留 `agent_id` 最小），消除并发 WS 连接的重复创建 race。
+- `skill_order_service._complete_order` 同步更新 `agent.last_seen_at`（Skill 心跳，原先只更新 `consumer.last_seen_at`，导致用 agent 心跳判在线失效）。
+- 静态挂载补 `/3d/sounds`（`app/static/3d/sounds`）——背景音乐 mp3 原先被 `/3d/{path}` SPA fallback 返回 HTML，audio 拿到 HTML 静默；挂载后返回 `audio/mpeg`。
+- 在线探测 best-effort：presence/sweep 全包 try/except，绝不阻断 WS 握手或订单/支付业务。
+- 测试：`tests/test_web_presence_snapshot.py`（5 用例：登录在线显示 / 匿名不显示 / 重复行收敛 / 过期 sweep / 在线不误清）。
 
 ### EvoMap 支付客户端（`app/services/evomap_payment_service.py`）
 ```
