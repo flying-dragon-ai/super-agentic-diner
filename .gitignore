@@ -2,9 +2,44 @@
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
 
 # 本地运行产物
+.env
+.env.*
+!.env.example
 coffee.db
+logs/
+*.log
+server.*.log
+
+# Node dependencies and local build caches
+node_modules/
+
+# Browser/tooling/runtime evidence generated during local verification
+.artifacts/
+.playwright-mcp/
+output/
+
+# CodeGraph local index/runtime files. Keep source docs/config if added later.
+.codegraph/*.db*
+.codegraph/*.log
+.codegraph/*.pid
+
+# EvoMap/Evolver local runtime memory
+.evolver/gep/*.jsonl
+.evolver/gep/failed_capsules.json
+memory/evolution/
+memory/evolver_update_check.json
+memory/atp-autobuy-ack.json
+memory/atp-autobuyer-ledger.json
+
+# Local task-runner transcripts
+.ccg/tasks/archive/
 
 # Local EvoMap consumer credentials for paid Skill testing.
 .local-consumer.env
+
+# Local MCP backups may contain machine-specific paths or credentials.
+.mcp.json.backup
