@@ -115,12 +115,9 @@ def recommend(
         history=history,
         user_msg=user_msg,
     )
-    # LLM 不可用时降级
+    # LLM 不可用时降级：给一句自然的店长回复，绝不把 raw context dump 给用户
     if not reply:
-        if kb_rows:
-            reply = "根据您的喜好，为您推荐：" + context + "\n\n请问想点哪一杯呢？"
-        else:
-            reply = "您好，我是咖啡馆 AI 店长！请问您想喝什么口味的咖啡？"
+        reply = "您好~我是咖啡馆 AI 店长 ☕ 今天想喝点什么口味的？可以告诉我喜欢的风味或者忌口，我来帮您挑一杯~"
 
     return {
         "reply": reply,

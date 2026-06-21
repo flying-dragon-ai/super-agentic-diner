@@ -186,10 +186,8 @@ def chat(history, user_msg, context):
 
 
 def _mock_chat(context: str) -> str:
-    """无 LLM key 时的降级：直接用 RAG 检索结果拼推荐"""
-    if not context:
-        return "您好，我是咖啡馆 AI 店长！请问您想喝什么口味的咖啡？可以告诉我喜欢的风味或忌口哦~"
-    return "根据您的喜好，为您推荐：\n" + context + "\n\n请问想点哪一杯呢？告诉我就可以为您下单啦~"
+    """无 LLM key 时的降级：给自然的店长回复，绝不 dump raw context"""
+    return "您好~我是咖啡馆 AI 店长 ☕ 今天想喝点什么口味的？可以告诉我喜欢的风味或者忌口，我来帮您挑一杯~"
 
 
 # 【任务三·LLM】意图分类提示词（精简版：~150 字，省 ~170 tokens/次）
