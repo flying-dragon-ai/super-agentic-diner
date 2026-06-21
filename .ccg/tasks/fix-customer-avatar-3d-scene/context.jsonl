@@ -1,0 +1,5 @@
+{"_example": "Fill with {\"file\": \"path\", \"reason\": \"why\"}. Seed rows are skipped."}
+{"file": "app/main.py", "reason": "chat endpoint (645) 不建顾客 agent、不发 enter_scene；_register_web_customer_presence (1516) 匿名返回 None；_build_snapshot_agents (1481) snapshot 构造"}
+{"file": "app/services/skill_order_service.py", "reason": "process_skill_order (379) customer_entered 只发 restaurant.* 不发 agent.action(enter_scene)"}
+{"file": "app/services/staff_service.py", "reason": "ensure_web_customer_agent (88) + publish_agent_action (203) 可复用"}
+{"file": "frontend/src/screens/OfficeScene.tsx", "reason": "onSnapshot (205) + onEvent (167) 前端契约健全，无需改"}

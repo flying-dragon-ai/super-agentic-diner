@@ -1,0 +1,12 @@
+{
+  "id": "fix-customer-avatar-3d-scene",
+  "title": "修复网页/Skill 点单时顾客人偶不进入 3D 场景",
+  "status": "in_progress",
+  "strategy": "debug-investigate",
+  "currentPhase": "2",
+  "nextAction": "实施修复：chat 链路建顾客 agent + 广播 enter_scene；skill 下单追加 enter_scene 广播",
+  "gate": "awaiting-execution-mode",
+  "branch": "main",
+  "scope": "fix-customer-avatar-3d-scene",
+  "createdAt": "2026-06-21T00:23:27Z"
+}

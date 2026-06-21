@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     redis_port: int = 6379
     redis_db: int = 0
     redis_password: str = ""
+    # Redis socket 超时（秒）:建连 / 读写命令;超时即降级,避免 /chat 挂死等约 1 分钟
+    redis_socket_connect_timeout: float = 3.0
+    redis_socket_timeout: float = 5.0
 
     # OpenAI-compatible LLM provider.
     llm_api_key: str = ""
