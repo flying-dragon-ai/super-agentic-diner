@@ -6,6 +6,7 @@
 
 | 时间 | 动作 | 说明 |
 |------|------|------|
+| 2026-06-21 09:55 | 增量校验（第九次 init） | **一致性校验**（仅文档，对照 HEAD `031608f`）：修正参数表 `--display-name` 默认值描述——原写"默认 `Codex Consumer`"，与 `order.py:254` 实际代码 `default=os.getenv("RESTAURANT_AGENT_NAME") or detect_username()` 不符（已在 2026-06-21 01:47 改为 `detect_username()`，但参数表漏改），本次校正。其余内容经校验准确（`detect_username`/`detect_evomap_install`/`load_evomap_credentials`/`--check-evomap`/安全红线/凭证优先级均与代码一致），保持不动 |
 | 2026-06-21 01:47 | 增量刷新 | **`order.py --display-name` 默认改 `detect_username()`**（原先默认 `"Codex Consumer"`）。让平台显示的 Skill 顾客名 = 该机器系统账号名（对齐"登录名=上传的名字"要求），环境变量 `RESTAURANT_AGENT_NAME` 仍可覆盖。配合后端在线用户模型（Skill 用户经 `agent.last_seen_at` 心跳窗口 120s 显示在线，见 app/CLAUDE.md「在线用户显示模型」） |
 | 2026-06-20 14:08 | 创建 | 初始化架构师首次生成。对齐本次 skill 改造：`order.py` 新增 `detect_username`（`getpass.getuser()`，跨平台系统账号名）/`detect_evomap_install`（只读检测 `~/.evomap/`）/`load_evomap_credentials`（文件优先 > 环境变量）/`--check-evomap` 子命令；`SKILL.md` 新增 "EvoMap Installation Check"（未装→AI 二次确认后 `npx @evomap/evolver --loop`）+ NPX 安装说明 + 安全红线；`references/api.md` 同步 `--check-evomap` 文档 |
 
@@ -46,7 +47,7 @@
 |------|---------|------|
 | `--base-url` | `RESTAURANT_API_BASE` | API 地址，默认 `http://127.0.0.1:8000` |
 | `--tool-name` | `RESTAURANT_TOOL_NAME` | 工具名，默认 `codex` |
-| `--display-name` | `RESTAURANT_AGENT_NAME` | 显示名，默认 `Codex Consumer` |
+| `--display-name` | `RESTAURANT_AGENT_NAME` | 显示名，默认 `detect_username()`（系统账号名，2026-06-21 01:47 改；原 `"Codex Consumer"`） |
 | `--evomap-node-id` | `EVOMAP_NODE_ID` / `A2A_NODE_ID` | 消费者节点 ID；省略则查 `.mcp.json` 或用 local-unregistered 占位 |
 | `--evomap-did` | `EVOMAP_DID` | 可选 DID |
 | `--evomap-node-secret` | `EVOMAP_NODE_SECRET` / `A2A_NODE_SECRET` | 付费单服务端支付密钥；已装 EvoMap 时自动从 `~/.evomap/` 读取，无需手传。**从不打印** |
