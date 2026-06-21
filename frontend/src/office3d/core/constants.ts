@@ -15,10 +15,14 @@ export const WALK_SPEED = 0.3;
 export const WORKING_WALK_SPEED_MULTIPLIER = 3;
 export const WALK_ANIM_SPEED = 0.15;
 export const AGENT_SCALE = 1.75;
-export const BUMP_FREEZE_MS = 1500;
-export const BUMP_RECOVERY_MS = 1200;
-export const AGENT_RADIUS = 20;
-export const SEPARATION_STRENGTH = 3;
+// Collision tuning (3D-interaction-enhancement plan step 2): larger radius so
+// agents start peeling apart earlier, stronger separation weight when picking
+// the escape roam point, and shorter freeze/recovery windows so bumped agents
+// resume motion quickly instead of looking "frozen".
+export const BUMP_FREEZE_MS = 800;
+export const BUMP_RECOVERY_MS = 600;
+export const AGENT_RADIUS = 26;
+export const SEPARATION_STRENGTH = 6;
 // Single local office canvas (no remote-office district in this port).
 export const CANVAS_W = 1800;
 // Claw3D local office is 1800 wide x 720 tall; world projected via SCALE.

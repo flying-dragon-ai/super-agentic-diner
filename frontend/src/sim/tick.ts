@@ -138,6 +138,15 @@ export function makeTick(handle: SimHandle) {
         if (now >= agent.bumpedUntil) {
           agent.bumpedUntil = undefined;
           agent.collisionCooldownUntil = now + BUMP_RECOVERY_MS;
+          // Resume toward the escape roam point immediately instead of standing
+          // idle for a frame. Without this, a just-unfrozen agent waits a whole
+          // extra tick for settleIdle to reroute, which reads as "freeze -> pop".
+          // (targetX/Y were set by applyAgentCollisionBumps to the escape point.)
+          const resumeTx = agent.targetX ?? agent.x;
+          const resumeTy = agent.targetY ?? agent.y;
+          const resumePath = astar(agent.x, agent.y, resumeTx, resumeTy, nav);
+          agent.path = resumePath;
+          if (resumePath.length > 0) agent.state = "walking";
         }
         continue;
       }

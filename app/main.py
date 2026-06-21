@@ -27,7 +27,7 @@ from app.db.models import (
 )
 from app.db.models import OrderItem, Product
 from app.domain_constants import WALLET_CURRENCY_CNY
-from app.services import office_layout_service, wallet_service
+from app.services import autonomous_agent_service, office_layout_service, wallet_service
 from app.domain_constants import (
     IDENTITY_STATUS_ACTIVE,
     ORDER_SOURCE_SKILL,
@@ -83,6 +83,9 @@ app = FastAPI(title="EvoMap 进化咖啡馆")
 _evomap_heartbeat_thread: threading.Thread | None = None
 _evomap_heartbeat_stop = threading.Event()
 
+# 自主数字顾客循环（P1：每 45-75s 跑一次模拟买咖啡会话，3D 人偶自主走动）
+_autonomous_task: asyncio.Task | None = None
+
 
 def _evomap_heartbeat_loop() -> None:
     """后台心跳线程：每 5 分钟发心跳 + 拉取社区经验缓存到 Redis。"""
@@ -122,6 +125,9 @@ async def _startup_colyseus() -> None:
     # expires (they can't push a leave signal — the order.py script already exited).
     global _skill_sweep_task
     _skill_sweep_task = asyncio.create_task(_skill_presence_sweep_loop())
+    # 自主数字顾客循环（P1：每 45-75s 跑一次模拟买咖啡会话，3D 人偶可见）
+    global _autonomous_task
+    _autonomous_task = asyncio.create_task(autonomous_agent_service.autonomous_loop())
     # 启动 EvoMap 心跳（仅当配置了节点身份）
     if settings.evomap_node_id and settings.evomap_node_secret:
         _evomap_heartbeat_stop.clear()
@@ -137,6 +143,10 @@ async def _shutdown_colyseus() -> None:
     if _skill_sweep_task is not None:
         _skill_sweep_task.cancel()
         _skill_sweep_task = None
+    global _autonomous_task
+    if _autonomous_task is not None:
+        _autonomous_task.cancel()
+        _autonomous_task = None
 
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -593,6 +603,15 @@ def _publish_web_completion_flow(
         "order_ids": order_ids,
         "agent_id": agent_id,
     }
+    # 服务员团队编排（对齐 Skill 路径 _publish_skill_completion_flow）：各业务节点
+    # 发完 restaurant.* 事件后追加服务员 agent.action，让 3D 场景里的服务员团队完整
+    # 联动（cashier 接单 → barista 做咖啡 → waiter 送餐 → 复位）。best-effort：
+    # ensure/orchestrate 内部已包 try/except，可视化绝不阻断点单/支付业务。
+    try:
+        staff = staff_service.ensure_staff_agents(db)
+    except Exception:
+        staff = {}
+    correlation = req.request_id
     _publish_web_restaurant_event(
         db,
         "restaurant.payment_completed",
@@ -601,6 +620,7 @@ def _publish_web_completion_flow(
         satisfaction=88,
         **common,
     )
+    staff_service.orchestrate_staff_node(db, staff, "payment_completed", correlation)
     for stage, label, patience in (
         ("grinding", "grinding beans", 78),
         ("brewing", "brewing coffee", 72),
@@ -616,8 +636,11 @@ def _publish_web_completion_flow(
             satisfaction=90,
             **common,
         )
+        staff_service.orchestrate_staff_node(db, staff, "preparation_progress", correlation)
     _publish_web_restaurant_event(db, "restaurant.order_ready", state="ready", patience=70, satisfaction=92, **common)
+    staff_service.orchestrate_staff_node(db, staff, "order_ready", correlation)
     _publish_web_restaurant_event(db, "restaurant.order_delivered", state="delivered", patience=74, satisfaction=94, **common)
+    staff_service.orchestrate_staff_node(db, staff, "order_delivered", correlation)
     _publish_web_restaurant_event(
         db,
         "restaurant.customer_reviewed",
@@ -628,6 +651,7 @@ def _publish_web_completion_flow(
         **common,
     )
     _publish_web_restaurant_event(db, "restaurant.customer_left", state="left", patience=80, satisfaction=96, **common)
+    staff_service.orchestrate_staff_node(db, staff, "customer_left", correlation)
 
 
 def _extract_agent_token(authorization: str | None, x_agent_token: str | None) -> str:
@@ -678,6 +702,33 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             db.rollback()
         except Exception:
             pass
+    # 预取店长 agent（只读查询，不触发创建）；用于回复时广播 show_message 让 3D
+    # 店长人偶气泡显示回复（3D 交互增强·第三步）。best-effort：未创建则为 None 跳过。
+    _manager_agent = None
+    try:
+        _manager_agent = (
+            db.query(AgentProfile)
+            .filter(AgentProfile.tool_name == "staff:manager")
+            .first()
+        )
+    except Exception:
+        pass
+
+    def _broadcast_reply_speech(text: str) -> None:
+        """3D 交互增强·第三步：让 3D 店长气泡显示回复。best-effort，不阻断 /chat。"""
+        if not text or _manager_agent is None:
+            return
+        try:
+            staff_service.publish_agent_action(
+                db,
+                _manager_agent,
+                "show_message",
+                text=text[:200],
+                correlation_id=req.request_id,
+            )
+        except Exception:
+            pass
+
     _publish_web_restaurant_event(
         db,
         "restaurant.customer_entered",
@@ -708,6 +759,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             {"user_id": req.user_id, "intent": "view_orders", **web_source_payload},
             correlation_id=req.request_id,
         )
+        _broadcast_reply_speech(reply)
         return ChatResponse(reply=reply)
 
     # ===== 第1步：读 Redis 上下文（短期记忆，最近5轮对话）=====
@@ -781,6 +833,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                     },
                     correlation_id=req.request_id,
                 )
+                _broadcast_reply_speech(reply)
                 return ChatResponse(reply=reply)
 
             clear_pending_order(req.user_id)
@@ -823,6 +876,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                 },
                 correlation_id=req.request_id,
             )
+            _broadcast_reply_speech(reply)
             return ChatResponse(reply=reply, order_id=orders[0].order_id)
         else:
             # 不是纯确认词 → 清掉待确认，落入下方正常流程重新处理
@@ -846,6 +900,13 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         {"user_id": req.user_id, "intent": intent.get("intent", "chat"), **web_source_payload},
         correlation_id=req.request_id,
     )
+    # 服务员编排：意图识别后服务员走向收银台准备接单（对齐 Skill 路径
+    # process_skill_order 的 intent_detected 节点 → waiter walk_to_counter）。best-effort。
+    try:
+        _staff = staff_service.ensure_staff_agents(db)
+    except Exception:
+        _staff = {}
+    staff_service.orchestrate_staff_node(db, _staff, "intent_detected", req.request_id)
 
     # ===== 第3步：LLM 判断为"下单"意图 → 解析具体是哪杯咖啡 =====
     # 四路优先级：价格匹配 > LLM显式名 > RAG关键词 > 历史提取
@@ -933,6 +994,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                 },
                 correlation_id=req.request_id,
             )
+            _broadcast_reply_speech(reply)
             return ChatResponse(reply=reply)
 
         # ===== 第4步：两段式下单 —— 先存 Redis 待确认，显示摘要（不直接扣款）=====
@@ -976,6 +1038,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             },
             correlation_id=req.request_id,
         )
+        _broadcast_reply_speech(reply)
         return ChatResponse(reply=reply)
 
     # ===== 非下单意图（recommend/chat）→ 多 Agent(智能体) 协作流程 =====
@@ -1001,6 +1064,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     # 编排器已在执行期间实时推送 agent.* 事件（通过 emit 回调），无需再批量发布
     # 若编排器已写对话历史并给出回复，直接返回
     if orch.reply:
+        _broadcast_reply_speech(orch.reply)
         return ChatResponse(reply=orch.reply, products=orch.products if orch.products else None)
     # 编排器降级（如无 LLM key）：回退到原 handle_message
     reply, products = handle_message(db, req.user_id, req.message)
@@ -1010,6 +1074,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         {"user_id": req.user_id, "intent": intent.get("intent", "chat"), **web_source_payload},
         correlation_id=req.request_id,
     )
+    _broadcast_reply_speech(reply)
     return ChatResponse(reply=reply, products=products if products else None)
 
 

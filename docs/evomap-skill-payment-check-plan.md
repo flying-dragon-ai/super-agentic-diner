@@ -106,6 +106,8 @@ git check-ignore -v .local-consumer.env
 .\.venv\Scripts\python.exe `
   .agents\skills\a2a-super-order\scripts\order.py `
   --check-evomap
+
+python scripts/check_evomap_service_binding.py --pretty
 ```
 
 验收标准：
@@ -616,3 +618,15 @@ Coffee AI Boss Order listing 的 provider worker / 接单器
 ```text
 listing_provider_unavailable
 ```
+
+## 2026-06-21 live binding check
+
+Run:
+
+```powershell
+python scripts/check_evomap_service_binding.py --pretty
+```
+
+Current live result: the configured service listing is active, featured, priced at 1 Credit, and uses `execution_mode=exclusive`, but the local `EVOMAP_NODE_ID` does not match the listing owner `node_id`. `WORKER_ENABLED` is also not enabled in the local env. In this state, starting a local provider worker with the current credentials will not serve the configured exclusive listing.
+
+Next action gate: align `EVOMAP_SERVICE_LISTING_ID`, `EVOMAP_NODE_ID`, and `EVOMAP_NODE_SECRET` so they refer to the same service owner, then enable Worker mode only after the operator explicitly approves worker participation, max load, and credit limits.
