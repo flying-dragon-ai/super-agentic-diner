@@ -202,6 +202,7 @@ export default function OfficeScene() {
 
   useEffect(() => {
     const socket = connectVisualization({
+      onStatus: setStatus,
       onEvent: (event) => {
         setEvents((prev) => [event, ...prev].slice(0, 40));
         // Read-only adapter: backend emits snake_case payloads (display_name /

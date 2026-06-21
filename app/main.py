@@ -1843,7 +1843,13 @@ def three_d_app():
     index_path = _3D_STATIC_DIR / "index.html"
     if not index_path.is_file():
         raise HTTPException(status_code=404, detail="3D build not found. Run: cd frontend && npm run build")
-    return FileResponse(index_path)
+    return FileResponse(
+        index_path,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
 @app.get("/3d/{full_path:path}")
 def three_d_app_spa(full_path: str):
     """SPA fallback: any /3d/* sub-path serves index.html so client-side
@@ -1852,7 +1858,13 @@ def three_d_app_spa(full_path: str):
     index_path = _3D_STATIC_DIR / "index.html"
     if not index_path.is_file():
         raise HTTPException(status_code=404, detail="3D build not found. Run: cd frontend && npm run build")
-    return FileResponse(index_path)
+    return FileResponse(
+        index_path,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @app.get("/")

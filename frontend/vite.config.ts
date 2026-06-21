@@ -8,7 +8,7 @@ export default defineConfig({
   base: "/3d/",
   build: {
     outDir: "../app/static/3d",
-    emptyOutDir: true,
+    emptyOutDir: false,
   },
   server: {
     port: 5174,

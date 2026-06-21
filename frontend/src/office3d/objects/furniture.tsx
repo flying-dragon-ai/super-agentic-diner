@@ -1,7 +1,7 @@
 // Ported from Claw3D objects/furniture.tsx. Loads the real GLB furniture models
 // (copied from Claw3D public/office-assets) with Claw3D's exact per-type scale,
 // tint, and rotation so the office renders faithfully instead of placeholder boxes.
-import { Text, useGLTF, useTexture } from "@react-three/drei";
+import { Text, useGLTF } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
@@ -229,8 +229,6 @@ function EvoMapTerminalProp({
   onPointerOver,
   onPointerOut,
 }: FurnitureModelProps) {
-  const logo = useTexture("/3d/evomap-materials/evomap-logo-white.svg");
-  const icon = useTexture("/3d/evomap-materials/evomap-icon.svg");
   const [wx, , wz] = toWorld(item.x, item.y);
   const elev = (item.elevation ?? 0) + 0.04;
   const rotY = getItemRotationRadians(item);
@@ -259,13 +257,19 @@ function EvoMapTerminalProp({
           metalness={0.32}
         />
       </mesh>
-      <mesh position={[0, 0.47, -0.222]} rotation={[-0.1, 0, 0]}>
-        <planeGeometry args={[0.86, 0.25]} />
-        <meshBasicMaterial map={logo} transparent opacity={0.92} toneMapped={false} />
-      </mesh>
-      <mesh position={[-0.48, 0.22, -0.225]} rotation={[-0.1, 0, 0]}>
-        <planeGeometry args={[0.18, 0.18]} />
-        <meshBasicMaterial map={icon} transparent opacity={0.9} toneMapped={false} />
+      <Text
+        position={[0, 0.5, -0.226]}
+        rotation={[-0.1, 0, 0]}
+        fontSize={0.125}
+        color="#f8fbff"
+        anchorX="center"
+        anchorY="middle"
+      >
+        EvoMap
+      </Text>
+      <mesh position={[-0.46, 0.22, -0.225]} rotation={[-0.1, 0, Math.PI / 4]}>
+        <ringGeometry args={[0.07, 0.095, 4]} />
+        <meshBasicMaterial color={accent} transparent opacity={0.9} toneMapped={false} />
       </mesh>
       <Text
         position={[0.18, 0.22, -0.228]}

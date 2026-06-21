@@ -1,7 +1,7 @@
 // Simplified port of Claw3D retro-office scene/environment.tsx.
 // Single local office floor + walls only (no remote-office district, no city path).
 import { memo, useMemo, useRef } from "react";
-import { Text, useTexture } from "@react-three/drei";
+import { Html, Text } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { CANVAS_H, CANVAS_W, SCALE } from "../core/constants";
@@ -144,7 +144,6 @@ function EvoMapLink({
 }
 
 function EvoMapWallPlaque() {
-  const logo = useTexture("/3d/evomap-materials/evomap-logo-white.svg");
   const [cx, , cz] = toWorld(CANVAS_W / 2, CANVAS_H / 2);
   const northZ = cz - (CANVAS_H * SCALE) / 2 + 0.067;
 
@@ -162,10 +161,13 @@ function EvoMapWallPlaque() {
           opacity={0.92}
         />
       </mesh>
-      <mesh position={[0, 0.08, 0.006]}>
-        <planeGeometry args={[1.58, 0.36]} />
-        <meshBasicMaterial map={logo} transparent opacity={0.92} toneMapped={false} />
-      </mesh>
+      <Html position={[0, 0.09, 0.012]} transform distanceFactor={1.4} center>
+        <img
+          src="/3d/evomap-materials/evomap-logo-white.svg"
+          alt="EvoMap"
+          style={{ width: 220, height: 50, display: "block", pointerEvents: "none", userSelect: "none" }}
+        />
+      </Html>
       <Text position={[0, -0.25, 0.012]} fontSize={0.085} color="#8be9ff" anchorX="center" anchorY="middle">
         Experience Network · Cafe Runtime
       </Text>
