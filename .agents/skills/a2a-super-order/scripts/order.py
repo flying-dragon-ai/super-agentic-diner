@@ -15,7 +15,9 @@ from typing import Any
 
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
-STATE_PATH = Path(os.getenv("A2A_SUPER_ORDER_STATE", Path.home() / ".a2a-super-order" / "state.json"))
+# Use `os.getenv(KEY) or default` (not `os.getenv(KEY, default)`) so that an
+# empty-string env var falls back to the default instead of writing state to cwd.
+STATE_PATH = Path(os.getenv("A2A_SUPER_ORDER_STATE") or str(Path.home() / ".a2a-super-order" / "state.json"))
 
 
 class ApiError(Exception):
@@ -75,6 +77,11 @@ def request_json(
         except json.JSONDecodeError:
             body = raw
         raise ApiError(exc.code, body) from exc
+    except urllib.error.URLError as exc:
+        # Connection refused / DNS failure / timeout. The node secret stays safe
+        # (it travels in headers, never in the URL); surface a friendly message
+        # instead of a raw traceback.
+        raise SystemExit(f"无法连接服务器 {url}: {exc.reason}") from exc
 
 
 EVOMAP_HOME = Path(os.getenv("EVOLVER_HOME") or (Path.home() / ".evomap"))
@@ -162,15 +169,6 @@ def detect_node_id(root: Path, explicit: str | None) -> str:
     return "local-unregistered-" + re.sub(r"[^a-zA-Z0-9_-]+", "-", host).strip("-").lower()
 
 
-def load_payment_proof(raw: str | None) -> dict[str, Any] | None:
-    if not raw:
-        return None
-    path = Path(raw)
-    if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
-    return json.loads(raw)
-
-
 def register_if_needed(args: argparse.Namespace, root: Path, state: dict[str, Any]) -> dict[str, Any]:
     base_url = args.base_url.rstrip("/")
     # Prefer real EvoMap credentials from ~/.evomap/ (or env); only fall back to
@@ -200,7 +198,7 @@ def register_if_needed(args: argparse.Namespace, root: Path, state: dict[str, An
         "role_type": "customer",
         "capabilities": ["a2a_super_order", "evomap_credit_payment"],
         "metadata": {"workspace": str(root), "source": "a2a-super-order-skill"},
-        "evomap_capability_status": "detected" if args.evomap_node_id or os.getenv("A2A_HUB_URL") else "unknown",
+        "evomap_capability_status": "detected" if (evomap_creds or args.evomap_node_id or os.getenv("A2A_HUB_URL")) else "unknown",
     }
     result = request_json(base_url + "/skill/register", payload)
     result["evomap_node_id"] = node_id
@@ -212,14 +210,13 @@ def register_if_needed(args: argparse.Namespace, root: Path, state: dict[str, An
 def submit_order(args: argparse.Namespace, registration: dict[str, Any]) -> dict[str, Any]:
     base_url = args.base_url.rstrip("/")
     request_id = args.request_id or "skill-" + uuid.uuid4().hex
-    proof = load_payment_proof(args.payment_proof)
     payload = {
         "consumer_id": registration["consumer_id"],
         "agent_id": registration["agent_id"],
         "message": args.message,
         "request_id": request_id,
         "auto_confirm": True,
-        "payment_proof": proof,
+        "payment_proof": None,  # client-submitted proofs are rejected by the backend
     }
     extra_headers = {}
     if args.evomap_node_secret:
@@ -263,7 +260,7 @@ def main() -> int:
     parser.add_argument("--request-id")
     parser.add_argument(
         "--payment-proof",
-        help="Deprecated: the backend rejects unverified client payment proofs.",
+        help="Deprecated and ignored: the backend rejects unverified client payment proofs.",
     )
     parser.add_argument("--force-register", action="store_true")
     parser.add_argument("--register-only", action="store_true")
@@ -287,18 +284,28 @@ def main() -> int:
         }, ensure_ascii=False, indent=2))
         return 0
 
+    if args.payment_proof:
+        print(
+            "⚠️ --payment-proof 已弃用并被忽略：后端拒绝客户端伪造的支付凭证，付费请用 --evomap-node-secret。",
+            file=sys.stderr,
+        )
+
     root = Path.cwd()
     state = read_json(STATE_PATH, {})
-    registration = register_if_needed(args, root, state)
-    if args.register_only:
-        output = redact_for_stdout(registration)
-        output["state_path"] = str(STATE_PATH)
-        print(json.dumps(output, ensure_ascii=False, indent=2))
-        return 0
-    if not args.message:
-        raise SystemExit("--message is required unless --register-only is used")
-
-    result = submit_order(args, registration)
+    try:
+        registration = register_if_needed(args, root, state)
+        if args.register_only:
+            output = redact_for_stdout(registration)
+            output["state_path"] = str(STATE_PATH)
+            print(json.dumps(output, ensure_ascii=False, indent=2))
+            return 0
+        if not args.message:
+            raise SystemExit("--message is required unless --register-only is used")
+        result = submit_order(args, registration)
+    except ApiError as exc:
+        print(f"请求失败: HTTP {exc.status}", file=sys.stderr)
+        print(json.dumps(redact_for_stdout(exc.body), ensure_ascii=False, indent=2), file=sys.stderr)
+        return 1
     print(json.dumps(redact_for_stdout(result), ensure_ascii=False, indent=2))
     return 0
 

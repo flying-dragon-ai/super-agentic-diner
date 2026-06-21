@@ -37,6 +37,7 @@ import {
   SNAP_GRID,
 } from "../office3d/core/constants";
 import {
+  ensureEvoMapSceneMaterials,
   materializeDefaults,
   resolveFurnitureLayout,
 } from "../office3d/core/furnitureDefaults";
@@ -171,8 +172,12 @@ export default function OfficeScene() {
       const server = await fetchServerLayout();
       if (cancelled) return;
       if (server && server.length > 0) {
-        setFurniture(server);
-        saveFurniture(server);
+        const upgraded = ensureEvoMapSceneMaterials(server);
+        setFurniture(upgraded);
+        saveFurniture(upgraded);
+        if (upgraded.length !== server.length) {
+          void pushServerLayout(upgraded);
+        }
       } else {
         pushServerLayout(furniture);
       }
