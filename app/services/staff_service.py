@@ -228,6 +228,35 @@ def publish_agent_action(
             pass
 
 
+def customer_enter_scene(
+    db: Session,
+    agent: AgentProfile,
+    *,
+    correlation_id: str | None = None,
+) -> None:
+    """Bring a customer agent onstage in the 3D scene.
+
+    Single owner of the "customer enters" lifecycle: refreshes ``last_seen_at``
+    (so the agent falls inside the snapshot heartbeat window for
+    late-connecting clients) and broadcasts an ``enter_scene`` agent.action
+    (so already-connected clients create the avatar live).
+
+    Used by both the web chat path (after ``ensure_web_customer_agent``) and
+    the Skill order path (the agent comes from ``_require_agent``). Best-effort:
+    never raises into the caller — visualization must never block order/payment.
+    """
+    try:
+        agent.last_seen_at = datetime.utcnow()
+        db.commit()
+        db.refresh(agent)
+        publish_agent_action(db, agent, "enter_scene", correlation_id=correlation_id)
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
 def orchestrate_staff_node(
     db: Session,
     staff: Mapping[str, AgentProfile],

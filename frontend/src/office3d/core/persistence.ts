@@ -3,6 +3,7 @@
 // migration keys (gym/qa/server/phone/sms) are out of scope for a single cafe.
 import { LAYOUT_MIGRATION_KEY, STORAGE_KEY } from "./constants";
 import type { FurnitureItem } from "./types";
+import { getOfficeLayout, saveOfficeLayout } from "../../net/api";
 
 const resolveStorageKey = (key: string, namespace = "default") =>
   namespace === "default" ? key : `${key}:${namespace}`;
@@ -52,3 +53,30 @@ export const markLayoutMigrationApplied = (namespace = "default") => {
     /* ignore */
   }
 };
+
+// ---------------------------------------------------------------------------
+// Server-side layout (authoritative, global singleton). localStorage stays as
+// an instant cache + offline fallback. Both calls are best-effort: failures
+// swallow + warn so the editor degrades to local/default instead of blocking
+// the scene from rendering.
+// ---------------------------------------------------------------------------
+
+export async function fetchServerLayout(): Promise<FurnitureItem[] | null> {
+  try {
+    const res = await getOfficeLayout();
+    return Array.isArray(res.items) && res.items.length > 0
+      ? (res.items as FurnitureItem[])
+      : null;
+  } catch (e) {
+    console.warn("[layout] server fetch failed, using local fallback", e);
+    return null;
+  }
+}
+
+export async function pushServerLayout(items: FurnitureItem[]): Promise<void> {
+  try {
+    await saveOfficeLayout(items);
+  } catch (e) {
+    console.warn("[layout] server push failed (kept locally only)", e);
+  }
+}

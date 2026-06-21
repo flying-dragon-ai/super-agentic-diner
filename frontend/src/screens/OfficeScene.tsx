@@ -40,7 +40,7 @@ import {
   materializeDefaults,
   resolveFurnitureLayout,
 } from "../office3d/core/furnitureDefaults";
-import { saveFurniture } from "../office3d/core/persistence";
+import { saveFurniture, fetchServerLayout, pushServerLayout } from "../office3d/core/persistence";
 import { createWallItem, nextUid, normalizeDegrees, snap } from "../office3d/core/geometry";
 import type { FurnitureItem, RenderAgent } from "../office3d/core/types";
 import { createSimStore, applyEvent, clearSpeech } from "../sim/agentStore";
@@ -50,6 +50,7 @@ import type { SnapshotAgent, VisEvent } from "../net/api";
 import { ROLE_LABEL, resolveAction, resolveRole } from "../sim/roleMap";
 import { Palette, PALETTE } from "../ui/Palette";
 import { SelectedObjectPanel } from "../ui/SelectedObjectPanel";
+import { ChatPanel } from "../ui/ChatPanel";
 import { ImmersiveOverlay, type OverlayKind } from "../overlays/ImmersiveOverlay";
 import { initSceneMusic, stopSceneMusic } from "../sounds/sceneMusic";
 import {
@@ -137,6 +138,10 @@ export default function OfficeScene() {
   // skip the drag reset, otherwise drag never survives as "moving" and the
   // follow-cursor drag is dead.
   const justSelectedRef = useRef(false);
+  // Server-layout hydration flag: false until the mount-time GET completes, so
+  // the debounced autosave skips the initial render and doesn't race the GET
+  // (which could clobber a newer server layout or upload defaults prematurely).
+  const hydratedRef = useRef(false);
   const [hoverUid, setHoverUid] = useState<string | null>(null);
   const [ghostPos, setGhostPos] = useState<[number, number, number] | null>(null);
   const [wallDrawStart, setWallDrawStart] = useState<{ x: number; y: number } | null>(null);
@@ -157,9 +162,32 @@ export default function OfficeScene() {
     sim.setFurniture(furniture);
   }, [sim, furniture]);
 
+  // Hydrate from server on mount. Server is authoritative + global (staff edits
+  // once, every visitor sees it); localStorage is an instant cache + offline
+  // fallback. On first-ever load (server empty) we migrate the current layout
+  // (localStorage cache or default) up so the whole project shares one layout.
   useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const server = await fetchServerLayout();
+      if (cancelled) return;
+      if (server && server.length > 0) {
+        setFurniture(server);
+        saveFurniture(server);
+      } else {
+        pushServerLayout(furniture);
+      }
+      hydratedRef.current = true;
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!hydratedRef.current) return;
     const timeoutId = window.setTimeout(() => {
       saveFurniture(furniture);
+      pushServerLayout(furniture);
     }, 300);
     return () => {
       window.clearTimeout(timeoutId);
@@ -628,6 +656,7 @@ export default function OfficeScene() {
           );
         })}
       </div>
+      <ChatPanel />
     </div>
   );
 }
