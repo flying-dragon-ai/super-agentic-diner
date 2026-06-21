@@ -774,7 +774,7 @@ async function initAuth() {
   _connectAgentWS();  // 启动 Agent 指示灯 WebSocket
   const ok = await initAuth();
   if (!ok) return;
-  addMsg('您好！我是咖啡馆 AI 店长 ☕\n\n告诉我您喜欢的口味，或者有什么忌口，我来为您推荐~\n（试试下侧的快捷按钮）', 'bot');
+  addMsg('您好！我是 EvoMap 进化咖啡馆 AI 店长 ☕\n\n告诉我您喜欢的口味，或者有什么忌口，我来为您推荐~\n（试试下侧的快捷按钮）', 'bot');
   await Promise.all([refreshUser(), refreshOrders(), refreshMode()]);
 })();
 </script>
