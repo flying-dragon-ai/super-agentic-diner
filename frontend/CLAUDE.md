@@ -6,7 +6,7 @@
 
 | 时间 | 动作 | 说明 |
 |------|------|------|
-| 2026-06-21 08:40 | 增量 | **顾客进场统一入口 + 3D 内嵌聊天面板 + 专项测试**（对应"全部修复"②③④⑦）。① 后端 `staff_service.customer_enter_scene`：新建统一进场函数（刷 `last_seen_at` + 广播 `enter_scene`），web `/chat` 与 skill `/skill/orders` 两处去重内联 try/except 改调它（消除"在线显示模型/点单链路"架构断层）。② web 事件全链路归属顾客：`_publish_web_restaurant_event`/`_publish_web_completion_flow` 加 `agent_id` 透传，`chat()` 内 6 处调用统一带 `customer_agent_id`。③ **前端 3D 内嵌聊天 UI**（`ui/ChatPanel.tsx`）：左下角浮动面板，`getAnonUserId`（localStorage 稳定匿名 user_id）→ `sendChat` POST `/chat`，接入 `OfficeScene.tsx`；此前"内嵌聊天消费 /chat"仅文档规划、无代码，本版补齐（`net/api.ts` 加 `sendChat`/`getAnonUserId`/`ChatResponse`）。④ 专项测试 `tests/test_customer_enter_scene.py`（2 用例）。**注**：前端本地构建需先 `npm install`（当前 node_modules 缺 typescript/vite，无法 tsc/vite 验证，代码已人工审查） |
+| 2026-06-21 08:40 | 增量 | **顾客进场统一入口 + 3D 内嵌聊天面板 + 专项测试**（对应"全部修复"②③④⑦）。① 后端 `staff_service.customer_enter_scene`：新建统一进场函数（刷 `last_seen_at` + 广播 `enter_scene`），web `/chat` 与 skill `/skill/orders` 两处去重内联 try/except 改调它（消除"在线显示模型/点单链路"架构断层）。② web 事件全链路归属顾客：`_publish_web_restaurant_event`/`_publish_web_completion_flow` 加 `agent_id` 透传，`chat()` 内 6 处调用统一带 `customer_agent_id`。③ **前端 3D 内嵌聊天 UI**（`ui/ChatPanel.tsx`）：左下角浮动面板，`getAnonUserId`（localStorage 稳定匿名 user_id）→ `sendChat` POST `/chat`，接入 `OfficeScene.tsx`；此前"内嵌聊天消费 /chat"仅文档规划、无代码，本版补齐（`net/api.ts` 加 `sendChat`/`getAnonUserId`/`ChatResponse`）。④ 专项测试 `tests/test_customer_enter_scene.py`（2 用例）。**注**：前端本地构建需先 `pnpm install`（当前 node_modules 缺 typescript/vite，无法 tsc/vite 验证，代码已人工审查） |
 | 2026-06-21 08:10 | 增量刷新（第八次 init） | **Dashboard 事件中文化 + 背景音乐多轨轮播 + 顾客人偶进 3D 场景修复 + three-stdlib**。① **Dashboard 事件中文化**（`Dashboard.tsx`）：新增 `EVENT_TEXT`/`SOURCE_TEXT`/`AGENT_ACTION_TEXT` 三个映射表，把英文事件 type/source/action_type 翻译成中文（如 `restaurant.payment_completed`→支付完成，`agent.action` 取 `payload.action_type` 翻译）；新增 `summary` 字段兼容（KPI 卡片优先取 `summary.today_order_count`/`active_staff_count`/`active_consumer_count`）；`formatEvent`/`sourceText` 辅助函数。② **背景音乐多轨轮播**（`sceneMusic.ts`，`031608f`）：从单 m1 升级为 m1/m2 多轨循环轮播切换；后端 `/3d/sounds` mount 恢复（`031608f`，修生产模式 mp3 被 SPA fallback 返回 HTML）。③ **顾客人偶进 3D 场景修复**（`d54f8be`/`6ce1d49`）：web/skill 点单链路正确广播 `enter_scene`，顾客人偶正常进入 3D 场景（修此前 ccg 任务「顾客人偶不进入 3D 场景」）。④ 新增依赖 `three-stdlib ^2.36.1`。⑤ `OfficeScene.tsx` 背景音乐接入调整。**注**：前端 3D 不渲染 products 卡片（卡片在 2D 聊天页 `app/static/index.html`）；`overlays/ImmersiveOverlay.tsx` 存在但 `App.tsx` 未引用 |
 | 2026-06-21 01:47 | 增量刷新 | **TopBar 重合修复 + 3D 场景背景音乐**。① **TopBar（`App.tsx`）重合修复**：原 `/scene` 下 `opacity:0.45` + 整层 `pointerEvents:none` 致文字与 3D 场景（吧台/大厅）重合难读、链接/登出点不到，且 `sceneRoute` 用 `window.location` 检测不随路由更新；改统一样式——容器加半透明深色面板（`rgba(12,18,28,0.72)`）+ `blur(6px)` 毛玻璃 + `pointerEvents:none`（穿透不挡 3D 拖拽），各交互子元素（链接/按钮/用户名）`pointerEvents:auto` 恢复可点；去掉 sceneRoute 分支与 opacity:0.45。② **3D 场景背景音乐**：新建 `sounds/sceneMusic.ts`（单例 `HTMLAudioElement`，loop、volume 0.4，首次 `pointerdown`/`keydown` 后 `play()` 规避浏览器 autoplay 限制、失败自动重试；`toggleMute`+subscribe/notify；卸载暂停/重挂恢复）；`OfficeScene.tsx` `useEffect` 挂载 `initSceneMusic`/`stopSceneMusic`；TopBar 加 🔊/🔇 静音按钮（订阅 mute 状态）；音频源 `docs/m1.mp3` 复制到 `public/sounds/m1.mp3`，运行时 URL：dev `/sounds/m1.mp3`、prod `/3d/sounds/m1.mp3`（需后端挂载 `/3d/sounds`，见 app/CLAUDE.md）。③ **snapshot.agents 真正含在线用户**（依赖后端在线用户模型）：`onSnapshot` 现能收到 4 服务员 + 在线顾客，刷新页面也看得到。详见「TopBar」「背景音乐」小节 |
 | 2026-06-20 21:30 | 增量刷新 | **匿名点单门槛确立（前端侧）**（仅文档刷新，不改源码）。对齐后端 `main.py:1696` `index()` 删登录校验：根路由 `/`（经 FastAPI）匿名直出 3D SPA，**前端 3D 场景无任何强制登录拦截**。确认 `App.tsx` 路由 `/` `/scene` `/machines` `/dashboard` 均**无 `<ProtectedRoute>` 守卫**，`/login` `/register` 为可选；`TopBar` 未登录时仅显示"登录"按钮（不阻断浏览/点单）。`LoginPage` 提供"匿名进入 3D"链接。内嵌聊天消费后端 `POST /chat`（匿名 user_id，无 auth）。设计动因：咖啡厅线下场景，顾客匿名消费不该有账号密码门槛。清除"账户登录访问受保护页面"过时措辞（实际无受保护页面）。详见「模块职责 #4」「账户登录」「FAQ」 |
@@ -40,8 +40,8 @@ Coffee AI Boss 的 3D 可视化前端（**取代** 2D 像素风，与后端 `/ws
   - `/machines` → `MachineShowcase`（咖啡机展示，2026-06-20 新增）
   - `/dashboard` → `Dashboard`
   - `/login`、`/register` → 登录/注册页（可选）
-- **开发**：`npm run dev`（Vite，端口 5174，代理 `/ws` `/api` 到 `localhost:8000`）
-- **构建**：`npm run build`（`tsc --noEmit && vite build`，产物输出到 `../app/static/3d`，由 FastAPI `/3d` 与根 `/` 托管）
+- **开发**：`pnpm run dev`（Vite，端口 5174，代理 `/ws` `/api` 到 `localhost:8000`）
+- **构建**：`pnpm run build`（`tsc --noEmit && vite build`，产物输出到 `../app/static/3d`，由 FastAPI `/3d` 与根 `/` 托管）
 - **base path**：`/3d/`（见 `vite.config.ts`）
 
 ## 对外接口（与后端的契约）
@@ -193,7 +193,7 @@ scene.snapshot (连接即收) → onSnapshot: 遍历 payload.agents 预创建人
 ## 测试与质量
 
 - **Playwright** 已装但无测试文件（覆盖缺口；运行时截图证据已移出活跃仓库，历史证据见 archive manifest）。
-- 类型检查：`npm run build` 会先跑 `tsc --noEmit`（2026-06-20 验证零错误）。
+- 类型检查：`pnpm run build` 会先跑 `tsc --noEmit`（2026-06-20 验证零错误）。
 - 无单元测试框架。
 - 移植残留（2026-06-20 已清理）：原 navigation `void ITEM_FOOTPRINT/snap`、agentStore `void NAV_ENTRY`、OfficeScene `roleDeskIndex`/`DESK_LOCS`/`ROLE_DESK`/`getDeskLocations` 整套 void 占位、main.py unused import `bridge_event_to_colyseus`、furnitureDefaults `void nextUid` 已全部清理；roleMap 坐标超界与注释不符已修。
 
@@ -202,7 +202,7 @@ scene.snapshot (连接即收) → onSnapshot: 遍历 payload.agents 预创建人
 - **Q: 进 3D 场景需要登录吗？** A: **不需要**。`App.tsx` 所有路由（`/` `/scene` `/machines` `/dashboard`）匿名可访问，无 `<ProtectedRoute>` 守卫；`LoginPage` 提供"匿名进入 3D"直接跳 `/scene`。2026-06-20 21:30 起这是咖啡厅匿名点单的正式路径。
 - **Q: 匿名能在 3D 场景里点单吗？** A: 能。`OfficeScene` 内嵌聊天消费后端 `POST /chat`（匿名 user_id，无 auth）；后端 `/chat` 无登录依赖。服务员编排（接单/收银/做咖啡/送餐动画）照常触发。唯一差别：匿名访客自身不会有"顾客人偶"在 snapshot 里（后端 presence 需签名 Cookie），但点单业务流和事件广播完全正常。
 - **Q: 那 `/login` `/register` 还有什么用？** A: 可选增值：个性化昵称 + WS 在线顾客人偶 presence（登录后顾客人偶出现在 snapshot）。不是浏览/点单前置。
-- **Q: 3D 页面 404？** A: 需先 `npm run build` 把产物输出到 `app/static/3d/`，否则根 `/` 与 `/3d` 路由返回 "3D build not found"。
+- **Q: 3D 页面 404？** A: 需先 `pnpm run build` 把产物输出到 `app/static/3d/`，否则根 `/` 与 `/3d` 路由返回 "3D build not found"。
 - **Q: 开发模式如何连后端？** A: Vite 代理 `/ws`、`/api` 到 `localhost:8000`；`api.ts` 的 `base` 在 DEV 模式返回 `http://localhost:8000`。
 - **Q: 大屏数据多久刷新？** A: `Dashboard.tsx` 每 **4 秒**同时轮询 `/admin/restaurant-state`（KPI/最近订单/在线员工）和 `/visualization/events?limit=30`（事件流）。
 - **Q: 为什么服务员人偶动作不触发？** A: 2026-06-20 已修 B1——后端动作事件外层 `type` 永远是 `"agent.action"`，真动作在 `payload.action_type`；`OfficeScene.onEvent` 已重写取 `payload.action_type`。若仍不触发，检查后端是否广播了 `agent.action` 类型（而非旧的 `restaurant.*`/`order.*`）。

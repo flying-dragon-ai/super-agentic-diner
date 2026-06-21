@@ -18,6 +18,7 @@ export const DEFAULT_FURNITURE: FurnitureSeed[] = [
   { type: "trash", x: 300, y: 210 },
   { type: "espresso", x: 155, y: 142, elevation: 0.69 },
   { type: "coffee_cup", x: 205, y: 142, elevation: 0.69 },
+  { type: "evomap_terminal", x: 300, y: 120, facing: 18, color: "#22d3ee" },
 
   // --- Seating area (center, x:480-1180): 4 round-table groups in a 2x2 grid ---
   // MEASURED FACT: FurnitureModel renders each GLB centered on its item.x,y
@@ -64,6 +65,7 @@ export const DEFAULT_FURNITURE: FurnitureSeed[] = [
   { type: "round_table", x: 1530, y: 300, r: 40 },
   { type: "chair", x: 1530, y: 228, facing: 0 },
   { type: "chair", x: 1530, y: 372, facing: 180 },
+  { type: "evomap_terminal", x: 1390, y: 360, facing: 212, color: "#34d399" },
 
   // --- Wall props + decor ---
   // --- Cafe machines (Phase 5a): self-checkout, vending, jukebox ---

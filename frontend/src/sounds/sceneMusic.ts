@@ -26,7 +26,8 @@ const DEFAULT_VOLUME = 0.4;
 let audio: HTMLAudioElement | null = null;
 let started = false;
 let muted = false;
-let currentIndex = 0;
+// Randomize the starting track on each page load (m1 or m2 first), then rotate.
+let currentIndex = Math.floor(Math.random() * PLAYLIST.length);
 const listeners = new Set<(muted: boolean) => void>();
 
 function notify(): void {

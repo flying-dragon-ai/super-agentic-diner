@@ -194,9 +194,9 @@ uvicorn app.main:app
 ### 3D 前端开发
 ```bash
 cd frontend
-npm install
-npm run dev      # Vite 开发服务器，端口 5174，代理 /ws /api 到 8000
-npm run build    # 产物输出到 app/static/3d，由 FastAPI 的 /3d 与根 / 路由托管
+pnpm install
+pnpm run dev      # Vite 开发服务器，端口 5174，代理 /ws /api 到 8000
+pnpm run build    # 产物输出到 app/static/3d，由 FastAPI 的 /3d 与根 / 路由托管
 ```
 
 ### A2A Skill 点单（外部 AI 工具）

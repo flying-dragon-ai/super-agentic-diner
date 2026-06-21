@@ -1,7 +1,9 @@
 // Simplified port of Claw3D retro-office scene/environment.tsx.
 // Single local office floor + walls only (no remote-office district, no city path).
-import { memo } from "react";
-import { Text } from "@react-three/drei";
+import { memo, useMemo, useRef } from "react";
+import { Text, useTexture } from "@react-three/drei";
+import { useFrame } from "@react-three/fiber";
+import * as THREE from "three";
 import { CANVAS_H, CANVAS_W, SCALE } from "../core/constants";
 import { toWorld } from "../core/geometry";
 
@@ -58,6 +60,177 @@ export const FloorAndWalls = memo(function FloorAndWalls() {
     </group>
   );
 });
+
+const EVOMAP_NODE_POINTS = [
+  { x: 250, y: 120, color: "#22d3ee" },
+  { x: 520, y: 255, color: "#34d399" },
+  { x: 840, y: 145, color: "#60a5fa" },
+  { x: 1120, y: 320, color: "#a78bfa" },
+  { x: 1390, y: 210, color: "#22d3ee" },
+  { x: 1580, y: 470, color: "#34d399" },
+  { x: 1125, y: 560, color: "#60a5fa" },
+  { x: 760, y: 480, color: "#22d3ee" },
+  { x: 420, y: 585, color: "#a78bfa" },
+];
+
+const EVOMAP_NODE_LINKS = [
+  [0, 1],
+  [1, 2],
+  [2, 3],
+  [3, 4],
+  [4, 5],
+  [5, 6],
+  [6, 7],
+  [7, 8],
+  [1, 7],
+  [2, 6],
+  [3, 7],
+];
+
+function EvoMapNode({
+  x,
+  z,
+  color,
+  delay,
+}: {
+  x: number;
+  z: number;
+  color: string;
+  delay: number;
+}) {
+  const ref = useRef<THREE.Group>(null);
+
+  useFrame(({ clock }) => {
+    if (!ref.current) return;
+    const pulse = 1 + Math.sin(clock.elapsedTime * 1.6 + delay) * 0.12;
+    ref.current.scale.setScalar(pulse);
+  });
+
+  return (
+    <group ref={ref} position={[x, 0.032, z]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[0.075, 24]} />
+        <meshBasicMaterial color={color} transparent opacity={0.35} depthWrite={false} />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.1, 0.125, 32]} />
+        <meshBasicMaterial color={color} transparent opacity={0.5} depthWrite={false} />
+      </mesh>
+      <pointLight color={color} intensity={0.22} distance={1.35} />
+    </group>
+  );
+}
+
+function EvoMapLink({
+  from,
+  to,
+}: {
+  from: THREE.Vector3;
+  to: THREE.Vector3;
+}) {
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  const length = Math.hypot(dx, dz);
+  const angle = -Math.atan2(dz, dx);
+
+  return (
+    <group position={[(from.x + to.x) / 2, 0.018, (from.z + to.z) / 2]} rotation={[0, angle, 0]}>
+      <mesh>
+        <boxGeometry args={[length, 0.006, 0.018]} />
+        <meshBasicMaterial color="#4dd8ff" transparent opacity={0.22} depthWrite={false} />
+      </mesh>
+    </group>
+  );
+}
+
+function EvoMapWallPlaque() {
+  const logo = useTexture("/3d/evomap-materials/evomap-logo-white.svg");
+  const [cx, , cz] = toWorld(CANVAS_W / 2, CANVAS_H / 2);
+  const northZ = cz - (CANVAS_H * SCALE) / 2 + 0.067;
+
+  return (
+    <group position={[cx + 5.35, 1.42, northZ]}>
+      <mesh>
+        <planeGeometry args={[2.35, 0.72]} />
+        <meshStandardMaterial
+          color="#07111a"
+          emissive="#0c2f45"
+          emissiveIntensity={0.7}
+          roughness={0.55}
+          metalness={0.18}
+          transparent
+          opacity={0.92}
+        />
+      </mesh>
+      <mesh position={[0, 0.08, 0.006]}>
+        <planeGeometry args={[1.58, 0.36]} />
+        <meshBasicMaterial map={logo} transparent opacity={0.92} toneMapped={false} />
+      </mesh>
+      <Text position={[0, -0.25, 0.012]} fontSize={0.085} color="#8be9ff" anchorX="center" anchorY="middle">
+        Experience Network · Cafe Runtime
+      </Text>
+      <mesh position={[-1.06, 0, 0.018]} rotation={[0, 0, Math.PI / 4]}>
+        <ringGeometry args={[0.08, 0.11, 4]} />
+        <meshBasicMaterial color="#22d3ee" transparent opacity={0.85} />
+      </mesh>
+      <mesh position={[1.06, 0, 0.018]} rotation={[0, 0, Math.PI / 4]}>
+        <ringGeometry args={[0.08, 0.11, 4]} />
+        <meshBasicMaterial color="#34d399" transparent opacity={0.85} />
+      </mesh>
+    </group>
+  );
+}
+
+// EvoMap-inspired material layer: ambient network graph, slow rotating rings,
+// and a wall terminal. This mirrors the collected EvoMap site language without
+// copying blog artwork into the product scene.
+export function EvoMapAmbientLayer() {
+  const ringRef = useRef<THREE.Group>(null);
+  const nodeWorld = useMemo(
+    () =>
+      EVOMAP_NODE_POINTS.map((point) => {
+        const [x, , z] = toWorld(point.x, point.y);
+        return { ...point, world: new THREE.Vector3(x, 0, z) };
+      }),
+    [],
+  );
+
+  useFrame(({ clock }) => {
+    if (!ringRef.current) return;
+    ringRef.current.rotation.y = -clock.elapsedTime * 0.035;
+  });
+
+  return (
+    <group>
+      {EVOMAP_NODE_LINKS.map(([from, to], index) => (
+        <EvoMapLink key={`evomap-link-${index}`} from={nodeWorld[from].world} to={nodeWorld[to].world} />
+      ))}
+      {nodeWorld.map((node, index) => (
+        <EvoMapNode
+          key={`evomap-node-${index}`}
+          x={node.world.x}
+          z={node.world.z}
+          color={node.color}
+          delay={index * 0.65}
+        />
+      ))}
+      <group ref={ringRef} position={[0, 0.026, 0]}>
+        {[1.85, 2.65, 3.45].map((radius, index) => (
+          <mesh key={radius} rotation={[Math.PI / 2, 0, 0]}>
+            <torusGeometry args={[radius, 0.006 + index * 0.002, 8, 128]} />
+            <meshBasicMaterial
+              color={index === 1 ? "#34d399" : "#22d3ee"}
+              transparent
+              opacity={index === 1 ? 0.16 : 0.11}
+              depthWrite={false}
+            />
+          </mesh>
+        ))}
+      </group>
+      <EvoMapWallPlaque />
+    </group>
+  );
+}
 
 // Cafe wall menu board (Phase 5c). A framed chalkboard-style panel with the
 // coffee menu drawn procedurally — adapted from Claw3D's FramedPicture concept

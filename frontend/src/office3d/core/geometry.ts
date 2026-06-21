@@ -71,6 +71,7 @@ export const ITEM_FOOTPRINT: Record<string, [number, number]> = {
   clock: [20, 20],
   coffee_cup: [10, 10],
   espresso: [12, 12],
+  evomap_terminal: [80, 42],
 };
 
 export const getItemBaseSize = (item: FurnitureItem) => {
@@ -131,6 +132,7 @@ export const ITEM_METADATA: Record<
   mug: { blocksNavigation: false },
   coffee_cup: { blocksNavigation: false },
   espresso: { blocksNavigation: false },
+  evomap_terminal: { blocksNavigation: true },
 };
 
 export const FURNITURE_ROTATION: Record<string, number> = {
