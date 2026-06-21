@@ -27,6 +27,19 @@ from app.services.chat_service import product_to_card, _is_browse_all, get_all_p
 logger = logging.getLogger(__name__)
 
 
+def _emit_now(emit, event_type: str, payload: dict) -> None:
+    """实时推送 agent 事件（如果有 emit 回调）。
+
+    emit: 可选的可调用对象，签名 emit(event_type, payload_dict)。
+    没传 emit 时只记录到 result.events（兼容旧批量发布路径）。
+    """
+    if emit:
+        try:
+            emit(event_type, payload)
+        except Exception:
+            logger.warning("实时推送 agent 事件失败 type=%s", event_type, exc_info=True)
+
+
 def _run_review_background(
     user_id: int,
     user_msg: str,
@@ -123,10 +136,13 @@ def orchestrate(
     *,
     correlation_id: str | None = None,
     precomputed_intent: dict | None = None,
+    emit=None,
 ) -> OrchestratorResult:
     """多 Agent(智能体) 协作主入口。
 
     参数 precomputed_intent：如果 main.py 已经调过 parse_intent，传入结果避免重复 LLM 调用。
+    参数 emit：可选的事件回调 emit(event_type, payload_dict)，用于实时推送 agent 事件
+              （让前端灯在思考期间跟随执行节奏点亮，而非响应返回前批量推送）。
     副作用：会写 Redis 对话历史（add_message），与原 /chat 行为一致。
     """
     result = OrchestratorResult()
@@ -142,6 +158,7 @@ def orchestrate(
                 "payload": {"user_id": user_id, "intent": "order", "reason": f"exact_product:{exact_product}"},
             }
         )
+        _emit_now(emit, "agent.manager.intent", result.events[-1]["payload"])
         return result
 
     # ===== 第1步：店长 Agent 意图分析 =====
@@ -158,6 +175,7 @@ def orchestrate(
             "payload": {"user_id": user_id, "intent": intent, "reason": intent_data.get("reason", "")},
         }
     )
+    _emit_now(emit, "agent.manager.intent", result.events[-1]["payload"])
 
     # ===== 第2步：纠正/生气/重复检测 → 触发复盘 Agent（后台异步，不阻塞推荐） =====
     triggered, trigger_reason = manager_agent.detect_review_trigger(user_msg, history)
@@ -168,6 +186,7 @@ def orchestrate(
                 "payload": {"user_id": user_id, "trigger": trigger_reason},
             }
         )
+        _emit_now(emit, "agent.reviewer.reviewing", result.events[-1]["payload"])
         # 复盘在后台线程执行（独立 db session，不阻塞推荐响应，省 2-6 秒）
         threading.Thread(
             target=_run_review_background,
@@ -194,6 +213,7 @@ def orchestrate(
                 "payload": {"user_id": user_id},
             }
         )
+        _emit_now(emit, "agent.recommender.suggesting", result.events[-1]["payload"])
         reco = recommender_agent.recommend(db, user_id, user_msg, history)
         result.reply = reco["reply"]
         result.applied_experience = reco["applied_experience"]
@@ -214,6 +234,7 @@ def orchestrate(
                 },
             }
         )
+        _emit_now(emit, "agent.recommender.suggested", result.events[-1]["payload"])
         if reco["applied_experience"]:
             result.events.append(
                 {
@@ -221,6 +242,7 @@ def orchestrate(
                     "payload": {"user_id": user_id},
                 }
             )
+            _emit_now(emit, "agent.experience.applied", result.events[-1]["payload"])
         # 写对话历史
         add_message(user_id, "user", user_msg)
         add_message(user_id, "assistant", result.reply)
@@ -246,6 +268,15 @@ def orchestrate(
             },
         }
     )
+    _emit_now(emit, "agent.recommender.suggested", result.events[-1]["payload"])
+    if reco["applied_experience"]:
+        result.events.append(
+            {
+                "type": "agent.experience.applied",
+                "payload": {"user_id": user_id, "intent": "chat"},
+            }
+        )
+        _emit_now(emit, "agent.experience.applied", result.events[-1]["payload"])
     add_message(user_id, "user", user_msg)
     add_message(user_id, "assistant", result.reply)
     return result

@@ -946,6 +946,15 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
 
     # ===== 非下单意图（recommend/chat）→ 多 Agent(智能体) 协作流程 =====
     # 编排器按序调用：店长(意图)→推荐(RAG+经验)→[纠正检测]→复盘→经验继承
+    # emit 回调：编排器在每步执行时实时推送 agent 事件（让前端灯在思考期间跟着亮）
+    def _emit_agent_event(event_type: str, payload: dict) -> None:
+        _try_publish_visualization_event(
+            db,
+            event_type,
+            {**payload, **web_source_payload},
+            correlation_id=req.request_id,
+        )
+
     clear_pending_order(req.user_id)
     orch = agent_orchestrate(
         db,
@@ -953,15 +962,9 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         req.message,
         correlation_id=req.request_id,
         precomputed_intent=intent,
+        emit=_emit_agent_event,
     )
-    # 发布编排器产生的所有 Agent 协作事件
-    for evt in orch.events:
-        _try_publish_visualization_event(
-            db,
-            evt["type"],
-            {**evt.get("payload", {}), **web_source_payload},
-            correlation_id=req.request_id,
-        )
+    # 编排器已在执行期间实时推送 agent.* 事件（通过 emit 回调），无需再批量发布
     # 若编排器已写对话历史并给出回复，直接返回
     if orch.reply:
         return ChatResponse(reply=orch.reply, products=orch.products if orch.products else None)
