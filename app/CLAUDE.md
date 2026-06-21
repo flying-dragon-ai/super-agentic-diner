@@ -75,7 +75,7 @@ Coffee AI Boss 的 Python 后端，提供：
 - **LLM**：OpenAI 兼容协议，用 `httpx` 直连（**非** openai SDK，避免版本冲突）；429 自动重试 1 次
 - **EvoMap 支付**：用标准库 `urllib.request` 直连（`evomap_payment_service.py`，非 httpx），`x-correlation-id=request_id`
 - **分词**：jieba（中文关键词 RAG）
-- **认证**：passlib[bcrypt] + itsdangerous（签名 Cookie）——仅 `/auth/*` 与 WS presence 用，点单链路不依赖
+- **认证**：bcrypt + itsdangerous（签名 Cookie）——仅 `/auth/*` 与 WS presence 用，点单链路不依赖
 - **配置**：`app/config.py` 用 `pydantic-settings` 从 `.env` 读取；`effective_llm_api_key` 按优先级选 `LLM_API_KEY > DEEPSEEK_API_KEY > OPENAI_API_KEY`，过滤 placeholder。 
 
 ## 数据模型（`app/db/models.py`，15 张表）

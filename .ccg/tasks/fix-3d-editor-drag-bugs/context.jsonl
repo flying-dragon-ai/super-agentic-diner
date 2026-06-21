@@ -1,0 +1,6 @@
+{"_example": "Fill with {\"file\": \"path\", \"reason\": \"why\"}. Seed rows are skipped."}
+{"file": "docs/3D编辑器完整度对齐.md", "reason": "核对目标文档，描述 P0-P2 + 盲区 + 死代码清理 6 个修复点"}
+{"file": "frontend/src/screens/OfficeScene.tsx", "reason": "B1/B2 修复点：handleFurniturePointerDown/handleFloorClick/moveSelectedItem"}
+{"file": "frontend/src/office3d/systems/sceneRuntime.tsx", "reason": "B1 根因：FloorRaycaster 原生 DOM click 监听器与 R3F onClick 时序冲突"}
+{"file": "frontend/src/office3d/core/persistence.ts", "reason": "B3 修复点：loadFurniture 的 length>0 检查导致空布局被恢复默认"}
+{"file": "frontend/src/office3d/objects/machines.tsx", "reason": "核对 Machine 组件绑定 item.x/y + SelectionRing（盲区修复生效前提，已确认 OK）"}

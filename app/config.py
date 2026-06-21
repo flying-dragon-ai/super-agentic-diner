@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o-mini"
     # LLM(大模型) 单次 HTTP(超文本传输) 请求超时秒数；过期会走 mock(降级) 兜底
     llm_timeout_seconds: float = 15.0
+    # LLM 分阶段超时（秒）:连接 / 意图推断 / 生成 / 复盘;细分以避免单个环节长时间阻塞
+    llm_connect_timeout_seconds: float = 3.0
+    llm_intent_timeout_seconds: float = 4.0
+    llm_generation_timeout_seconds: float = 12.0
+    llm_review_timeout_seconds: float = 6.0
 
     # Chat memory.
     chat_history_rounds: int = 5

@@ -1,0 +1,6 @@
+{"_example": "Fill with {\"file\": \"path\", \"reason\": \"why\"}. Seed rows are skipped."}
+{"file": "frontend/src/sounds/sceneMusic.ts", "reason": "音频播放核心单例：MUSIC_URL 硬编码 m1.mp3 + audio.loop=true（原生单曲循环）。需改为播放列表 + onended 轮播 m1→m2→m1…，导出 API（initSceneMusic/stopSceneMusic/toggleMute/isMuted/subscribeMute）保持不变"}
+{"file": "docs/m2.mp3", "reason": "用户新增的音乐源文件（15MB），需复制到 frontend/public/sounds/m2.mp3，构建时随 m1 一起进 app/static/3d/sounds/"}
+{"file": "app/main.py", "reason": "146-152 行只挂载 /3d/assets 和 /3d/office-assets，缺 /3d/sounds 挂载（既有 prod bug：m1/m2 都会被 /3d/{full_path:path} SPA fallback 返回 HTML，Audio.play 静默失败）"}
+{"file": "frontend/src/App.tsx", "reason": "TopBar 静音按钮依赖 toggleMute/isMuted/subscribeMute，API 不变则无需改（调用方零侵入）"}
+{"file": "frontend/src/screens/OfficeScene.tsx", "reason": "useEffect 调 initSceneMusic/stopSceneMusic lifecycle，API 不变则无需改"}

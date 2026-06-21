@@ -8,10 +8,10 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
+import bcrypt
 from decimal import Decimal
 
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
-from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -20,18 +20,6 @@ from app.domain_constants import IDENTITY_STATUS_ACTIVE, IDENTITY_STATUSES, WALL
 from app.services import wallet_service
 
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-# passlib 1.7 probes a bcrypt __about__ attr removed in bcrypt>=4; the hash/verify
-# still works, so silence the noisy internal version probe warning.
-try:
-    import bcrypt as _bcrypt
-    if not hasattr(_bcrypt, "__about__"):
-        _bcrypt.__about__ = type("X", (), {"__version__": getattr(_bcrypt, "__version__", "4.0")})()
-except Exception:
-    pass
 
 
 def _serializer() -> URLSafeTimedSerializer:
@@ -39,13 +27,13 @@ def _serializer() -> URLSafeTimedSerializer:
 
 
 def hash_password(password: str) -> str:
-    return _pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("ascii")
 
 
 def verify_password(password: str, password_hash: str) -> bool:
     try:
-        return _pwd_context.verify(password, password_hash)
-    except Exception:
+        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("ascii"))
+    except (TypeError, ValueError, UnicodeEncodeError):
         return False
 
 
@@ -75,6 +63,8 @@ def validate_password(password: str) -> str:
     pw = password or ""
     if len(pw) < 6 or len(pw) > 64:
         raise ValueError("密码长度需在 6-64 位之间")
+    if len(pw.encode("utf-8")) > 72:
+        raise ValueError("密码 UTF-8 编码后不能超过 72 字节")
     return pw
 
 

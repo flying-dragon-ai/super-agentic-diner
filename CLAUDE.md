@@ -253,3 +253,15 @@ python .agents/skills/a2a-super-order/scripts/order.py --message "一杯拿铁" 
 | `AGENTS.md` / `GEMINI.md` | 各 AI 工具的项目说明 |
 | `docs/` | 设计文档（见上方"设计文档摘要"表） |
 | `docs/archive-manifest.md` | 外部归档索引：记录已移出活跃仓库的 Colyseus 像素房间与 2D 对话页恢复方式 |
+
+---
+
+## .context 项目上下文
+
+> 项目使用 `.context/` 管理开发决策上下文。
+
+- 编码规范：`.context/prefs/coding-style.md`
+- 工作流规则：`.context/prefs/workflow.md`
+- 决策历史：`.context/history/commits.md`
+
+**规则**：修改代码前必读 prefs/，做决策时按 workflow.md 规则记录日志到 `.context/current/branches/<分支>/session.log`（该目录已在 `.context/.gitignore` 中，仅本地保留）；`/ccg:commit` 提交时自动从 git diff 分析决策并归档到 `history/`。

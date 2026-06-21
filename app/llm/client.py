@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 import json
+import queue
+import threading
 import time
 
 import httpx
@@ -17,12 +19,28 @@ from app.config import settings
 _client: httpx.Client | None = None
 
 
+def _timeout(read_timeout_seconds: float) -> httpx.Timeout:
+    return httpx.Timeout(
+        connect=settings.llm_connect_timeout_seconds,
+        read=read_timeout_seconds,
+        write=read_timeout_seconds,
+        pool=read_timeout_seconds,
+    )
+
+
 def get_client() -> httpx.Client:
     global _client
     if _client is None:
         # 超时从 config(配置) 读取：默认 15s，避免单次 LLM 调用卡死整个请求
-        _client = httpx.Client(timeout=settings.llm_timeout_seconds)
+        _client = httpx.Client(timeout=_timeout(settings.llm_timeout_seconds))
     return _client
+
+
+def reset_client() -> None:
+    global _client
+    if _client is not None:
+        _client.close()
+        _client = None
 
 
 def has_real_key() -> bool:
@@ -37,7 +55,7 @@ def _chat_completions_url() -> str:
     return base_url + "/chat/completions"
 
 
-def _call_llm(messages, temperature=0.7):
+def _post_chat_completion(messages, temperature=0.7, timeout_seconds: float | None = None) -> str:
     """统一调用入口：POST {base_url}/chat/completions
 
     temperature 默认 0.7（推荐/聊天）；意图分类/JSON 输出传 0.0 更稳定。
@@ -49,15 +67,23 @@ def _call_llm(messages, temperature=0.7):
         "Content-Type": "application/json",
     }
     payload = {"model": settings.llm_model, "messages": messages, "temperature": temperature}
+    read_timeout = settings.llm_generation_timeout_seconds if timeout_seconds is None else timeout_seconds
 
+    last_response: httpx.Response | None = None
     for attempt in range(2):  # 最多 2 次（首次 + 1 次重试）
         try:
-            resp = get_client().post(url, headers=headers, json=payload)
+            resp = get_client().post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=_timeout(read_timeout),
+            )
         except httpx.HTTPError:
             if attempt == 0:
                 time.sleep(1.5)
                 continue
             raise
+        last_response = resp
         # 429 限流：等一下重试一次
         if resp.status_code == 429 and attempt == 0:
             time.sleep(1.5)
@@ -65,7 +91,41 @@ def _call_llm(messages, temperature=0.7):
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"].strip()
     # 两次都 429
-    raise httpx.HTTPStatusError("rate limited (429)", request=resp.request, response=resp)
+    if last_response is not None:
+        raise httpx.HTTPStatusError(
+            "rate limited (429)",
+            request=last_response.request,
+            response=last_response,
+        )
+    raise TimeoutError("LLM request did not complete")
+
+
+def _run_with_wall_clock_timeout(func, timeout_seconds: float):
+    result_queue: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
+
+    def _target() -> None:
+        try:
+            result_queue.put(("ok", func()))
+        except BaseException as exc:  # propagate the provider/client exception
+            result_queue.put(("err", exc))
+
+    worker = threading.Thread(target=_target, daemon=True)
+    worker.start()
+    worker.join(timeout_seconds)
+    if worker.is_alive():
+        raise TimeoutError(f"LLM call exceeded {timeout_seconds} seconds")
+    status, payload = result_queue.get_nowait()
+    if status == "err":
+        raise payload
+    return payload
+
+
+def _call_llm(messages, temperature=0.7, timeout_seconds: float | None = None):
+    budget = settings.llm_generation_timeout_seconds if timeout_seconds is None else timeout_seconds
+    return _run_with_wall_clock_timeout(
+        lambda: _post_chat_completion(messages, temperature=temperature, timeout_seconds=budget),
+        budget,
+    )
 
 
 # ============================================================
@@ -118,7 +178,7 @@ def chat(history, user_msg, context):
     messages.extend(history)
     messages.append({"role": "user", "content": user_msg})
     try:
-        return _call_llm(messages)
+        return _call_llm(messages, timeout_seconds=settings.llm_generation_timeout_seconds)
     except Exception:
         # LLM 限流/失败时，回退到用 RAG 检索结果直接回复（用户无感）
         return _mock_chat(context)
@@ -172,7 +232,11 @@ def parse_intent(history, user_msg):
         messages.extend(recent_history)
         messages.append({"role": "user", "content": user_msg})
         try:
-            text = _call_llm(messages, temperature=0.0)
+            text = _call_llm(
+                messages,
+                temperature=0.0,
+                timeout_seconds=settings.llm_intent_timeout_seconds,
+            )
             text = _strip_code_fence(text)
             result = json.loads(text)
             # 规范化 intent 字段（兼容旧值 place_order）
@@ -259,7 +323,7 @@ def chat_with_role(system_prompt: str, context: str, history, user_msg: str) -> 
         messages.extend(history)
     messages.append({"role": "user", "content": user_msg})
     try:
-        return _call_llm(messages)
+        return _call_llm(messages, timeout_seconds=settings.llm_generation_timeout_seconds)
     except Exception:
         return ""
 

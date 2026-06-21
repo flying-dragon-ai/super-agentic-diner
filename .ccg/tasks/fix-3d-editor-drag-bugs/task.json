@@ -1,0 +1,12 @@
+{
+  "id": "fix-3d-editor-drag-bugs",
+  "title": "核对 3D 编辑器完整度对齐文档并修复拖动/数据 BUG",
+  "status": "in_progress",
+  "strategy": "debug-investigate",
+  "currentPhase": "4-confirm",
+  "nextAction": "等待用户确认修复方向（3 个 BUG：跟手失效/微调跳位/清空丢失）",
+  "gate": "user_approval_required",
+  "branch": "main",
+  "scope": "fix-3d-editor-drag-bugs",
+  "createdAt": "2026-06-21T00:48:33Z"
+}
