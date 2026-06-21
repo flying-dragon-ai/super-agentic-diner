@@ -538,6 +538,7 @@ def _publish_web_restaurant_event(
     stage: str | None = None,
     patience: int | None = None,
     satisfaction: int | None = None,
+    agent_id: int | None = None,
 ) -> None:
     _try_publish_visualization_event(
         db,
@@ -557,6 +558,7 @@ def _publish_web_restaurant_event(
             patience=patience,
             satisfaction=satisfaction,
         ),
+        agent_id=agent_id,
         correlation_id=req.request_id,
     )
 
@@ -651,6 +653,24 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         "consumer_url": consumer_url,
         "correlation_id": req.request_id,
     }
+    # 建立网页顾客 agent（匿名 user_id 也建），让其人偶进入 3D 场景。刷新
+    # last_seen_at 使其落入 snapshot 心跳窗口（后连接客户端可见）；广播
+    # enter_scene 让已连接的 3D 客户端实时创建顾客人偶。best-effort：绝不阻断点单。
+    customer_agent_id: int | None = None
+    try:
+        customer_agent = staff_service.ensure_web_customer_agent(db, req.user_id)
+        customer_agent.last_seen_at = datetime.utcnow()
+        db.commit()
+        db.refresh(customer_agent)
+        customer_agent_id = customer_agent.agent_id
+        staff_service.publish_agent_action(
+            db, customer_agent, "enter_scene", correlation_id=req.request_id
+        )
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
     _publish_web_restaurant_event(
         db,
         "restaurant.customer_entered",
@@ -660,11 +680,13 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         message=req.message,
         patience=100,
         satisfaction=80,
+        agent_id=customer_agent_id,
     )
     _try_publish_visualization_event(
         db,
         "message.received",
        {"user_id": req.user_id, "message": req.message, **web_source_payload},
+       agent_id=customer_agent_id,
        correlation_id=req.request_id,
    )
     # ===== 查看订单意图：直接返回订单列表，避免被当成「求推荐」走 RAG =====

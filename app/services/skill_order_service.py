@@ -53,7 +53,11 @@ from app.services.catalog_service import (
     decrement_stock,
     get_product_by_name,
 )
-from app.services.staff_service import ensure_staff_agents, orchestrate_staff_node
+from app.services.staff_service import (
+    ensure_staff_agents,
+    orchestrate_staff_node,
+    publish_agent_action,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -387,6 +391,19 @@ def process_skill_order(
     payment_proof: dict[str, Any] | None,
 ) -> dict[str, Any]:
     correlation_id = request_id or f"skill-{consumer.consumer_id}-{uuid.uuid4().hex}"
+    # 让顾客人偶实时进入已连接的 3D 客户端：刷新 last_seen_at（落入 snapshot 心跳
+    # 窗口，后连接客户端也能看到）+ 广播 enter_scene（已连接客户端实时创建人偶）。
+    # best-effort：可视化编排绝不阻断点单业务。
+    try:
+        agent.last_seen_at = datetime.utcnow()
+        db.commit()
+        db.refresh(agent)
+        publish_agent_action(db, agent, "enter_scene", correlation_id=correlation_id)
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
     _publish_skill_restaurant_event(
         db,
         "restaurant.customer_entered",
