@@ -531,6 +531,8 @@ async function send() {
   addMsg(text, 'user');
   const typing = addMsg('店长正在思考…', 'bot');
   typing.classList.add('typing');
+  // 立即点亮店长灯（请求已发出，店长 Agent 正在分析意图）
+  _lightAgentLamp('agent.manager.intent');
   $('sendBtn').disabled = true;
   try {
     const consumerUrl = window.location.href;
@@ -671,6 +673,10 @@ const _lampTimers = {};
 
 // 点亮某个 Agent 的灯，3 秒后自动熄灭（表示该 Agent 活跃过）
 function _lightAgent(eventType) {
+  _lightAgentLamp(eventType);
+}
+// 直接按事件类型点亮灯（send() 也调用此函数做即时反馈）
+function _lightAgentLamp(eventType) {
   for (const prefix in _AGENT_LAMPS) {
     if (eventType.startsWith(prefix)) {
       const lampId = _AGENT_LAMPS[prefix];
