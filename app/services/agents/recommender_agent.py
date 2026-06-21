@@ -120,7 +120,7 @@ def recommend(
         if kb_rows:
             reply = "根据您的喜好，为您推荐：" + context + "\n\n请问想点哪一杯呢？"
         else:
-            reply = "您好，我是咖啡馆 AI 店长！请问您想喝什么口味的咖啡？"
+            reply = "您好，我是 EvoMap 进化咖啡馆 AI 店长！请问您想喝什么口味的咖啡？"
 
     return {
         "reply": reply,

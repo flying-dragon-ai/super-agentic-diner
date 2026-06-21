@@ -132,6 +132,21 @@ export const hasAllDefaultSignatures = (items: FurnitureItem[]) => {
   );
 };
 
+const EVOMAP_TERMINAL_DEFAULT_ITEMS = DEFAULT_FURNITURE
+  .map((item, index) => ({ ...item, _uid: `office_${index}` }))
+  .filter((item): item is FurnitureItem => item.type === "evomap_terminal");
+
+// Server layouts created before the EvoMap pass do not contain the new material
+// props. Add only the missing terminal signatures so user-edited furniture stays
+// in place while the scene receives the branded 3D elements.
+export const ensureEvoMapSceneMaterials = (items: FurnitureItem[]) => {
+  const signatures = new Set(items.map(createFurnitureSignature));
+  const missing = EVOMAP_TERMINAL_DEFAULT_ITEMS.filter(
+    (item) => !signatures.has(createFurnitureSignature(item)),
+  );
+  return missing.length > 0 ? [...items, ...missing] : items;
+};
+
 // Resolve the effective furniture layout. The very first load seeds the
 // migration flag and returns the default; later loads reuse a saved editor
 // layout if present so user edits survive reloads.
