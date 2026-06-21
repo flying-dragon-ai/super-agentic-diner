@@ -270,12 +270,10 @@ def orchestrate(
     reco = recommender_agent.recommend(db, user_id, user_msg, history)
     result.reply = reco["reply"]
     result.applied_experience = reco["applied_experience"]
-    # 看菜单请求：展示全部产品卡片；否则从回复文本提取提到的咖啡名生成卡片
+    # chat 意图：只在用户明确要看菜单时弹卡片；纯闲聊不弹（让 LLM 用文字自然桥接）
     if _is_browse_all(user_msg):
         all_products = db.query(Product).order_by(Product.base_price).all()
         result.products = [product_to_card(p) for p in all_products]
-    else:
-        result.products = _extract_products_from_reply(db, reco["reply"])
     result.events.append(
         {
             "type": "agent.recommender.suggested",
