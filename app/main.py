@@ -789,14 +789,14 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             if len(orders) == 1:
                 reply = (
                     f"好嘞！已为您下单「{orders[0].coffee_name}」，扣款 ¥{orders[0].amount}，"
-                    f"当前余额 ¥{balance}。祝您品尝愉快~"
+                    f"当前余额 {int(balance)}元。祝您品尝愉快~"
                 )
             else:
                 order_lines = "\n".join(f"  • {o.coffee_name} ¥{o.amount}" for o in orders)
                 total = sum(o.amount for o in orders)
                 reply = (
                     f"好嘞！已为您下单 {len(orders)} 杯：\n{order_lines}\n"
-                    f"合计 ¥{total}，当前余额 ¥{balance}。祝您品尝愉快~"
+                    f"合计 ¥{total}，当前余额 {int(balance)}元。祝您品尝愉快~"
                 )
             add_message(req.user_id, "user", req.message)
             add_message(req.user_id, "assistant", reply)
