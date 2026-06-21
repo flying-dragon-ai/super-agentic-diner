@@ -139,13 +139,127 @@
   .order-item .meta { color: #8a7a6a; font-size: 11px; }
   #emptyTip { color: #6a5a4a; font-size: 13px; text-align: center; padding: 16px 0; }
 
-  @media (max-width: 920px) {
-    main { flex-direction: column; }
+  /* ===== 响应式：三档断点（桌面 / 平板 / 手机）===== */
+  /* 手机侧栏切换按钮 + 遮罩层（桌面隐藏，仅手机显示）*/
+  #sideToggle {
+    display: none;
+    font-size: 12px; padding: 5px 12px; border-radius: 12px; cursor: pointer;
+    background: #4a3429; color: #e8d5b7; border: 1px solid #6f4e37;
+    font-weight: 600; transition: background .15s;
+  }
+  #sideToggle:hover { background: #6f4e37; }
+  #sideOverlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.5); z-index: 99;
+  }
+  #sideOverlay.show { display: block; }
+
+  /* ----- 平板（768-1023px）：侧栏缩窄，Agent 灯隐藏文字 ----- */
+  @media (max-width: 1023px) {
     #side {
-      width: 100%;
+      width: 300px;
+      min-width: 300px;
+    }
+    /* Agent 灯只留圆点+emoji，隐藏文字 */
+    #agentStatus .agent-lamp span:last-child {
+      display: none;
+    }
+    #agentStatus {
+      gap: 8px;
+    }
+    header h1 {
+      font-size: 18px;
+    }
+  }
+
+  /* ----- 手机（<768px）：侧栏抽屉式 + header 两行 + 卡片自适应 ----- */
+  @media (max-width: 767px) {
+    /* header 两行布局 */
+    header {
+      flex-wrap: wrap;
+      padding: 10px 12px;
+      gap: 8px;
+    }
+    header h1 {
+      font-size: 16px;
+      flex: 1;
       min-width: 0;
-      border-left: none;
-      border-top: 1px solid #3d2f24;
+    }
+    /* Agent 灯紧凑横排 */
+    #agentStatus {
+      gap: 6px;
+      order: 3;
+      width: 100%;
+      padding: 0;
+    }
+    /* 右侧按钮区紧凑 */
+    #headRight {
+      gap: 6px;
+    }
+    #view3dBtn, #logoutBtn {
+      font-size: 11px;
+      padding: 4px 8px;
+    }
+    /* 手机侧栏切换按钮显示 */
+    #sideToggle {
+      display: block;
+    }
+    /* 聊天区占满 */
+    #chat {
+      flex: 1;
+    }
+    #messages {
+      padding: 12px;
+    }
+    .msg {
+      max-width: 90%;
+    }
+    /* 输入区紧凑 */
+    #inputBar {
+      padding: 10px 12px;
+      gap: 8px;
+    }
+    #msgInput {
+      padding: 10px 12px;
+      font-size: 13px;
+    }
+    #sendBtn {
+      padding: 0 16px;
+      font-size: 13px;
+    }
+    /* 快捷菜单按钮自适应 */
+    #quick {
+      padding: 6px 12px;
+    }
+    #quick button {
+      max-width: none;
+      font-size: 11px;
+      padding: 5px 10px;
+    }
+    /* 菜单卡片窄一点 */
+    .menu-card {
+      flex: 0 0 140px;
+    }
+    .menu-card img {
+      height: 100px;
+    }
+    /* 侧栏抽屉式：默认隐藏在右侧外，点击滑入 */
+    #side {
+      position: fixed;
+      top: 0;
+      right: 0;
+      height: 100vh;
+      width: 85vw;
+      min-width: 0;
+      z-index: 100;
+      transform: translateX(100%);
+      transition: transform .25s ease;
+      border-left: 1px solid #3d2f24;
+      border-top: none;
+      padding: 16px;
+    }
+    #side.side-open {
+      transform: translateX(0);
     }
   }
 
@@ -272,9 +386,13 @@
     <button id="view3dBtn" onclick="window.open('/3d','_blank')">🌐 3D 咖啡厅</button>
     <!-- 登出后回到登录页 -->
     <button id="logoutBtn" onclick="doLogout()" style="font-size:12px;padding:5px 12px;border-radius:12px;cursor:pointer;background:#4a3429;color:#e8d5b7;border:1px solid #6f4e37;font-weight:600;transition:background .15s;">🚪 登出</button>
+    <!-- 手机侧栏切换按钮（桌面隐藏，仅手机显示） -->
+    <button id="sideToggle" onclick="toggleSide()">📋 信息</button>
     <span id="modeTag">加载中…</span>
   </div>
 </header>
+<!-- 手机侧栏遮罩层 -->
+<div id="sideOverlay" onclick="toggleSide()"></div>
 <main>
   <div id="chat">
     <div id="messages"></div>
@@ -667,6 +785,12 @@ async function refreshMode() {
     if (d.llm_active) { tag.textContent = '🟢 真实LLM'; tag.className = 'llm'; }
     else { tag.textContent = '🟡 降级模式'; tag.className = 'mock'; }
   } catch(e) {}
+}
+
+// 手机侧栏抽屉开关（点击"📋 信息"按钮或遮罩层触发）
+function toggleSide() {
+  $('side').classList.toggle('side-open');
+  $('sideOverlay').classList.toggle('show');
 }
 
 // ===== Agent 运行指示灯（WebSocket 实时驱动）=====
