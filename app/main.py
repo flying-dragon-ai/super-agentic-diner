@@ -27,7 +27,7 @@ from app.db.models import (
 )
 from app.db.models import OrderItem, Product
 from app.domain_constants import WALLET_CURRENCY_CNY
-from app.services import wallet_service
+from app.services import office_layout_service, wallet_service
 from app.domain_constants import (
     IDENTITY_STATUS_ACTIVE,
     ORDER_SOURCE_SKILL,
@@ -574,6 +574,7 @@ def _publish_web_completion_flow(
     req: ChatRequest,
     consumer_url: str | None,
     orders: list[Order],
+    agent_id: int | None = None,
 ) -> None:
     coffees = [{"name": order.coffee_name, "price": float(order.amount)} for order in orders]
     coffee_names = [order.coffee_name for order in orders]
@@ -587,6 +588,7 @@ def _publish_web_completion_flow(
         "total": total,
         "payment_status": PAYMENT_STATUS_PAID,
         "order_ids": order_ids,
+        "agent_id": agent_id,
     }
     _publish_web_restaurant_event(
         db,
@@ -658,18 +660,15 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         "consumer_url": consumer_url,
         "correlation_id": req.request_id,
     }
-    # 建立网页顾客 agent（匿名 user_id 也建），让其人偶进入 3D 场景。刷新
-    # last_seen_at 使其落入 snapshot 心跳窗口（后连接客户端可见）；广播
-    # enter_scene 让已连接的 3D 客户端实时创建顾客人偶。best-effort：绝不阻断点单。
+    # 建立网页顾客 agent（匿名 user_id 也建），让其人偶进入 3D 场景。
+    # customer_enter_scene 刷 last_seen_at（落入 snapshot 心跳窗口）+ 广播
+    # enter_scene（已连接客户端实时创建人偶）。best-effort：绝不阻断点单。
     customer_agent_id: int | None = None
     try:
         customer_agent = staff_service.ensure_web_customer_agent(db, req.user_id)
-        customer_agent.last_seen_at = datetime.utcnow()
-        db.commit()
-        db.refresh(customer_agent)
         customer_agent_id = customer_agent.agent_id
-        staff_service.publish_agent_action(
-            db, customer_agent, "enter_scene", correlation_id=req.request_id
+        staff_service.customer_enter_scene(
+            db, customer_agent, correlation_id=req.request_id
         )
     except Exception:
         try:
@@ -751,6 +750,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                     stage="payment",
                     patience=28,
                     satisfaction=35,
+                    agent_id=customer_agent_id,
                 )
                 _publish_web_restaurant_event(
                     db,
@@ -765,6 +765,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                     stage=ORDER_SOURCE_WEB_DIALOG,
                     patience=24,
                     satisfaction=30,
+                    agent_id=customer_agent_id,
                 )
                 _try_publish_visualization_event(
                     db,
@@ -805,6 +806,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                 req=req,
                 consumer_url=consumer_url,
                 orders=orders,
+                agent_id=customer_agent_id,
             )
             _try_publish_visualization_event(
                 db,
@@ -915,6 +917,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                 stage="resolve",
                 patience=45,
                 satisfaction=32,
+                agent_id=customer_agent_id,
             )
             _try_publish_visualization_event(
                 db,
@@ -957,6 +960,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             payment_status=PAYMENT_STATUS_PAYMENT_PENDING,
             patience=88,
             satisfaction=84,
+            agent_id=customer_agent_id,
         )
         _try_publish_visualization_event(
             db,
@@ -1727,6 +1731,25 @@ async def visualization_websocket(websocket: WebSocket):
                     "created_at": datetime.utcnow().isoformat(),
                 }
             )
+
+
+class OfficeLayoutRequest(BaseModel):
+    items: list[Any]
+    namespace: Optional[str] = "default"
+
+
+@app.get("/api/office/layout")
+def get_office_layout(namespace: str = "default", db: Session = Depends(get_db)):
+    """3D 编辑器布局读取（匿名可读）。未保存时返回空列表，前端用默认/localStorage 兜底。"""
+    items = office_layout_service.get_layout(db, namespace)
+    return {"items": items or [], "namespace": namespace}
+
+
+@app.put("/api/office/layout")
+def put_office_layout(req: OfficeLayoutRequest, db: Session = Depends(get_db)):
+    """3D 编辑器布局保存（匿名可写，遵循项目无登录门槛原则；单例 upsert）。"""
+    office_layout_service.save_layout(db, list(req.items), req.namespace or "default")
+    return {"ok": True, "namespace": req.namespace or "default"}
 
 
 @app.get("/menu")

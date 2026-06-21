@@ -7,6 +7,8 @@
 
 | 时间 | 动作 | 说明 |
 |------|------|------|
+| 2026-06-21 09:55 | 增量校验（第九次 init） | **一致性校验 + 补漏**（仅文档，不改源码；对照 HEAD `031608f`）。① **表数校正 16→17**：`app/db/models.py` 实测 17 个 `class X(Base)`，新增**第 17 张表 `office_layout`**（3D 编辑器布局持久化，全局单例 by `namespace`，JSON blob 对齐前端 `FurnitureItem[]`）+ 新 service `app/services/office_layout_service.py`（`get_layout` JSON 损坏降级 None / `save_layout` upsert）+ 新路由 `GET|PUT /api/office/layout`（匿名可读写，遵循无登录门槛原则）。② **`/menu` 路由补录**：`GET /menu` 返回菜单卡片数据（名称/价格/标签/图片/库存），前端 `.menu-card` 消费，走 `get_all_products` 60s 缓存。③ **测试计数校正**：实测 **12 个 pytest 文件**（原"11 文件"漏计 `test_customer_enter_scene.py`，2026-06-21 08:40 新增 2 用例）；`tests/verify_quick_menu.py` 是独立验证脚本非 pytest。无法在本次环境跑 pytest（无 venv/DB），71 passed 数字沿用第八次 init 实测。④ Mermaid 模块图 `db/ 数据模型 (16 表)`→`(17 表)`。⑤ 校验通过项（保持不动）：startup `_ensure_staff_seeded` 不广播、`/3d/sounds` mount 已恢复、根路由 `/` 登录门槛（`d408c58`）、reviewer timeout_seconds 遗留 bug 标注、多 Agent 协作架构、LLM 超时系统重构、2D 聊天页回归活跃均准确。同步更新 app/CLAUDE.md（表数/测试段/FAQ 根路由/文件清单）|
+| 2026-06-21 08:10 | 增量刷新（第八次 init） | **多 Agent 协作架构落地 + LLM 超时系统完整重构 + /chat 加速 + 2D 聊天页回归 + 根路由恢复登录门槛（行为反转）**。HEAD `031608f`，8 个功能 commit + 5 个修复/重构 commit。① **多 Agent 协作架构**（文档首次完整记录）：`services/agents/` 四 Agent——店长 `manager_agent`（意图分析 + 纠正/生气/重复检测，bigram Jaccard≥0.7）/ 推荐 `recommender_agent`（RAG + 硬过滤 banned_names/tags + 经验软引导）/ 复盘 `reviewer_agent`（失误分析→教训）/ 经验继承 `experience_agent`（MySQL+Redis+EvoMap 三写 + 硬过滤规则提取）；`agent_orchestrator.orchestrate` 是 `/chat` 的 recommend/chat 入口（exact_product 快速 order + 复盘**后台线程**异步 + products 卡片）；`evomap_evolution_service`（EvoMap 群体进化：心跳/记忆读写/社区经验，**UA 伪装绕 Cloudflare**）；第 **16** 张表 `AgentExperience`；新管理端点 `/admin/agent-collaboration`·`/admin/evomap/status`。② **LLM 超时系统完整重构**（`6ba57cc`）：config 6 字段（`redis_socket_connect/timeout=3/5s`、`llm_timeout=15s`、`llm_connect/intent/generation/review=3/4/12/6s`）+ client `_timeout()` 分阶段 httpx.Timeout + `_run_with_wall_clock_timeout()` **ThreadPoolExecutor 挂钟超时** + `reset_client`。③ **暖身店长 persona**（热情幽默）+ **INTENT_PROMPT 精简**（省 ~470 tokens/次，parse_intent 只传最近 2 轮 + temperature=0.0）+ **同义词地图扩展到 70+ 条**（9 大类：果香/奶/苦/甜/椰/茶/温度/酸/口感）。④ **/chat 加速**：`_detect_exact_product`（精确+部分匹配"美式"→"美式咖啡"，歧义不返回）+ `_is_clearly_non_order` 启发式跳过 parse_intent；未知咖啡品类友好兜底。⑤ **ChatResponse 新增 `products` 卡片字段** + `get_all_products` 60s TTL 缓存 + `product_to_card`；2D 聊天页 `.menu-card` 渲染（fetch `/menu`）。⑥ **Dashboard 事件中文化**（`EVENT_TEXT`/`SOURCE_TEXT`/`AGENT_ACTION_TEXT` 映射 + `summary` 字段）。⑦ **背景音乐多轨 m1/m2 轮播**（`sceneMusic.ts`）+ `/3d/sounds` mount（`031608f`）。⑧ **顾客人偶进 3D 场景修复**（`d54f8be`/`6ce1d49`，web+skill 链路 enter_scene 广播）。⑨ **⚠️ 根路由 `/` 恢复登录门槛**（`d408c58`，**反转第七次 init 的"匿名直出"**）：未登录→302 `/3d/login`，已登录→2D 聊天页；`/3d/*` 与 `POST /chat` 仍匿名可用。⑩ **2D 聊天页 `app/static/index.html` 回归活跃**（修正第七次"已归档"叙述，含菜单卡片）。⑪ startup 改 `_ensure_staff_seeded()` **不广播** `agent.registered`（靠 snapshot 稳定返回）。⑫ **测试 71 passed**（新增 `test_catalog_disambiguation`/`test_chat_heuristic`/`test_chat_history_fallback`/`test_product_wallet_*` 等）。⑬ **遗留 bug**：`reviewer_agent.py:67,81` 调 `chat_with_role(timeout_seconds=)` 签名不匹配 → `TypeError`，但被 `_run_review_background` 后台线程 try/except 兜住 → 复盘静默失效 + warning 日志（**不伤点单/推荐主流程**）。⑭ 前端新增 `three-stdlib` 依赖；`AGENTS.md`/`.claude/CLAUDE.md` 破折号格式对齐。覆盖率 99% |
 | 2026-06-21 01:47 | 增量刷新（第七次 init） | **在线用户显示模型落地 + TopBar 重合修复 + 3D 场景背景音乐**。核心新功能与修复：① **在线用户显示**——3D 场景显示的用户改为来自数据库 `agent_profile` 且真实在线（修原先 snapshot.agents 恒空、无在线概念、WS 匿名三大根因）；双接入在线模型：**网页 = WS 连接保持（presence）**，**Skill/CLI = `agent.last_seen_at` 心跳窗口 120s**（CLI 脚本无法维持 WS 长连接）；snapshot = 4 固有服务员常驻 + 在线顾客（WS presence ∪ 心跳窗口），未登录不显示。② **TopBar 重合修复**（frontend）：原 `/scene` 下 `opacity:0.45` + 整层 `pointerEvents:none` 致文字与 3D 场景重合难读、链接/登出点不到；改穿透容器 + 可点子元素 + 半透明深色面板。③ **3D 场景背景音乐**：`docs/m1.mp3` 经 `frontend/public/sounds/` 构建，首次用户交互后播放（规避 autoplay 限制），TopBar 加 🔊/🔇 静音键；归档 2D 页也加音乐（但归档页不在 HTTP 托管路径，仅 file:// 可访问）。④ **复核修复的 bug**：startup 死广播（`broadcast_from_sync` 在 async 失效 + 无接收者）→ 改只落库；`web:customer` 并发重复创建 race（`tool_name` 无唯一约束）→ `_collapse_duplicate_agents` 定向收敛；去重返回已删对象边界 bug → 重构 ensure→collapse→return-survivor。⑤ **后端静态挂载补 `/3d/sounds`**（修背景音乐 mp3 被 `/3d/{path}` SPA fallback 返回 HTML 的 bug）。新增测试 `tests/test_web_presence_snapshot.py`（5 用例）。详见 app/CLAUDE.md「在线用户显示模型」、frontend/CLAUDE.md「TopBar」「背景音乐」。后端启动须带 `--reload-dir app`。覆盖率 99% |
 | 2026-06-20 21:30 | 增量刷新（第六次 init） | **匿名点单门槛确立 + 过时登录描述清除**（仅文档刷新，不改源码）。核心改动对齐 `app/main.py:1696` `index()`：根路由 `/` **直接返回 3D 咖啡厅 SPA，匿名可访问、不校验登录**（3D 未构建时才 fallback 到 2D `index.html`）。确认全程无登录门槛：① `POST /chat`（`main.py:588`）无 auth 依赖、匿名 `req.user_id`；② 前端 `App.tsx` 路由 `/scene` `/machines` `/dashboard` 均无 `<ProtectedRoute>` 守卫，`/login` `/register` 为可选；③ `LoginPage` 提供"匿名进入 3D"链接。设计动因：咖啡厅线下点单场景，顾客匿名消费不该有账号密码门槛。**uvicorn 启动建议更新**：`--reload-dir app`（规避根目录 `_mock_hub.py` 触发热重载）或干脆不带 `--reload`（避免 Windows + merge 频繁文件变化触发 reload 卡死）。**过时描述已全部清除**（逐条见下）。新增设计原则"咖啡厅匿名点单，无登录门槛"。**唯一例外**：`/ws/visualization` 的在线顾客 presence 仍需签名 Cookie（`_register_web_customer_presence` 匿名访客被跳过，不显示为在线顾客人偶），但**不阻断匿名点单**，详见 FAQ。覆盖率 99% |
 | 2026-06-20 19:07 | 增量刷新（第五次 init） | **服务员团队编排落地对齐**（外部 commit "服务员团队编排/staff 智能模型" 已合并，对应 `docs/smart-search-evidence/20260619-coffee-pixel-style/SKILL-VISUALIZATION-ROADMAP.md` 5 个 Phase 全部 ✅ 并经独立验证）。本次仅刷新文档、不改源码：① **重大新功能**——`app/services/staff_service.py`（新建）：4 个固有服务员 agent（`staff:barista/cashier/waiter/manager`，幂等创建、固定 sprite_seed 100001-100004）+ `ensure_web_customer_agent`（web 匿名用户也建顾客 agent，修 B4 `agent_anon`）+ `orchestrate_staff_node`（业务节点→服务员动作编排：intent_detected→waiter walk_to_counter / payment_completed→cashier take_order / preparation_progress→barista prepare_coffee / order_ready→barista enter_scene / order_delivered→waiter deliver_order / customer_left→waiter+cashier 复位）；编排挂载到 `main.py` lifespan startup（广播 4 条 `agent.registered`）+ `_publish_web/skill_completion_flow` 各节点。② 前端契约适配（修 B1/B2/B3）：`OfficeScene.tsx` `onEvent` 重写（`agent.action` 取 `payload.action_type`、兼容 snake_case `display_name/role_type/sprite_seed`）+ 新增 `onSnapshot` 按 `payload.agents` 预创建人偶；`scene.snapshot` 追加 `agents` 字段（4 staff + 活跃顾客）。③ **App.tsx 导航修正**：TopBar 链接 "3D 办公室"→"3D 咖啡厅"（漏改已修）。④ 新增路由 `/machines` → `MachineShowcase`（咖啡机展示页，frontend/CLAUDE.md 路由段补全）。⑤ `roleMap.ts` `waiter` 工位 y700→660 微调（frontend/CLAUDE.md 同步）。⑥ 忽略根目录 `_mock_hub.py`（临时 EvoMap Hub mock，文件头注明 NOT part of repo，会触发 uvicorn --reload 干扰，已用 `--reload-dir app` 规避）。详见 app/CLAUDE.md「服务员团队编排」与 frontend/CLAUDE.md。覆盖率 99% → 99% |
@@ -21,14 +23,14 @@
 
 **Coffee AI Boss（智能咖啡馆 AI 店长）** 是一个咖啡店运营模拟系统，核心是用 LLM + RAG + Redis 短期记忆驱动一段对话式点单体验，同时把订单、支付、Agent 行为以"3D 可视化事件流"的形式实时广播给 3D 咖啡厅场景与监控大屏。系统同时支持两条点单入口：
 
-1. **Web 对话点单**（`POST /chat`）：匿名 `user_id` + Redis 短期记忆 + 两段式确认（先存待确认订单，回复"确认"才扣款）。UI 已统一进 3D 咖啡厅场景（`/3d/scene`），独立的 2D 对话页已归档。
+1. **Web 对话点单**（`POST /chat`）：匿名 `user_id` + Redis 短期记忆 + 两段式确认（先存待确认订单，回复"确认"才扣款）。UI 有两处活跃入口：3D 咖啡厅场景内嵌聊天（`/3d/scene`，匿名）与根路由 `/` 已登录用户落地的 2D 聊天页（`app/static/index.html`，含菜单卡片）。
 2. **A2A Skill 点单**（`/skill/orders`）：EvoMap 消费者身份 + EvoMap 积分（service-order）扣款 + 免费额度账本。外部 AI 工具通过 `.agents/skills/a2a-super-order/` 的瘦客户端脚本（`order.py`）接入。
 
 可视化基于"事件流"架构：所有业务动作（进店、下单、支付、制作、出餐）都生成一条 `VisualizationEvent` 写入 MySQL，并通过 WebSocket `/ws/visualization` 实时推给前端；**当前唯一活跃渲染管线是 3D 咖啡厅（`frontend/`，React-Three-Fiber）**。早期的像素风 Colyseus 多人房间方案已于 2026-06-20 09:40 归档（见下「架构演进」）。
 
 > **2026-06-19 起，可视化是"事件流 + 后端编排服务员团队"模型**：餐厅启动即预创建 4 个固有服务员（barista/cashier/waiter/manager），顾客下单时由后端 `staff_service.orchestrate_staff_node` 在各业务节点追加 `agent.action` 广播，驱动服务员接单→收银→做咖啡→送餐→复位的完整联动（详见 app/CLAUDE.md「服务员团队编排」）。
 
-> **2026-06-20 21:30 起，明确"咖啡厅匿名点单，无登录门槛"**：根路由 `/`、`POST /chat`、3D 场景所有路由（`/3d/scene` 等）均匿名可访问，**点单全程不要账号密码**（动因：线下咖啡馆，顾客匿名消费）。`/auth/*` 与 `/3d/login` `/3d/register` 仅作可选增值（个性化昵称/在线顾客人偶 presence），不是点单前置条件。
+> **2026-06-21 `d408c58` 起，根路由 `/` 有登录门槛（但点单 API 仍匿名）**：未登录→302 `/3d/login`，已登录→2D 聊天页；`POST /chat`、`/skill/orders`、3D 场景所有路由（`/3d/scene` 等）仍匿名可访问。点单链路全程不要账号密码（动因：线下咖啡馆，顾客匿名消费）；`/auth/*` 与 `/3d/login` `/3d/register` 同时承载根页面访问控制 + WS 在线顾客人偶 presence。
 
 ---
 
@@ -39,7 +41,8 @@
 │                       前端（唯一活跃 UI）                          │
 │  frontend/ (Vite + React 19 + React-Three-Fiber，3D 办公室+大屏)   │
 │  构建产物 → app/static/3d (由 FastAPI /3d 与根 / 托管)             │
-└───────────────┬──────────────────────────────────┬──────────────┘
+│  app/static/index.html (2D 聊天页，根 / 已登录落地页)              │
+└───────────────┬──────────────────────────┬──────────────────────┘
                 │ HTTP /chat /skill/* /auth/*        │ WebSocket /ws/visualization
                 ▼                                    ▼
 ┌─────────────────────────────────────────────────────────────────┐
@@ -47,14 +50,15 @@
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────────────┐   │
 │  │ /chat    │ │ /skill/* │ │ /auth/*  │ │ /agents /actions   │   │
 │  │ 对话点单  │ │ A2A点单   │ │ 账户登录  │ │ Agent 注册/动作     │   │
-│  │ (匿名)   │ │          │ │ (可选)   │ │                    │   │
+│  │ (匿名)   │ │          │ │(根/门槛) │ │                    │   │
 │  └────┬─────┘ └────┬─────┘ └────┬─────┘ └─────────┬──────────┘   │
 │       │            │            │                 │              │
 │  ┌────▼────────────▼────────────▼─────────────────▼──────────┐   │
 │  │  services/  chat_service · order_service                   │   │
 │  │             skill_order_service · evomap_payment_service   │   │
 │  │             visualization_service · wallet_service         │   │
-│  │             catalog_service                                │   │
+│  │             catalog_service · office_layout_service        │   │
+│  │  agents/ (manager/recommender/reviewer/experience)         │   │
 │  │  llm/ client (OpenAI 兼容)   rag/ keywords · retrieval     │   │
 │  │  memory/ chat_history (Redis)  auth/ service (bcrypt)      │   │
 │  │  colyseus_bridge.py (目标已归档，启动为 no-op，仅 debug 日志) │   │
@@ -75,13 +79,15 @@
 │   ledger /       │
 │ user_wallet /    │
 │ balance_txn /    │
+│ office_layout /  │
+│   agent_exp /    │
 │ visualization_   │
-│   event (15 表)  │
+│   event (17 表)  │
 └──────────────────┘
 ```
 
 **关键设计原则**：
-- **咖啡厅匿名点单，无登录门槛**（2026-06-20 21:30 确立）：`/` 根路由、`/chat`、3D 场景所有路由均匿名可访问；`/auth/*` 与登录页仅作可选增值（昵称/在线顾客 presence），**不是点单前置条件**。线下咖啡厅顾客匿名消费，不该有账号密码门槛。
+- **点单 API 匿名，根路由 `/` 有登录门槛**（2026-06-21 `d408c58` 恢复）：`/chat`、`/skill/orders`、3D 场景所有路由均匿名可访问；仅根页面 `/` 未登录时 302 `/3d/login`。线下咖啡厅顾客匿名消费，点单链路不该有账号密码门槛。
 - **LLM 只负责"理解"和"说话"，绝不直接写库**：所有扣款/下单都在 `services` 层事务内完成（见 `app/llm/client.py` 注释）。
 - **两段式下单**：`/chat` 先把待确认订单存 Redis，用户回复确认词才扣款，避免误下单。
 - **事件溯源可视化**：业务动作 → `VisualizationEvent`（持久化）→ WebSocket 广播，前端可重放。
@@ -94,11 +100,12 @@
 
 | 时间 | 变更 | 现状 |
 |------|------|------|
+| 2026-06-21 08:10 | **根路由 `/` 恢复登录门槛**（`d408c58`，反转第六/七次的"匿名直出"）：未登录→302 `/3d/login`，已登录→2D 聊天页；`/3d/*` 与 `POST /chat` 仍匿名 | 点单链路（`/chat`、`/skill/orders`、3D 场景）全程匿名；仅根页面 `/` 有访问门槛。`/auth/*` 同时承载 WS 在线顾客人偶 presence。2D 聊天页 `app/static/index.html` 回归活跃（含 `.menu-card` 菜单卡片，fetch `/menu`） |
 | 2026-06-20 21:30 | **根路由 `/` 删除登录校验**：`app/main.py:1696` `index()` 改为**直接返回 3D SPA（匿名、不校验登录）**，仅在 3D 未构建时 fallback 到 2D `index.html` | 全程匿名点单（`/` + `/chat` + 3D 场景）。`/auth/*` 与 `/3d/login` `/3d/register` 保留但**改为可选增值**（个性化昵称 + 在线顾客人偶 presence），非点单前置。WS 在线顾客 presence 仍读签名 Cookie（`_register_web_customer_presence` 匿名访客被跳过），但**不阻断匿名点单** |
 | 2026-06-20 09:40 | **Colyseus 像素多人房间方案弃用**：`colyseus-server/` 整目录归档，当前外部归档位置见 [`docs/archive-manifest.md`](./docs/archive-manifest.md) | 可视化统一走后端 `/ws/visualization` 事件流 + 3D 办公室。`app/colyseus_bridge.py` 仍在仓库（启动时检查 `colyseus-server/` 目录存在性，目录已移走后 `_COLYSEUS_DIR.is_dir()=False` → 仅记 warning 跳过，`bridge_event_to_colyseus` 仅 debug 日志），属"可恢复的停用"。恢复方式见 archive manifest |
-| 2026-06-20 09:40 | **2D 原生对话页归档**：原 `app/static/index.html`（2D 聊天 UI）已移出活跃仓库，当前外部归档位置见 [`docs/archive-manifest.md`](./docs/archive-manifest.md) | 根路由 `/` 改为直出 3D SPA（`app/static/3d/index.html`，见 `app/main.py` `index()` 注释 "Root: 直接返回 3D 咖啡厅（匿名可访问，不校验登录）"）。`POST /chat` 仍作为 JSON API 存在，被 3D 场景内嵌聊天消费 |
+| 2026-06-20 09:40 | **2D 原生对话页一度归档，后回归活跃**：曾移出活跃仓库，但 `app/static/index.html` 现已回归（27KB，含 `.menu-card` 菜单卡片 + `fetch /menu`），是根路由 `/` 已登录用户的落地页 | 2D 聊天页与 3D 前端**双活跃**：已登录用户从 `/` 进 2D 页（菜单卡片点单），匿名/3D 用户走 `/3d/scene`。`POST /chat` 作为 JSON API 被两者消费 |
 
-> 决策动因：3D 办公室方案（`frontend/src/office3d/`，移植自 Claw3D retro-office）的渲染表现力、Agent 表情/对话气泡/昼夜循环已全面覆盖像素风方案的能力，且事件流解耦使后端不依赖 Colyseus 权威状态同步。归档而非删除，保留可回溯与可恢复。21:30 删除 `/` 登录校验的动因：咖啡厅线下场景，顾客匿名消费，不该有账号密码门槛（用户明确要求"线下点咖啡不需要账号密码"）。
+> 决策动因：3D 办公室方案（`frontend/src/office3d/`，移植自 Claw3D retro-office）的渲染表现力、Agent 表情/对话气泡/昼夜循环已全面覆盖像素风方案的能力，且事件流解耦使后端不依赖 Colyseus 权威状态同步。归档而非删除，保留可回溯与可恢复。21:30 删除 `/` 登录校验的动因：咖啡厅线下场景，顾客匿名消费，不该有账号密码门槛（用户明确要求"线下点咖啡不需要账号密码"）；08:10 恢复门槛的动因：根页面作为"入口/控制台"需要账号归属，但点单 API 仍保持匿名。
 
 ---
 
@@ -112,16 +119,18 @@ graph TD
     Root --> Tests["tests/"]
     Root --> Scripts["scripts/"]
     Root --> Docs["docs/ 设计文档"]
+    Root --> Skill[".agents/skills/a2a-super-order/ A2A Skill"]
     App --> AppMain["main.py API入口"]
-    App --> AppDb["db/ 数据模型 (15 表)"]
+    App --> AppDb["db/ 数据模型 (17 表)"]
     App --> AppServices["services/ 业务服务"]
     App --> AppLlm["llm/ LLM客户端"]
     App --> AppRag["rag/ 关键词检索"]
     App --> AppMemory["memory/ Redis记忆"]
-    App --> AppAuth["auth/ 账户认证(可选)"]
+    App --> AppAuth["auth/ 账户认证"]
 
     click App "./app/CLAUDE.md" "查看后端模块文档"
     click Frontend "./frontend/CLAUDE.md" "查看 3D 前端模块文档"
+    click Skill "./.agents/skills/a2a-super-order/CLAUDE.md" "查看 A2A Skill 模块文档"
     click ArchiveManifest "./docs/archive-manifest.md" "查看外部归档位置与恢复方式"
 ```
 
@@ -131,12 +140,14 @@ graph TD
 
 | 模块 | 路径 | 语言 | 一句话职责 |
 |------|------|------|-----------|
-| [后端](./app/CLAUDE.md) | `app/` | Python (FastAPI) | 对话点单（匿名）、A2A Skill 点单、可视化事件、可选账户认证的 API 与业务逻辑 |
-| [3D 前端](./frontend/CLAUDE.md) | `frontend/` | TypeScript (React 19 + R3F) | 3D 办公室场景渲染 + 实时监控大屏 + 可选登录注册（**唯一活跃 UI**） |
+| [后端](./app/CLAUDE.md) | `app/` | Python (FastAPI) | 对话点单（匿名）、A2A Skill 点单、**多 Agent 协作（店长/推荐/复盘/经验继承）**、可视化事件、账户认证、3D 编辑器布局持久化的 API 与业务逻辑（17 表） |
+| [3D 前端](./frontend/CLAUDE.md) | `frontend/` | TypeScript (React 19 + R3F) | 3D 咖啡厅场景渲染 + 实时监控大屏 + 登录注册（**与 2D 聊天页双活跃**） |
+| 2D 聊天页 | `app/static/index.html` | HTML+JS | 根路由 `/` 已登录用户的落地页；菜单卡片点单（`.menu-card` + `fetch /menu`），内嵌聊天消费 `/chat` |
+| [A2A 超级点单 Skill](./.agents/skills/a2a-super-order/CLAUDE.md) | `.agents/skills/a2a-super-order/` | Python (urllib 瘦客户端) | 外部 AI 工具（Codex/Claude Code 等）不开网页点单；`order.py` + EvoMap 凭证自动读取 + `--check-evomap` |
 | [外部归档索引](./docs/archive-manifest.md) | `docs/archive-manifest.md` | Markdown | 记录已移出活跃仓库的 Colyseus 像素房间和 2D 对话页归档位置与恢复方式 |
-| 测试 | `tests/` | Python (unittest) | LLM 配置、确认意图、Skill 支付、订单查看的单元测试 |
-| 脚本 | `scripts/` | Python | 建表/种子、订单来源迁移、账户表迁移 |
-| 设计文档 | `docs/` | Markdown | A2A 积分接入、像素/3D 集成、点单 SKILL、Agent API 设计 |
+| 测试 | `tests/` | Python (unittest) | 12 个 pytest 文件：LLM 配置、确认意图、快速 order 路径、启发式跳过、Redis 降级、订单查看、商品歧义、商品/钱包、Skill 支付、WS presence、顾客进场；+1 验证脚本 |
+| 脚本 | `scripts/` | Python + Bash | 7 个迁移脚本（init_db/migrate_order_sources/migrate_user_accounts/migrate_product_catalog/migrate_wallet_ledger/migrate_order_lineitem/migrate_agent_experience，均幂等）+ `start.sh` Linux 生产启动 |
+| 设计文档 | `docs/` | Markdown | A2A 积分接入、像素/3D 集成、点单 SKILL、Agent API、3D 编辑器对齐、Skill 支付复核计划 |
 
 ---
 
@@ -151,6 +162,8 @@ graph TD
 | `agent-integration-api.md` | Agent 工具（Claude Code/Codex/Cursor/Trae）通过 REST 注册为餐厅角色，WS 实时新增像素人物+播动作；`agent_profile` 独立于 `user` 表 | 已落地：`POST /agents/register`（返回一次性 api_token，SHA-256 hash 存储）、`POST /agents/{id}/actions`、`/agents/{id}/heartbeat`、`GET /agents`。9 种 action_type / 8 种 target。**Schema Notes 强调**：MySQL 是唯一支持的 RDBMS；`order.source_type` 约束为 `web_dialog`/`skill`；`order.consumer_id/agent_id/ledger_id` 是物理外键；老库必须跑 `scripts/migrate_order_sources.py`（幂等）。**注意**：文档原写"实时像素人物"，实际渲染已切到 3D 办公室 |
 | `pixel-agents-integration.md` | 像素 Agent 集成方案（2D，已被 3D 取代的早期方案） | 仅作历史参考。像素 Colyseus 通道已整体归档（见「架构演进」）；当前可视化只走 3D 办公室（`frontend/`）+ 后端 `/ws/visualization` |
 | `pixel-restaurant-reference-repos.md` / `smart-search-pixel-restaurant-repos.md` | 像素餐厅参考仓库调研（含 Claw3D 等） | `frontend/src/office3d/` 即从 Claw3D retro-office 移植（文件头均注明）；调研结论演化为 3D 方案 |
+| `3D编辑器完整度对齐.md` | 3D 咖啡厅编辑器与 Claw3D 完整度对齐（修"编辑后不生效"）：debounced autosave + `moveSelectedItem/rotateSelectedItem/updateSelectedItem` 操作封装 + `ui/SelectedObjectPanel.tsx` 可视化面板 + Machine 类对象可编辑 | 已落地：`frontend/src/screens/OfficeScene.tsx`（autosave effect 替换 6 处手动 `saveFurniture`）、`frontend/src/ui/SelectedObjectPanel.tsx`（新建）。布局后端持久化：`office_layout` 表（第 17 表）+ `/api/office/layout` GET/PUT + `office_layout_service.py`（2026-06-20 新增） |
+| `evomap-skill-payment-check-plan.md` | Skill 付费链路逐环节复核计划（本地 Skill → Coffee 后端 → EvoMap service-order → provider worker → DB 落库 → 收益结算） | 复核基线：服务方节点 `node_561cf18d6dcf8213`、listing `cmqmeayol0da86138a33zhx9h`（1 Credit/active）、`SKILL_FREE_ORDER_LIMIT=0` 测试；最近阻塞点 `listing_provider_unavailable`（Hub 认为该 listing 无可用 provider worker，非本地代码缺陷） |
 
 ---
 
@@ -172,7 +185,9 @@ uvicorn app.main:app --reload --reload-dir app
 # 或干脆不带 --reload（Windows + merge 频繁文件变化时 --reload 易卡死）
 uvicorn app.main:app
 ```
-默认监听 `http://localhost:8000`，根路由 `/` **匿名直出 3D 咖啡厅**（无需登录）。`COLYSEUS_PORT` 变量仍被 `colyseus_bridge.py` 读取，但因 `colyseus-server/` 已归档，启动为 no-op（仅 warning），不再占用端口。启动时 `_seed_and_broadcast_staff()` 会幂等创建 4 个服务员并广播 `agent.registered`。
+默认监听 `http://localhost:8000`。**根路由 `/` 有登录门槛**（未登录→302 `/3d/login`，已登录→2D 聊天页 `app/static/index.html`）；`/3d/*` SPA 路由与 `POST /chat` 匿名可用。`COLYSEUS_PORT` 仍被 `colyseus_bridge.py` 读取，但因 `colyseus-server/` 已归档，启动为 no-op（仅 warning），不占端口。启动时 `_ensure_staff_seeded()` 幂等创建 4 个服务员（**不广播** `agent.registered`，靠 `_build_snapshot_agents` 稳定返回）+ 起 `_skill_presence_sweep_loop`（30s 扫过期 Skill 顾客）+ EvoMap 心跳线程（5min，配 `evomap_node_id`+`evomap_node_secret` 才启）。
+
+> **Linux 生产启动**：`bash scripts/start.sh`（绑 0.0.0.0、单 worker 保 WS presence 进程内状态、含 MySQL/Redis 连通性检查 + 自动跑 `init_db.py`/`migrate_order_sources.py`）。
 
 > **uvicorn reload 选择**：`--reload-dir app` 把 watch 范围限定在 `app/`，规避根目录 `_mock_hub.py`（临时 EvoMap Hub mock，文件头注明 NOT part of repo）在被外部 merge 频繁改动时触发的热重载。若 Windows 上 `--reload` 仍卡死，可直接去掉 `--reload` 跑固定进程。
 
@@ -198,7 +213,7 @@ python .agents/skills/a2a-super-order/scripts/order.py --message "一杯拿铁" 
 | `REDIS_HOST/PORT/DB/PASSWORD` | 短期记忆 + 待确认订单 | localhost/6379/0/空 |
 | `LLM_API_KEY` / `DEEPSEEK_API_KEY` / `OPENAI_API_KEY` | OpenAI 兼容 LLM（三选一，按此顺序生效） | 空（降级为 RAG 模板） |
 | `LLM_BASE_URL` / `LLM_MODEL` | LLM 服务地址与模型 | https://api.openai.com/v1 / gpt-4o-mini |
-| `AUTH_SECRET_KEY` | 会话 Cookie 签名密钥（**生产必改**；仅 `/auth/*` + WS 在线 presence 用，点单不依赖） | dev-only-change-me-in-prod |
+| `AUTH_SECRET_KEY` | 会话 Cookie 签名密钥（**生产必改**；根路由门槛 + `/auth/*` + WS 在线 presence 用，点单 API 不依赖） | dev-only-change-me-in-prod |
 | `SKILL_FREE_ORDER_LIMIT` | 每个 EvoMap 消费者免费下单次数 | 2 |
 | `EVOMAP_PAYMENT_MODE` / `EVOMAP_SERVICE_LISTING_ID` / `EVOMAP_HUB_URL` | A2A 积分支付 | service_order / 空 / https://evomap.ai |
 
@@ -208,13 +223,20 @@ python .agents/skills/a2a-super-order/scripts/order.py --message "一杯拿铁" 
 
 - 框架：`unittest` + `fastapi.testclient.TestClient`
 - 运行：`python -m pytest tests/` 或 `python -m unittest discover tests`
-- 现有测试（含 2026-06-20 新增 `test_product_wallet.py`，共 5 个文件 + 1 验证脚本，**34 passed**）：
-  - `test_llm_configuration.py` — LLM key 多源别名与状态判定（placeholder 检测）
-  - `test_chat_confirm.py` — `/chat` 两段式确认意图识别（长句确认 vs 修改/否定/提问）
-  - `test_chat_order_view.py` — "查看订单"意图与"下单"的区分
-  - `test_skill_evomap_payment.py` — Skill 点单 / EvoMap 积分支付流程
-  - `verify_quick_menu.py` — 快捷菜单验证脚本
-- **覆盖缺口**：缺少 `order_service.place_orders` 余额不足/并发、前端组件的自动化测试（Playwright 已装无测试）。Colyseus 房间逻辑已随源码移出活跃仓库，外部归档见 `docs/archive-manifest.md`，不再计入活跃覆盖目标。
+- 现有测试（**12 个 pytest 文件**，71 passed 沿用第八次 init 实测，第九次 init 未能在本环境复跑——无 venv/DB）：
+  - `test_llm_configuration.py`(9) — LLM key 多源别名与状态判定（placeholder 检测）+ 超时配置
+  - `test_chat_confirm.py`(5) — `/chat` 两段式确认意图识别（长句确认 vs 修改/否定/提问）
+  - `test_chat_fast_path.py`(1) — `_detect_exact_product` 精确/部分匹配快速 order 路径
+  - `test_chat_heuristic.py`(8) — `_is_clearly_non_order` 启发式跳过 parse_intent 的边界
+  - `test_chat_history_fallback.py`(7) — Redis 不可用时对话历史/待确认订单降级
+  - `test_chat_order_view.py`(6) — "查看订单"意图与"下单"的区分
+  - `test_catalog_disambiguation.py`(7) — 商品简称歧义（如"冷萃"）处理
+  - `test_product_wallet_integration.py`(6) + `test_product_wallet_unit.py`(11) — 商品目录 + 钱包流水
+  - `test_skill_evomap_payment.py`(6) — Skill 点单 / EvoMap 积分支付流程
+  - `test_web_presence_snapshot.py`(5) — WS 在线顾客 presence + snapshot + sweep
+  - `test_customer_enter_scene.py`(2) — `customer_enter_scene` 统一进场（web `/chat` + skill `/skill/orders`），2026-06-21 08:40 新增
+  - `verify_quick_menu.py`（**非 pytest**，独立快捷菜单验证脚本）
+- **覆盖缺口**：`parse_intent`/`orchestrate_staff_node`/`_register_web_customer_presence` 无直接单测（codegraph blast radius 标注）；前端组件无自动化测试（Playwright 已装无测试）；`reviewer_agent` 的 `chat_with_role(timeout_seconds=)` TypeError 未被测试暴露（无 LLM key 时 `review_mistake` 提前 return）。
 
 ---
 
@@ -223,7 +245,7 @@ python .agents/skills/a2a-super-order/scripts/order.py --message "一杯拿铁" 
 - Python：类型注解（`from __future__ import annotations`），PEP 8 风格，中文 docstring 解释业务意图（很多文件带有面试题/任务编号注释，是设计文档的一部分，勿删）。
 - TypeScript：`strict` 模式（见 `tsconfig.json`），React 19 函数组件 + Hooks。
 - 命名：后端模块用 snake_case，前端组件用 PascalCase。
-- 安全：Agent API token 用 SHA-256 hash 存储；账户密码用 bcrypt；会话 Cookie 用 `itsdangerous` 签名 + httponly + samesite-lax。**注意**：会话 Cookie 仅 `/auth/*` 与 WS 在线顾客 presence 用，**点单链路（`/chat`、`/skill/orders`）全程不依赖登录**。
+- 安全：Agent API token 用 SHA-256 hash 存储；账户密码用 bcrypt；会话 Cookie 用 `itsdangerous` 签名 + httponly + samesite-lax。**注意**：会话 Cookie 用于根路由 `/` 门槛 + `/auth/*` + WS 在线顾客 presence，**点单链路（`/chat`、`/skill/orders`）全程不依赖登录**。
 - EvoMap 响应在日志/返回前会 `_redact_response` 递归脱敏（key 含 secret/token/key/authorization → `[REDACTED]`）；Skill 脚本 `order.py` 同样用 `redact_for_stdout` 脱敏（→ `[stored-in-state]`）；node_secret 只存本地 .env 或 `~/.evomap/`（后者由 Evolver CLI 写入），不进 `.env.example`/Git/日志；客户端传来的 `payment_proof` 一律拒绝（`_reject_unverified_payment_proof`）。
 
 ---
@@ -231,10 +253,11 @@ python .agents/skills/a2a-super-order/scripts/order.py --message "一杯拿铁" 
 ## AI 使用指引
 
 - **改后端业务逻辑前**，先读 `app/main.py` 的 `/chat` 流程注释（任务一/二/三），它完整描述了"读记忆 → 意图分类 → 四路咖啡解析 → 两段式确认"的决策树。
-- **点单链路不要加登录门槛**：`/`、`/chat`、`/skill/orders`、3D 场景所有路由均为匿名可访问（咖啡厅线下场景）。`/auth/*` 与登录页仅作可选增值（个性化昵称 + 在线顾客人偶 presence），**不要把登录改成点单前置**。
+- **点单 API 链路匿名，根路由 `/` 有登录门槛**：`/chat`、`/skill/orders`、`/3d/*` 均匿名可访问。根路由 `/` 有门槛（`d408c58`：未登录→`/3d/login`，已登录→2D 聊天页）——这是有意设计，**不要擅自改回匿名直出**，也不要给 `/chat`/`/skill/orders` 加登录依赖。改根路由前先看架构演进表的反复历史（21:30 删 → 08:10 恢复）。
+- **改多 Agent 协作**：`agent_orchestrator.orchestrate` 是 `/chat` 的 recommend/chat 入口；复盘走 `_run_review_background` **后台线程**（失败 swallow，不阻塞推荐）；经验三写（MySQL+Redis+EvoMap）在 `experience_agent.save_experience`。⚠️ `reviewer_agent` 调 `chat_with_role(timeout_seconds=)` 签名不匹配，被后台兜住→复盘静默失效（待修：给 `chat_with_role` 加 `timeout_seconds: float | None = None` 透传）。
 - **改点单/支付**：`order_service.place_orders` 用 `with_for_update()` 行锁防并发超扣；Skill 点单的幂等由 `SkillOrderLedger.request_id` 唯一约束保证，改流程时务必保留 `_resume_existing_order`（三态：FREE/PAID 直接成功重试；PAYMENT_REQUIRED/FAILED/PENDING 在有 node_secret 时重新扣款；其余抛 `ledger_not_resumable`）。
 - **改可视化事件**：事件类型若新增，需同时更新前端 `frontend/src/sim/roleMap.ts` 的 `ACTION_BEHAVIOR` 映射，否则前端无法渲染（未知 action 兜底为 `walk_to_table`）。
-- **改 3D 渲染**：`office3d/` 全套移植自 Claw3D，坐标投影靠 `core/geometry.ts` 的 `toWorld` + `SCALE=0.018`；A\* 寻路在 `core/navigation.ts`（25px 网格，拐角裁剪）；改家具寻路行为调 `ITEM_METADATA.blocksNavigation/navPadding`。
+- **改 3D 渲染**：`office3d/` 全套移植自 Claw3D，坐标投影靠 `core/geometry.ts` 的 `toWorld` + `SCALE=0.018`；A\* 寻路在 `core/navigation.ts`（25px 网格，拐角裁剪）；改家具寻路行为调 `ITEM_METADATA.blocksNavigation/navPadding`。编辑器布局持久化走 `/api/office/layout`（`office_layout` 表）。
 - **LLM 降级**：所有 LLM 调用都有 `_mock_chat` / 兜底词降级，改动 prompt 时注意保持 JSON 输出格式（`parse_intent` 会 `_strip_code_fence`）。
 - **Colyseus 已归档**：`app/colyseus_bridge.py` 保留但目标目录已移走，不要再依赖它做可视化；如需恢复像素方案，按 `docs/archive-manifest.md` 中记录的外部归档路径恢复。
 - **uvicorn 启动**：根目录 `_mock_hub.py` 是临时 mock（NOT part of repo）会被 `--reload` 监听，用 `--reload-dir app` 限定 watch 范围规避；Windows 上若 `--reload` 仍卡死可去掉。

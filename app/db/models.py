@@ -527,3 +527,32 @@ class AgentExperience(Base):
         Index("idx_agent_exp_user_tags", "user_id", "context_tags"),
         Index("idx_agent_exp_created", "created_at"),
     )
+
+
+# ---------------------------------------------------------------------------
+# 3D cafe editor: server-side layout persistence (global singleton).
+# ---------------------------------------------------------------------------
+
+
+class OfficeLayout(Base):
+    """Server-side layout for the 3D cafe editor. Global singleton keyed by
+    ``namespace`` ('default'): staff edits it once and every visitor sees the
+    same layout, surviving backend restarts and browser changes. The JSON
+    payload matches the frontend ``FurnitureItem[]`` shape, so this table is a
+    pure storage blob (no relational decomposition needed for ~100 items)."""
+
+    __tablename__ = "office_layout"
+
+    layout_id = Column(_PK, primary_key=True, autoincrement=True)
+    namespace = Column(String(32), nullable=False, unique=True)
+    layout_json = Column(Text, nullable=False)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    __table_args__ = (
+        Index("idx_office_layout_namespace", "namespace"),
+    )
