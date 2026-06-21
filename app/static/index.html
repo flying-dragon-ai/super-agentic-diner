@@ -531,6 +531,8 @@ async function send() {
   addMsg(text, 'user');
   const typing = addMsg('店长正在思考…', 'bot');
   typing.classList.add('typing');
+  // 进入思考态：用到的灯保持亮，结果返回后统一关闭
+  _lampsThinking = true;
   // 立即点亮店长灯（请求已发出，店长 Agent 正在分析意图）
   _lightAgentLamp('agent.manager.intent');
   $('sendBtn').disabled = true;
@@ -552,6 +554,9 @@ async function send() {
     }
     const data = await r.json();
     typing.classList.remove('typing');
+    // 结果出来 → 退出思考态并关闭所有 Agent 灯
+    _lampsThinking = false;
+    _clearAllLamps();
     const menuRequest = isMenuRequest(text);
     // 优先使用后端返回的结构化产品数据渲染卡片（推荐/菜单场景均覆盖）
     if (data.products && data.products.length > 0) {
@@ -595,6 +600,9 @@ async function send() {
   } catch (e) {
     typing.textContent = '⚠️ 网络错误：' + e.message;
     typing.classList.add('sys');
+    // 出错也要关灯并退出思考态
+    _lampsThinking = false;
+    _clearAllLamps();
     renderQuickMenu({userText: text, botText: e.message, stage: 'issue'});
   } finally {
     $('sendBtn').disabled = false;
@@ -670,8 +678,10 @@ const _AGENT_LAMPS = {
   'agent.experience.': 'lamp-experience',
 };
 const _lampTimers = {};
+// 思考态标志：true=正在等 LLM 响应，灯保持亮；false=响应已返回，灯应熄灭
+let _lampsThinking = false;
 
-// 点亮某个 Agent 的灯，3 秒后自动熄灭（表示该 Agent 活跃过）
+// 点亮某个 Agent 的灯
 function _lightAgent(eventType) {
   _lightAgentLamp(eventType);
 }
@@ -683,11 +693,22 @@ function _lightAgentLamp(eventType) {
       const lamp = document.getElementById(lampId);
       if (!lamp) break;
       lamp.classList.add('active');
-      // 已有定时器则重置（持续亮 = Agent 持续活跃）
+      // 思考态：不自动熄灭，等结果出来统一关
+      // 非思考态：3 秒后自动熄灭（兜底，比如后台复盘异步事件）
       if (_lampTimers[lampId]) clearTimeout(_lampTimers[lampId]);
-      _lampTimers[lampId] = setTimeout(() => lamp.classList.remove('active'), 3000);
+      if (!_lampsThinking) {
+        _lampTimers[lampId] = setTimeout(() => lamp.classList.remove('active'), 3000);
+      }
       break;
     }
+  }
+}
+// 关闭所有 Agent 灯（结果返回后调用）
+function _clearAllLamps() {
+  for (const lampId of Object.values(_AGENT_LAMPS)) {
+    const lamp = document.getElementById(lampId);
+    if (lamp) lamp.classList.remove('active');
+    if (_lampTimers[lampId]) { clearTimeout(_lampTimers[lampId]); delete _lampTimers[lampId]; }
   }
 }
 
