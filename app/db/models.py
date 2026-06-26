@@ -37,7 +37,9 @@ from app.domain_constants import (
     WALLET_CURRENCIES,
 )
 
-_PK = BigInteger
+# 主键类型：MySQL 用 BigInteger(大整数)，SQLite 用 Integer(普通整数)。
+# SQLite 要求 INTEGER PRIMARY KEY 才能自动自增，BigInteger 在 SQLite 下不会自增。
+_PK = BigInteger().with_variant(Integer, "sqlite")
 
 
 class User(Base):

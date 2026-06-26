@@ -66,7 +66,7 @@ Use this server when inspecting chat history, pending-order memory, short-term w
 <!-- PROJECT_ARCHITECTURE_START -->
 ## Project Architecture
 
-Coffee AI Boss is a FastAPI application with static HTML/CSS/JS frontends, SQLAlchemy ORM, MySQL 8 persistence, Redis 7 short-term memory, A2A Skill/EvoMap ordering integration, and a WebSocket visualization event stream.
+Coffee AI Boss is a FastAPI application with static HTML/CSS/JS frontends, SQLAlchemy ORM, SQLite/MySQL persistence, fakeredis/Redis short-term memory, A2A Skill/EvoMap ordering integration, and a WebSocket visualization event stream.
 
 Core runtime boundaries:
 
@@ -82,13 +82,13 @@ Core runtime boundaries:
 
 Architecture constraints:
 
-- MySQL is the only supported relational database. Do not add SQLite modes, SQLite examples, SQLite branches, or SQLite-specific schema variants.
-- Redis is the only supported memory/middleware backend. Do not add fakeredis, in-memory Redis fallbacks, or fake memory modes.
-- MySQL and Redis connection details must come from `.env` through the `MYSQL_*` and `REDIS_*` settings. Do not hard-code connection strings, passwords, tokens, or secrets in code, docs, logs, or pages.
-- `Base.metadata.create_all()` may initialize new MySQL databases, but existing MySQL schema changes must use explicit idempotent migration scripts.
-- The web dialog ordering path and A2A Skill/EvoMap ordering path share persisted orders/events, but their payment logic remains separate unless explicitly requested.
-- `order` is the canonical order fact table for both `web_dialog` and `skill` sources. Keep `source_type`, `payment_status`, `consumer_url`, `consumer_id`, `agent_id`, `ledger_id`, `correlation_id`, and timestamps aligned between SQLAlchemy models and MySQL DDL.
-- `order.consumer_id`, `order.agent_id`, and `order.ledger_id` are strict MySQL foreign keys. Do not weaken them into loose references without an explicit architecture decision.
-- Domain state values such as order source, order status, identity status, and payment status live in `app/domain_constants.py`; do not introduce ad hoc string values in service code or migrations.
-- Existing MySQL schema upgrades must go through `scripts/migrate_order_sources.py`, which is expected to be idempotent and safe to run more than once.
+- **DB_MODE(数据库模式) 双后端支持**：默认 `sqlite`(本地文件数据库) 零配置运行，设 `DB_MODE=mysql` 切回 MySQL(关系型数据库)。两种模式共用同一套 SQLAlchemy ORM(对象关系映射)，models.py 不含 dialect(方言) 专属分支。
+- **USE_FAKEREDIS(启用模拟Redis) 双后端支持**：默认 `true` 使用 fakeredis(进程内模拟Redis) 零配置运行，设 `USE_FAKEREDIS=false` 切回真实 Redis(缓存中间件)。两种模式通过 `app/memory/_redis_client.py` 统一分发，chat_history(对话历史) 和 experience_agent(经验继承) 共享同一 FakeServer(模拟服务端)。
+- MySQL 和 Redis 连接详情必须来自 `.env` 通过 `MYSQL_*` 和 `REDIS_*` 设置。不要在代码、文档、日志、页面中硬编码连接串、密码、token(令牌)、密钥。
+- `Base.metadata.create_all()` 可初始化新数据库（SQLite 或 MySQL）；现有 MySQL schema(数据结构) 变更必须使用显式的幂等迁移脚本。
+- web(网页) 对话下单路径和 A2A Skill/EvoMap 下单路径共享持久化的订单/事件，但支付逻辑保持独立，除非明确要求合并。
+- `order`(订单表) 是 `web_dialog`(网页对话) 和 `skill`(技能) 两种来源的规范订单事实表。保持 `source_type`、`payment_status`、`consumer_id`、`agent_id`、`ledger_id`、`correlation_id` 和时间戳在 SQLAlchemy models(数据模型) 和 DDL(数据定义语言) 之间对齐。
+- `order.consumer_id`、`order.agent_id`、`order.ledger_id` 是严格的外键。不要在没有明确架构决策的情况下将它们弱化为松散引用。
+- 领域状态值（如订单来源、订单状态、身份状态、支付状态）定义在 `app/domain_constants.py`；不要在 service(服务) 代码或迁移中引入临时字符串值。
+- 现有 MySQL schema(数据结构) 升级必须通过 `scripts/migrate_order_sources.py`，该脚本预期幂等且可安全多次运行。
 <!-- PROJECT_ARCHITECTURE_END -->

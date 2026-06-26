@@ -8,8 +8,9 @@ from app.db.models import (
     ProductOption,
     ProductOptionGroup,
     User,
+    UserAccount,
 )
-from app.domain_constants import OPTION_SELECTION_SINGLE, WALLET_CURRENCY_CNY
+from app.domain_constants import IDENTITY_STATUS_ACTIVE, OPTION_SELECTION_SINGLE, WALLET_CURRENCY_CNY
 from app.services import wallet_service
 
 SAMPLE_KB = [
@@ -155,6 +156,22 @@ def _seed_products(db) -> None:
     print(f"已灌入 {len(SAMPLE_PRODUCTS)} 个商品 + 美式咖啡规格组")
 
 
+def _seed_default_account(db) -> None:
+    """创建默认登录账号（首次初始化用，已存在则跳过）。"""
+    if db.query(UserAccount).count() > 0:
+        return
+    import bcrypt
+    account = UserAccount(
+        username="admin",
+        password_hash=bcrypt.hashpw("admin123".encode("utf-8"), bcrypt.gensalt()).decode("ascii"),
+        nickname="管理员",
+        user_id=1,
+        status=IDENTITY_STATUS_ACTIVE,
+    )
+    db.add(account)
+    print("已创建默认账号 admin / admin123")
+
+
 def seed() -> None:
     db = SessionLocal()
     try:
@@ -186,10 +203,11 @@ def seed() -> None:
                 note="种子充值",
             )
             db.commit()
-            print("已为测试用户充值 ¥50.00 到 CNY 钱包")
+            print("已为测试用户充值 50.00 CNY 到钱包")
 
         _seed_legacy_kb(db)
         _seed_products(db)
+        _seed_default_account(db)
         db.commit()
     finally:
         db.close()

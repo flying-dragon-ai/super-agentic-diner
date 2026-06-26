@@ -20,11 +20,30 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.db.models import Product
+from app.llm import client as llm
 from app.memory.chat_history import add_message, get_history
 from app.services.agents import manager_agent, recommender_agent, reviewer_agent
 from app.services.chat_service import product_to_card, _is_browse_all, get_all_products
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_products_from_reply(db: Session, reply: str) -> list[dict]:
+    """从 LLM 回复文本中提取提到的咖啡名，生成产品卡片。
+
+    扫描 reply 中出现的每个 Product 名（全名匹配），
+    返回匹配到的产品卡片列表（去重，保持首次出现顺序）。
+    """
+    if not reply:
+        return []
+    all_products = get_all_products(db)
+    cards = []
+    seen = set()
+    for p in all_products:
+        if p.name in reply and p.name not in seen:
+            cards.append(product_to_card(p))
+            seen.add(p.name)
+    return cards
 
 
 def _emit_now(emit, event_type: str, payload: dict) -> None:
@@ -217,12 +236,12 @@ def orchestrate(
         reco = recommender_agent.recommend(db, user_id, user_msg, history)
         result.reply = reco["reply"]
         result.applied_experience = reco["applied_experience"]
-        # 看菜单请求：卡片展示全部产品；普通推荐：只展示候选产品
+        # 看菜单请求：卡片展示全部产品；否则从回复文本提取提到的咖啡名生成卡片
         if _is_browse_all(user_msg):
             all_products = get_all_products(db)
             result.products = [product_to_card(p) for p in all_products]
         else:
-            result.products = [product_to_card(p) for p in reco["candidates"]]
+            result.products = _extract_products_from_reply(db, reco["reply"])
         result.events.append(
             {
                 "type": "agent.recommender.suggested",
@@ -248,11 +267,12 @@ def orchestrate(
         add_message(user_id, "assistant", result.reply)
         return result
 
-    # ===== chat 意图：复用推荐 Agent（闲聊也能给点建议） =====
-    reco = recommender_agent.recommend(db, user_id, user_msg, history)
-    result.reply = reco["reply"]
-    result.applied_experience = reco["applied_experience"]
-    # 看菜单请求：展示全部产品卡片；纯闲聊不弹卡片（让 LLM 用文字自然桥接）
+    # ===== chat 意图：用店长人设闲聊（含桥接规则），不走推荐 Agent =====
+    # chat 用 SYSTEM_PROMPT（有性格+桥接规则），传简短菜单列表（不是完整 RAG context）
+    _menu_brief = "、".join(f"{p.name}（¥{p.base_price}）" for p in get_all_products(db))
+    result.reply = llm.chat(history, user_msg, f"今日菜单：{_menu_brief}")
+    result.applied_experience = False
+    # chat 意图：只在用户明确要看菜单时弹卡片；纯闲聊不弹
     if _is_browse_all(user_msg):
         all_products = db.query(Product).order_by(Product.base_price).all()
         result.products = [product_to_card(p) for p in all_products]
@@ -262,19 +282,11 @@ def orchestrate(
             "payload": {
                 "user_id": user_id,
                 "intent": "chat",
-                "applied_experience": reco["applied_experience"],
+                "applied_experience": False,
             },
         }
     )
     _emit_now(emit, "agent.recommender.suggested", result.events[-1]["payload"])
-    if reco["applied_experience"]:
-        result.events.append(
-            {
-                "type": "agent.experience.applied",
-                "payload": {"user_id": user_id, "intent": "chat"},
-            }
-        )
-        _emit_now(emit, "agent.experience.applied", result.events[-1]["payload"])
     add_message(user_id, "user", user_msg)
     add_message(user_id, "assistant", result.reply)
     return result

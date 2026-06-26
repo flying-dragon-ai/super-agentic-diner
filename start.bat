@@ -47,19 +47,8 @@ echo [2/6] Checking .env...
 if not exist ".env" (
     echo [ERROR] .env was not found.
     if exist ".env.example" (
-        echo Copy .env.example to .env and fill MYSQL_*, REDIS_*, and LLM settings.
+        echo Copy .env.example to .env and edit settings.
     )
-    goto fail
-)
-
-set "MISSING_ENV="
-for %%K in (MYSQL_HOST MYSQL_PORT MYSQL_USER MYSQL_PASSWORD MYSQL_DATABASE REDIS_HOST REDIS_PORT) do (
-    findstr /R /C:"^[ ]*%%K[ ]*=" ".env" >nul 2>nul
-    if errorlevel 1 set "MISSING_ENV=!MISSING_ENV! %%K"
-)
-
-if not "!MISSING_ENV!"=="" (
-    echo [ERROR] Missing required .env keys:!MISSING_ENV!
     goto fail
 )
 echo .env OK.
@@ -79,7 +68,29 @@ if errorlevel 1 (
 )
 echo.
 
-echo [4/6] Checking MySQL and Redis connectivity...
+echo [4/6] Detecting database/memory backend...
+set "_MODE_FILE=%TEMP%\coffee_db_mode.txt"
+"%PYTHON_CMD%" -c "from app.config import settings; print(settings.db_mode)" > "%_MODE_FILE%" 2>nul
+set "DB_MODE="
+set /p DB_MODE=<"%_MODE_FILE%"
+del "%_MODE_FILE%" >nul 2>nul
+if "!DB_MODE!"=="" set "DB_MODE=sqlite"
+echo   DB_MODE = !DB_MODE!
+
+if /I "!DB_MODE!"=="sqlite" (
+    echo   Using SQLite - no MySQL/Redis connectivity check needed.
+    echo.
+    echo [5/6] Initializing SQLite schema...
+    "%PYTHON_CMD%" scripts\init_db.py
+    if errorlevel 1 (
+        echo [ERROR] Database initialization failed.
+        goto fail
+    )
+    echo.
+    goto start_server
+)
+
+echo   Using MySQL - checking connectivity...
 "%PYTHON_CMD%" -c "from sqlalchemy import text; from app.db.database import engine; conn = engine.connect(); row = conn.execute(text('SELECT DATABASE(), 1')).one(); print('MySQL OK: database=' + str(row[0])); conn.close()"
 if errorlevel 1 (
     echo [ERROR] MySQL connection failed. Check MYSQL_* values in .env.
@@ -104,6 +115,8 @@ if errorlevel 1 (
     goto fail
 )
 echo.
+
+:start_server
 
 echo [6/6] Starting server: http://localhost:%PORT%
 echo       Press Ctrl+C to stop.
