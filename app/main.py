@@ -1,5 +1,6 @@
 """FastAPI entrypoint for chat ordering and Agent visualization APIs."""
 import asyncio
+import logging
 import threading
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -79,6 +80,8 @@ from app.colyseus_bridge import start_colyseus_server, stop_colyseus_server
 
 app = FastAPI(title="EvoMap 进化咖啡馆")
 
+logger = logging.getLogger(__name__)
+
 # EvoMap 心跳定时器（群体进化：保持节点在线 + 定时拉取社区经验）
 _evomap_heartbeat_thread: threading.Thread | None = None
 _evomap_heartbeat_stop = threading.Event()
@@ -120,6 +123,10 @@ async def _startup_colyseus() -> None:
     Base.metadata.create_all(bind=engine)
     start_colyseus_server()
     _ensure_staff_seeded()
+    # 预加载 jieba(中文分词库)：词典初始化需 ~1s，放启动期避免首个 /chat 请求卡顿。
+    _preload_jieba()
+    # 预热 LLM httpx 连接池：提前完成 DNS 解析 + TLS 握手，省首请求 ~0.5s。
+    _warm_llm_connection()
     # Background sweep: drop Skill/CLI customer avatars once their heartbeat window
     # expires (they can't push a leave signal — the order.py script already exited).
     global _skill_sweep_task
@@ -129,6 +136,45 @@ async def _startup_colyseus() -> None:
         _evomap_heartbeat_stop.clear()
         _evomap_heartbeat_thread = threading.Thread(target=_evomap_heartbeat_loop, daemon=True)
         _evomap_heartbeat_thread.start()
+
+
+def _preload_jieba() -> None:
+    """在启动时预加载 jieba 词典（~1s），避免第一个 /chat 请求承担延迟。"""
+    try:
+        import jieba  # noqa: F401
+        jieba.initialize()
+        logger.info("jieba(中文分词) 词典预加载完成")
+    except Exception:
+        logger.warning("jieba 预加载失败，将在首个请求时延迟加载", exc_info=True)
+
+
+def _warm_llm_connection() -> None:
+    """预热 LLM httpx 连接池：提前建立到 LLM 服务器的 TCP+TLS 连接。
+
+    首个 LLM 调用省去 DNS 解析 + TLS 握手（~0.5s）。用 HEAD 请求探测，
+    不消耗 API 额度；失败静默（首个请求时会正常建连）。
+    """
+    if not settings.effective_llm_api_key:
+        return
+    try:
+        from app.llm.client import get_client
+        from urllib.parse import urlparse
+        parsed = urlparse(settings.llm_base_url)
+        host = parsed.hostname
+        if not host:
+            return
+        scheme = parsed.scheme or "https"
+        port = parsed.port or (443 if scheme == "https" else 80)
+        base = f"{scheme}://{host}:{port}"
+        # 建一个 dummy 连接放进连接池（不发送真实请求）
+        client = get_client()
+        try:
+            client.head(base, timeout=2.0)
+        except Exception:
+            pass  # 连接已建立，即使 HEAD 被拒绝也达到预热目的
+        logger.info("LLM 连接池预热完成: %s", base)
+    except Exception:
+        pass  # 预热失败不影响功能
 
 
 @app.on_event("shutdown")
