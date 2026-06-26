@@ -28,8 +28,11 @@ from app.services.catalog_service import (
 from app.services.order_service import OrderError, resolve_line
 
 
-def _mysql_reachable() -> bool:
+def _db_reachable() -> bool:
     try:
+        from app.db.database import engine, Base
+        from app.db import models  # noqa: F401 — 确保所有表模型已加载
+        Base.metadata.create_all(engine)
         db = SessionLocal()
         db.execute(text("SELECT 1"))
         db.close()
@@ -38,7 +41,7 @@ def _mysql_reachable() -> bool:
         return False
 
 
-@unittest.skipUnless(_mysql_reachable(), "MySQL not reachable")
+@unittest.skipUnless(_db_reachable(), "Database not reachable")
 class CatalogDisambiguationTests(unittest.TestCase):
     """Seeds two products sharing a substring (ambiguous) plus one unique
     product, then tears them down so the real menu is untouched. A distinctive

@@ -16,7 +16,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db.database import SessionLocal, get_db
+from app.db.database import SessionLocal, get_db, Base, engine
 from app.db.models import (
     AgentProfile,
     EvomapConsumer,
@@ -116,6 +116,8 @@ def _ensure_staff_seeded() -> None:
 
 @app.on_event("startup")
 async def _startup_colyseus() -> None:
+    # SQLite/MySQL 双后端：首次启动自动建表（幂等，已有表不会重建）。
+    Base.metadata.create_all(bind=engine)
     start_colyseus_server()
     _ensure_staff_seeded()
     # Background sweep: drop Skill/CLI customer avatars once their heartbeat window
@@ -1825,10 +1827,10 @@ def list_orders(user_id: int, db: Session = Depends(get_db)):
 
 @app.get("/status")
 def status():
-    """Return system status for the fixed MySQL/Redis architecture."""
+    """Return system status: database backend + memory backend + LLM config."""
     return {
-        "database": "mysql",
-        "memory": "redis",
+        "database": settings.db_mode,
+        "memory": "fakeredis" if settings.use_fakeredis else "redis",
         "llm_active": llm.has_real_key(),
         "llm_key_source": settings.llm_api_key_source,
         "llm_status_reason": settings.llm_status_reason,
