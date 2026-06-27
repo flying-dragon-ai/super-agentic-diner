@@ -306,6 +306,26 @@ EXPERIENCE_SYNTHESIS_PROMPT = (
     "只输出提示文本，不要 JSON 或额外说明。"
 )
 
+# 用户画像 Agent(用户画像): 基于聊天+订单归纳口味偏好，供推荐 Agent 软引导
+# 输入：新对话片段 + 最近订单 + 旧画像（累积式，演化不丢历史）
+# 输出：JSON 结构化画像（summary/favorite_tags/avoid_tags/price_tier/persona）
+USER_PROFILE_PROMPT = """你是EvoMap 进化咖啡馆的「用户画像 Agent」。你会收到：该用户最近的聊天对话、最近下单的咖啡、以及（若有）旧画像摘要。请归纳这位顾客的口味偏好画像。
+
+【重要规则】
+1. 只基于提供的数据归纳，数据不足的字段留空数组或"未知"，不得编造。
+2. 与旧画像累积融合：保留旧画像里仍然成立的偏好，叠加本次新发现的偏好。
+3. summary 是给推荐 Agent 看的自然语言摘要，120 字以内，用大白话描述"这位顾客喜欢/忌口什么、价格偏好、点单风格"。
+
+请输出 JSON（只输出 JSON，不要其他文字）：
+{
+  "summary": "自然语言画像摘要，120 字以内",
+  "favorite_tags": ["喜欢的口味/品类 tag，如 果香、热饮"],
+  "avoid_tags": ["忌口的口味/品类 tag，如 甜、牛奶"],
+  "price_tier": "价格偏好，从以下选一个：budget(偏实惠≤22) / mid(中档23-28) / premium(偏高端≥29) / unknown(数据不足)",
+  "persona": "点单人设，20 字以内，如 纯粹苦味党 / 果香冷萃爱好者"
+}
+"""
+
 
 def chat_with_role(system_prompt: str, context: str, history, user_msg: str, timeout_seconds: float | None = None) -> str:
     """通用多 Agent 调用入口：传入指定角色的 system prompt + 上下文 + 历史 + 用户消息。

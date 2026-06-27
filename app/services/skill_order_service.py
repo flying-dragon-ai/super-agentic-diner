@@ -950,6 +950,17 @@ def _complete_order(
         agent_id=agent.agent_id,
         correlation_id=ledger.request_id,
     )
+    # 画像总结（购买完成触发）：异步 fire-and-forget，仅登录用户有效，
+    # 失败 swallow 绝不阻断 Skill 下单。放在订单 commit + 事件发布之后，
+    # 确保订单已落库可被画像读取。局部 import 规避循环依赖。
+    try:
+        from app.services import user_profile_service
+
+        user_profile_service.summarize_async(consumer.local_user_id)
+    except Exception:
+        logger.warning(
+            "skill 画像总结触发失败 user_id=%s", consumer.local_user_id, exc_info=True
+        )
     return _success_response(consumer, ledger, "Skill 点单完成")
 
 
