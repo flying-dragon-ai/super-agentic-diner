@@ -43,8 +43,11 @@ def add_message(user_id: int, role: str, content: str) -> None:
     2. LTRIM：裁剪列表，只保留最近 5 轮（5轮×2条=10条），实现滑动窗口
     3. EXPIRE：重置 30 分钟过期时间，实现短期记忆（无活动即遗忘）
 
-    Redis 不可用时 best-effort 降级：记 warning 后吞掉异常，不阻断下单主流程。
+    同时【画像功能】把消息持久化到 SQL(chat_message 表)，作为长期画像的数据源。
+    Redis 与 SQL 都是 best-effort 降级：任一失败都记 warning 后吞掉异常，
+    不阻断下单/聊天主流程。SQL 写入用独立 SessionLocal，不污染调用方的 session。
     """
+    # 1. 写 Redis（短期记忆，供推荐/复盘快速读取）
     try:
         r = _client()
         key = _key(user_id)
@@ -56,6 +59,23 @@ def add_message(user_id: int, role: str, content: str) -> None:
         # 对话历史写不进不影响下单/支付；Redis 恢复后自愈。
         logger.warning(
             "Redis 写对话历史失败（已降级）user_id=%s role=%s", user_id, role, exc_info=True
+        )
+
+    # 2. 写 SQL（长期归档，供用户画像增量总结）
+    try:
+        from app.db.database import SessionLocal
+        from app.db.models import ChatMessage
+
+        db = SessionLocal()
+        try:
+            db.add(ChatMessage(user_id=user_id, role=role, content=content))
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        # 持久化失败不影响聊天；画像下次触发时这条消息可能漏，但不阻断业务。
+        logger.warning(
+            "SQL 写对话归档失败（已降级）user_id=%s role=%s", user_id, role, exc_info=True
         )
 
 
