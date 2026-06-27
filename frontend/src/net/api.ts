@@ -79,10 +79,20 @@ export function getAnonUserId(): number {
   }
 }
 
+export type ChatProduct = {
+  name: string;
+  price: number;
+  tags?: string;
+  category?: string;
+  description?: string;
+  image?: string;
+  stock?: number;
+};
+
 export type ChatResponse = {
   reply: string;
   order_id?: number;
-  products?: unknown[];
+  products?: ChatProduct[];
 };
 export const sendChat = (userId: number, message: string) =>
   postJson<ChatResponse>("/chat", { user_id: userId, message });
@@ -95,3 +105,77 @@ export const saveOfficeLayout = (items: unknown[]) =>
   putJson<{ ok: boolean; namespace: string }>("/api/office/layout", { items });
 
 export { base };
+
+// --- 访客分析 / 流失分析（大屏专用） ---
+export type VisitorAnalytics = {
+  total_visitors: number;
+  ordered_visitors: number;
+  churned_visitors: number;
+  conversion_rate: number;
+  intent_distribution: Record<string, number>;
+  visitors: {
+    user_id: number;
+    first_message?: string;
+    last_message?: string;
+    message_count: number;
+    primary_intent: string;
+    ordered: number;
+    order_id?: number;
+    churn_reason?: string;
+    ai_insight?: string;
+    visit_time: string;
+  }[];
+};
+export const getVisitorAnalytics = () => getJson<VisitorAnalytics>("/admin/visitor-analytics");
+
+export type ChurnAnalysis = {
+  today_churned: number;
+  today_churn_details: {
+    user_id: number;
+    message_count: number;
+    primary_intent: string;
+    last_message?: string;
+    churn_reason?: string;
+    ai_insight?: string;
+  }[];
+  churn_patterns: Record<string, number>;
+  total_analyzed: number;
+};
+export const getChurnAnalysis = () => getJson<ChurnAnalysis>("/admin/churn-analysis");
+
+// --- 访客社交 ---
+export type OnlineVisitor = {
+  agent_id: number;
+  display_name: string;
+  user_id: number | null;
+  joined_at: string;
+};
+
+export type VisitorChatMessage = {
+  user_id: number | null;
+  display_name: string;
+  message: string;
+};
+
+export type OnlineVisitorsResponse = {
+  count: number;
+  visitors: OnlineVisitor[];
+};
+
+export type VisitorChatHistoryResponse = {
+  messages: VisitorChatMessage[];
+  total: number;
+};
+
+export const getOnlineVisitors = () =>
+  getJson<OnlineVisitorsResponse>("/admin/online-visitors");
+
+export const getVisitorChatHistory = (limit = 50) =>
+  getJson<VisitorChatHistoryResponse>(`/admin/visitor-chat?limit=${limit}`);
+
+export const sendVisitorChat = (userId: number, displayName: string, message: string) =>
+  postJson<{ ok: boolean }>('/api/visitor-chat', {
+    user_id: userId,
+    display_name: displayName,
+    message,
+  });

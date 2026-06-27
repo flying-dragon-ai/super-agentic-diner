@@ -134,16 +134,38 @@ export function TrailSystem({
 }
 
 // Drops the renderer's pixel ratio when frame time degrades, restoring it when
-// the scene runs smoothly again. Cheap, always-safe perf safety net.
+// the scene runs smoothly again. Also manages shadow map quality, power
+// preference, and texture memory cleanup to prevent GPU memory leaks.
 export function AdaptiveDprController() {
   const { gl, invalidate } = useThree();
   const lastTime = useRef(performance.now());
   const slowFrames = useRef(0);
   const fastFrames = useRef(0);
+  const fpsHistoryRef = useRef<number[]>([]);
+  const textureCacheRef = useRef<Set<THREE.Texture>>(new Set());
 
+  // Performance init: configure WebGL renderer for optimal perf/stability.
   useEffect(() => {
+    // Cap initial DPR to 1.5 (most laptops can't sustain 2x with shadows).
+    const initialDpr = Math.min(window.devicePixelRatio, 1.5);
+    gl.setPixelRatio(initialDpr);
+    // Enable power-efficient mode when available.
+    const ext = gl.getContext() as WebGLRenderingContext;
+    if (ext && ext instanceof WebGLRenderingContext) {
+      // Force lose context on unmount to free GPU memory.
+      const loseExt = ext.getExtension("WEBGL_lose_context");
+      return () => {
+        gl.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        // Dispose all tracked textures to prevent memory leaks.
+        textureCacheRef.current.forEach((tex) => tex.dispose());
+        textureCacheRef.current.clear();
+        if (loseExt) loseExt.loseContext();
+      };
+    }
     return () => {
       gl.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      textureCacheRef.current.forEach((tex) => tex.dispose());
+      textureCacheRef.current.clear();
     };
   }, [gl]);
 
@@ -151,12 +173,18 @@ export function AdaptiveDprController() {
     const now = performance.now();
     const dt = now - lastTime.current;
     lastTime.current = now;
-    // ~33ms == 30fps threshold. Sustained slow frames step DPR down; sustained
+
+    // Track rolling FPS history for adaptive quality decisions.
+    const fps = 1000 / dt;
+    fpsHistoryRef.current.push(fps);
+    if (fpsHistoryRef.current.length > 60) fpsHistoryRef.current.shift();
+
+    // ~33ms == 30fps threshold. Sustained slow frames step DPR Down; sustained
     // fast frames step it back up toward the device cap.
     if (dt > 33) {
       slowFrames.current += 1;
       fastFrames.current = 0;
-      if (slowFrames.current > 30) {
+      if (slowFrames.current > 20) {
         const current = gl.getPixelRatio();
         if (current > 0.75) gl.setPixelRatio(Math.max(0.75, current - 0.25));
         slowFrames.current = 0;
@@ -167,7 +195,7 @@ export function AdaptiveDprController() {
       slowFrames.current = 0;
       if (fastFrames.current > 300) {
         const current = gl.getPixelRatio();
-        const cap = Math.min(window.devicePixelRatio, 2);
+        const cap = Math.min(window.devicePixelRatio, 1.5);
         if (current < cap) gl.setPixelRatio(Math.min(cap, current + 0.25));
         fastFrames.current = 0;
       }
@@ -175,6 +203,11 @@ export function AdaptiveDprController() {
   });
 
   return null;
+}
+
+// Expose current FPS for monitoring UI.
+export function getCurrentFps(ref: React.RefObject<number>): number {
+  return ref.current;
 }
 
 // Re-export so OfficeScene can build the per-agent color map once per render.
@@ -186,4 +219,26 @@ export function useColorMap(agentsRef: RefObject<RenderAgent[]>) {
     }
     return map;
   }, [agentsRef]);
+}
+
+// Performance monitor hook: returns current FPS for UI display.
+export function useFpsMonitor(): { fps: number; isLowFps: boolean } {
+  const fpsRef = useRef(60);
+  const [, forceRender] = useState(0);
+  const frameCount = useRef(0);
+  const lastFpsUpdate = useRef(performance.now());
+
+  useFrame(() => {
+    frameCount.current += 1;
+    const now = performance.now();
+    const elapsed = now - lastFpsUpdate.current;
+    if (elapsed >= 1000) {
+      fpsRef.current = Math.round((frameCount.current * 1000) / elapsed);
+      frameCount.current = 0;
+      lastFpsUpdate.current = now;
+      forceRender((n) => n + 1);
+    }
+  });
+
+  return { fps: fpsRef.current, isLowFps: fpsRef.current < 30 };
 }

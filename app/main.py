@@ -48,6 +48,7 @@ from app.memory.chat_history import (
 from app.services.chat_service import extract_price, handle_message, match_by_price, get_all_products
 from app.services.agent_orchestrator import orchestrate as agent_orchestrate
 from app.services.agents.experience_agent import list_recent_experiences
+from app.services import visitor_analytics_service
 from app.services import evomap_evolution_service
 from app.services.agents.experience_agent import sync_community_experience as _sync_community_exp
 from app.rag.keywords import extract_keywords
@@ -813,6 +814,15 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     # ===== 第1步：读 Redis 上下文（短期记忆，最近5轮对话）=====
     history = get_history(req.user_id)
 
+    # 访客分析：记录今日访客（best-effort，不阻断主流程）
+    try:
+        visitor_analytics_service.record_visit(db, user_id=req.user_id, message=req.message)
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
     # ===== 第0步：检查 Redis 是否有待确认订单（两段式下单）=====
     pending = get_pending_order(req.user_id)
 
@@ -925,6 +935,11 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                 correlation_id=req.request_id,
             )
             _broadcast_reply_speech(reply)
+            # 访客分析：标记已下单
+            try:
+                visitor_analytics_service.mark_ordered(db, user_id=req.user_id, order_id=orders[0].order_id)
+            except Exception:
+                pass
             return ChatResponse(reply=reply, order_id=orders[0].order_id)
         else:
             # 不是纯确认词 → 清掉待确认，落入下方正常流程重新处理
@@ -955,6 +970,12 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     except Exception:
         _staff = {}
     staff_service.orchestrate_staff_node(db, _staff, "intent_detected", req.request_id)
+
+    # 访客分析：更新意图分类（best-effort）
+    try:
+        visitor_analytics_service.update_visit_intent(db, req.user_id, intent.get("intent", "chat"))
+    except Exception:
+        pass
 
     # ===== 第3步：LLM 判断为"下单"意图 → 解析具体是哪杯咖啡 =====
     # 四路优先级：价格匹配 > LLM显式名 > RAG关键词 > 历史提取
@@ -1113,6 +1134,8 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     # 若编排器已写对话历史并给出回复，直接返回
     if orch.reply:
         _broadcast_reply_speech(orch.reply)
+        # 访客分析：非下单路径，异步触发流失分析
+        visitor_analytics_service.analyze_churn_async()
         return ChatResponse(reply=orch.reply, products=orch.products if orch.products else None)
     # 编排器降级（如无 LLM key）：回退到原 handle_message
     reply, products = handle_message(db, req.user_id, req.message)
@@ -1123,6 +1146,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         correlation_id=req.request_id,
     )
     _broadcast_reply_speech(reply)
+    visitor_analytics_service.analyze_churn_async()
     return ChatResponse(reply=reply, products=products if products else None)
 
 
@@ -1526,6 +1550,95 @@ def evomap_status():
     return evomap_evolution_service.get_node_status()
 
 
+@app.get("/admin/visitor-analytics")
+def visitor_analytics(db: Session = Depends(get_db)):
+    """访客分析面板：今日访客数、转化率、意图分布、访客列表。"""
+    return visitor_analytics_service.get_daily_analytics(db)
+
+
+@app.get("/admin/churn-analysis")
+def churn_analysis(db: Session = Depends(get_db)):
+    """流失分析面板：流失原因分类、今日流失详情、自进化洞察。"""
+    return visitor_analytics_service.get_churn_analysis(db)
+
+
+# ============================================================
+# 访客社交：在线访客列表 + 访客聊天消息
+# ============================================================
+
+# 进程内在线访客注册表（WebSocket 连接时注册，断开时移除）。
+# 格式: { agent_id: { display_name, joined_at, user_id } }
+_online_visitors: dict[int, dict[str, Any]] = {}
+
+# 最近的访客聊天消息缓存（最近100条，供新连接者回看）。
+_visitor_chat_buffer: list[dict[str, Any]] = []
+_VISITOR_CHAT_MAX = 100
+
+
+def _register_online_visitor(agent_id: int, display_name: str, user_id: int | None = None) -> None:
+    _online_visitors[agent_id] = {
+        "agent_id": agent_id,
+        "display_name": display_name,
+        "user_id": user_id,
+        "joined_at": datetime.utcnow().isoformat(),
+    }
+
+
+def _unregister_online_visitor(agent_id: int) -> None:
+    _online_visitors.pop(agent_id, None)
+
+
+def _add_visitor_chat(message: dict[str, Any]) -> None:
+    _visitor_chat_buffer.append(message)
+    if len(_visitor_chat_buffer) > _VISITOR_CHAT_MAX:
+        _visitor_chat_buffer.pop(0)
+
+
+@app.get("/admin/online-visitors")
+def online_visitors():
+    """获取当前在线访客列表（供大屏和社交面板展示）。"""
+    return {
+        "count": len(_online_visitors),
+        "visitors": list(_online_visitors.values()),
+    }
+
+
+@app.get("/admin/visitor-chat")
+def visitor_chat_history(limit: int = 50):
+    """获取最近的访客聊天记录（供新连接者回看历史消息）。"""
+    safe_limit = max(1, min(limit, _VISITOR_CHAT_MAX))
+    return {
+        "messages": _visitor_chat_buffer[-safe_limit:],
+        "total": len(_visitor_chat_buffer),
+    }
+
+
+class VisitorChatRequest(BaseModel):
+    user_id: int
+    display_name: str = Field(default="匿名访客")
+    message: str
+
+
+@app.post("/api/visitor-chat")
+def post_visitor_chat(req: VisitorChatRequest):
+    """访客发送社交聊天消息（通过 HTTP POST，服务端广播到所有 WebSocket 客户端）。"""
+    msg = {
+        "event_id": None,
+        "type": "visitor.chat",
+        "agent_id": None,
+        "payload": {
+            "user_id": req.user_id,
+            "display_name": req.display_name,
+            "message": req.message[:500],
+        },
+        "correlation_id": None,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    _add_visitor_chat(msg["payload"])
+    visualization_hub.broadcast_from_sync(msg)
+    return {"ok": True}
+
+
 def _public_agent(agent: AgentProfile | None) -> dict[str, Any] | None:
     if not agent:
         return None
@@ -1775,6 +1888,7 @@ async def visualization_websocket(websocket: WebSocket):
     customer = await anyio.to_thread.run_sync(_register_web_customer_presence, websocket)
     if customer is not None:
         visualization_hub.register_ws_presence(websocket, customer["agent_id"])
+        _register_online_visitor(customer["agent_id"], customer["display_name"])
     agents = await anyio.to_thread.run_sync(_build_snapshot_agents_for_connect)
     await visualization_hub.connect(websocket, agents=agents)
     # Real-time appear: transient notice to OTHER clients (excludes self, not replayed).
@@ -1809,6 +1923,23 @@ async def visualization_websocket(websocket: WebSocket):
                     }
                 )
                 continue
+            # Visitor social chat: broadcast to all connected clients.
+            if message.get("type") == "visitor.chat":
+                chat_payload = {
+                    "user_id": message.get("user_id"),
+                    "display_name": message.get("display_name", "匿名访客"),
+                    "message": str(message.get("message", ""))[:500],
+                }
+                _add_visitor_chat(chat_payload)
+                await visualization_hub.broadcast({
+                    "event_id": None,
+                    "type": "visitor.chat",
+                    "agent_id": None,
+                    "payload": chat_payload,
+                    "correlation_id": None,
+                    "created_at": datetime.utcnow().isoformat(),
+                })
+                continue
             presence_message = _presence_message_from_client(message)
             if presence_message:
                 if presence_message["type"] != "presence.customer_left":
@@ -1818,6 +1949,8 @@ async def visualization_websocket(websocket: WebSocket):
                 await visualization_hub.broadcast(presence_message)
     except WebSocketDisconnect:
         visualization_hub.disconnect(websocket)
+        if customer is not None:
+            _unregister_online_visitor(customer["agent_id"])
         # Real-time disappear: transient leave_scene (this ws is already gone from
         # the connection set, so broadcast_transient reaches the remaining clients).
         if customer is not None:

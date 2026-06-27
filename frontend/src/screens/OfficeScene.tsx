@@ -52,7 +52,9 @@ import { ROLE_LABEL, resolveAction, resolveRole } from "../sim/roleMap";
 import { Palette, PALETTE } from "../ui/Palette";
 import { SelectedObjectPanel } from "../ui/SelectedObjectPanel";
 import { ChatPanel } from "../ui/ChatPanel";
+import { VisitorSocialPanel } from "../ui/VisitorSocialPanel";
 import { ImmersiveOverlay, type OverlayKind } from "../overlays/ImmersiveOverlay";
+import { SceneErrorBoundary } from "../components/SceneErrorBoundary";
 import { initSceneMusic, stopSceneMusic } from "../sounds/sceneMusic";
 import {
   TrailSystem,
@@ -147,6 +149,15 @@ export default function OfficeScene() {
   const [wallDrawStart, setWallDrawStart] = useState<{ x: number; y: number } | null>(null);
   const [overlay, setOverlay] = useState<OverlayKind>(null);
   const colorMap = useColorMap(agentsRef);
+  // Visitor chat consumer: forwarded from the WebSocket event handler so
+  // VisitorSocialPanel can display real-time messages without its own WS.
+  const visitorChatConsumerRef = useRef<((msg: import("../net/api").VisitorChatMessage) => void) | null>(null);
+  const registerChatConsumer = useCallback(
+    (handler: (msg: import("../net/api").VisitorChatMessage) => void) => {
+      visitorChatConsumerRef.current = handler;
+    },
+    [],
+  );
   const [compactChrome, setCompactChrome] = useState(
     () => typeof window !== "undefined" && window.innerWidth < 700,
   );
@@ -204,6 +215,11 @@ export default function OfficeScene() {
     const socket = connectVisualization({
       onStatus: setStatus,
       onEvent: (event) => {
+        // Forward visitor.chat events to the social panel.
+        if (event.type === "visitor.chat" && visitorChatConsumerRef.current) {
+          visitorChatConsumerRef.current(event.payload as unknown as import("../net/api").VisitorChatMessage);
+          return;
+        }
         setEvents((prev) => [event, ...prev].slice(0, 40));
         // Read-only adapter: backend emits snake_case payloads (display_name /
         // role_type / sprite_seed) wrapped in agent.action/agent.registered;
@@ -505,6 +521,7 @@ export default function OfficeScene() {
 
   return (
     <div style={{ position: "relative", width: "100vw", height: "100vh", background: "#0b0f14" }}>
+      <SceneErrorBoundary>
       <Canvas
         shadows
         camera={{ position: [camX, camY, camZ], fov: OVERVIEW_ZOOM, near: 0.1, far: 200 }}
@@ -584,6 +601,7 @@ export default function OfficeScene() {
           maxPolarAngle={Math.PI / 2.1}
         />
       </Canvas>
+      </SceneErrorBoundary>
       <ImmersiveOverlay kind={overlay} onClose={() => setOverlay(null)} />
       <div style={{ position: "absolute", top: statusTop, left: 12, color: "#e8dfc0", fontFamily: "monospace", fontSize: 12, background: "rgba(0,0,0,0.55)", padding: "6px 10px", borderRadius: 6, maxWidth: "calc(100vw - 24px)" }}>
         <div>EvoMap 进化咖啡馆</div>
@@ -665,6 +683,7 @@ export default function OfficeScene() {
         })}
       </div>
       <ChatPanel />
+      <VisitorSocialPanel registerChatConsumer={registerChatConsumer} />
     </div>
   );
 }
