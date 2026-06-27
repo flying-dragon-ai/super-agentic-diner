@@ -307,11 +307,13 @@ EXPERIENCE_SYNTHESIS_PROMPT = (
 )
 
 
-def chat_with_role(system_prompt: str, context: str, history, user_msg: str) -> str:
+def chat_with_role(system_prompt: str, context: str, history, user_msg: str, timeout_seconds: float | None = None) -> str:
     """通用多 Agent 调用入口：传入指定角色的 system prompt + 上下文 + 历史 + 用户消息。
 
     和 chat() 不同：chat() 固定使用 SYSTEM_PROMPT（店长人设），本函数允许传入任意角色提示词，
     供推荐 Agent / 复盘 Agent / 经验继承 Agent 复用同一套 _call_llm 基础设施。
+
+    参数 timeout_seconds：可选的单次调用超时（复盘/经验压缩用较短超时），不传则用默认生成超时。
     """
     if not has_real_key():
         return ""
@@ -322,7 +324,10 @@ def chat_with_role(system_prompt: str, context: str, history, user_msg: str) -> 
         messages.extend(history)
     messages.append({"role": "user", "content": user_msg})
     try:
-        return _call_llm(messages, timeout_seconds=settings.llm_generation_timeout_seconds)
+        actual_timeout = (
+            timeout_seconds if timeout_seconds is not None else settings.llm_generation_timeout_seconds
+        )
+        return _call_llm(messages, timeout_seconds=actual_timeout)
     except Exception:
         return ""
 

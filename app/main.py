@@ -45,7 +45,7 @@ from app.memory.chat_history import (
     get_pending_order,
     set_pending_order,
 )
-from app.services.chat_service import extract_price, handle_message, match_by_price, get_all_products
+from app.services.chat_service import extract_price, handle_message, match_by_price, get_all_products, resolve_image_path
 from app.services.agent_orchestrator import orchestrate as agent_orchestrate
 from app.services.agents.experience_agent import list_recent_experiences
 from app.services import visitor_analytics_service
@@ -2099,7 +2099,7 @@ def get_menu(db: Session = Depends(get_db)):
             "tags": p.tags or "",
             "category": p.category or "",
             "description": (p.description or "")[:120],
-            "image": f"/imag/{p.name}.png",
+            "image": resolve_image_path(p.name),
             "stock": p.stock,
         }
         for p in products
