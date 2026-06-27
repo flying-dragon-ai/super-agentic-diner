@@ -53,6 +53,7 @@ import { Palette, PALETTE } from "../ui/Palette";
 import { SelectedObjectPanel } from "../ui/SelectedObjectPanel";
 import { ChatPanel } from "../ui/ChatPanel";
 import { VisitorSocialPanel } from "../ui/VisitorSocialPanel";
+import { TodayTopicsPanel } from "../ui/TodayTopicsPanel";
 import { ImmersiveOverlay, type OverlayKind } from "../overlays/ImmersiveOverlay";
 import { SceneErrorBoundary } from "../components/SceneErrorBoundary";
 import { initSceneMusic, stopSceneMusic } from "../sounds/sceneMusic";
@@ -603,10 +604,7 @@ export default function OfficeScene() {
       </Canvas>
       </SceneErrorBoundary>
       <ImmersiveOverlay kind={overlay} onClose={() => setOverlay(null)} />
-      <div style={{ position: "absolute", top: statusTop, left: 12, color: "#e8dfc0", fontFamily: "monospace", fontSize: 12, background: "rgba(0,0,0,0.55)", padding: "6px 10px", borderRadius: 6, maxWidth: "calc(100vw - 24px)" }}>
-        <div>EvoMap 进化咖啡馆</div>
-        <div style={{ opacity: 0.7 }}>WS: {status} · 在场员工 {sim.agents.length} · 焦点 {focusId ?? "无"}</div>
-      </div>
+      <TodayTopicsPanel top={statusTop} wsStatus={status} agentCount={sim.agents.length} />
       <div
         style={{
           position: "absolute",

@@ -155,11 +155,27 @@ export type VisitorChatMessage = {
   user_id: number | null;
   display_name: string;
   message: string;
+  created_at?: string;
 };
 
 export type OnlineVisitorsResponse = {
   count: number;
   visitors: OnlineVisitor[];
+};
+
+export type TodayTopic = {
+  label: string;
+  type: string;
+  count: number;
+  heat: number;
+  rank: number;
+};
+
+export type TodayTopicsResponse = {
+  topics: TodayTopic[];
+  total_orders_today: number;
+  total_chats_today: number;
+  updated_at: string;
 };
 
 export type VisitorChatHistoryResponse = {
@@ -179,3 +195,6 @@ export const sendVisitorChat = (userId: number, displayName: string, message: st
     display_name: displayName,
     message,
   });
+
+export const getTodayTopics = () =>
+  getJson<TodayTopicsResponse>("/admin/today-topics");

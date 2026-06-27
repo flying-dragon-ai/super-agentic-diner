@@ -2,7 +2,7 @@
 import asyncio
 import logging
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import anyio
@@ -537,7 +537,7 @@ def _try_publish_visualization_event(
                 "agent_id": agent_id,
                 "payload": payload,
                 "correlation_id": correlation_id,
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
             }
         )
 
@@ -1580,7 +1580,7 @@ def _register_online_visitor(agent_id: int, display_name: str, user_id: int | No
         "agent_id": agent_id,
         "display_name": display_name,
         "user_id": user_id,
-        "joined_at": datetime.utcnow().isoformat(),
+        "joined_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -1613,6 +1613,91 @@ def visitor_chat_history(limit: int = 50):
     }
 
 
+@app.get("/admin/today-topics")
+def today_topics(db: Session = Depends(get_db)):
+    """当天话题热度榜：聚合今日订单 + 访客聊天关键词，返回 TOP-N 热门话题。"""
+    from collections import Counter
+
+    today_start = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    # --- 1. 今日订单饮品统计 ---
+    todays = (
+        db.query(Order)
+        .filter(Order.created_at >= today_start)
+        .filter(Order.coffee_name.isnot(None))
+        .all()
+    )
+    drink_counts: Counter[str] = Counter()
+    for o in todays:
+        name = (o.coffee_name or "").strip()
+        if name:
+            drink_counts[name] += 1
+
+    # --- 2. 访客聊天关键词统计（今日）---
+    chat_keywords: Counter[str] = Counter()
+    HOT_KW = [
+        ("冷饮", ["冷", "冰", "冷萃", "气泡"]),
+        ("热饮", ["热", "拿铁", "美式", "摩卡", "卡布"]),
+        ("特调", ["特调", "季节", "限定", "芒", "肉桂"]),
+        ("推荐", ["推荐", "建议", "人气"]),
+        ("优惠", ["优惠", "折扣", "活动", "券"]),
+    ]
+    today_chat = [
+        m for m in _visitor_chat_buffer
+        if m.get("created_at") and m["created_at"] >= today_start.isoformat()
+    ]
+    for m in today_chat:
+        text = m.get("message", "")
+        for label, kws in HOT_KW:
+            if any(kw in text for kw in kws):
+                chat_keywords[label] += 1
+
+    # --- 3. 合并计算热度 ---
+    topics: list[dict[str, Any]] = []
+    max_orders = max(drink_counts.values(), default=1)
+    for name, cnt in drink_counts.most_common(5):
+        heat = int(40 + (cnt / max_orders) * 50)  # 40-90 range
+        topics.append({
+            "label": name,
+            "type": "drink",
+            "count": cnt,
+            "heat": min(99, heat),
+            "rank": 0,
+        })
+    max_kw = max(chat_keywords.values(), default=1)
+    for label, cnt in chat_keywords.most_common(3):
+        if cnt == 0:
+            continue
+        heat = int(30 + (cnt / max_kw) * 40)
+        topics.append({
+            "label": label,
+            "type": "topic",
+            "count": cnt,
+            "heat": min(89, heat),
+            "rank": 0,
+        })
+
+    # Deduplicate + sort by heat
+    seen = set()
+    unique = []
+    for t in topics:
+        if t["label"] in seen:
+            continue
+        seen.add(t["label"])
+        unique.append(t)
+    unique.sort(key=lambda x: x["heat"], reverse=True)
+    for i, t in enumerate(unique):
+        t["rank"] = i + 1
+
+    return {
+        "topics": unique[:6],
+        "total_orders_today": len(todays),
+        "total_chats_today": len(today_chat),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 class VisitorChatRequest(BaseModel):
     user_id: int
     display_name: str = Field(default="匿名访客")
@@ -1630,9 +1715,10 @@ def post_visitor_chat(req: VisitorChatRequest):
             "user_id": req.user_id,
             "display_name": req.display_name,
             "message": req.message[:500],
+            "created_at": datetime.now(timezone.utc).isoformat(),
         },
         "correlation_id": None,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
     _add_visitor_chat(msg["payload"])
     visualization_hub.broadcast_from_sync(msg)
@@ -1720,7 +1806,7 @@ def _presence_message_from_client(message: dict[str, Any]) -> dict[str, Any] | N
         "type": event_type,
         "payload": payload,
         "correlation_id": f"presence:{visitor_id}",
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -1866,7 +1952,7 @@ async def _sweep_offline_skill_customers() -> None:
                 "agent_id": agent_id,
                 "payload": {"agent_id": agent_id, "action_type": "leave_scene"},
                 "correlation_id": None,
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
             }
         )
 
@@ -1907,7 +1993,7 @@ async def visualization_websocket(websocket: WebSocket):
                     "sprite_seed": customer["sprite_seed"],
                 },
                 "correlation_id": None,
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
             },
         )
     presence_payload: dict[str, Any] | None = None
@@ -1919,7 +2005,7 @@ async def visualization_websocket(websocket: WebSocket):
                     {
                         "type": "pong",
                         "payload": {},
-                        "created_at": datetime.utcnow().isoformat(),
+                        "created_at": datetime.now(timezone.utc).isoformat(),
                     }
                 )
                 continue
@@ -1929,6 +2015,7 @@ async def visualization_websocket(websocket: WebSocket):
                     "user_id": message.get("user_id"),
                     "display_name": message.get("display_name", "匿名访客"),
                     "message": str(message.get("message", ""))[:500],
+                    "created_at": datetime.now(timezone.utc).isoformat(),
                 }
                 _add_visitor_chat(chat_payload)
                 await visualization_hub.broadcast({
@@ -1937,7 +2024,7 @@ async def visualization_websocket(websocket: WebSocket):
                     "agent_id": None,
                     "payload": chat_payload,
                     "correlation_id": None,
-                    "created_at": datetime.utcnow().isoformat(),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
                 })
                 continue
             presence_message = _presence_message_from_client(message)
@@ -1968,7 +2055,7 @@ async def visualization_websocket(websocket: WebSocket):
                         "action_type": "leave_scene",
                     },
                     "correlation_id": None,
-                    "created_at": datetime.utcnow().isoformat(),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
         if presence_payload:
@@ -1977,7 +2064,7 @@ async def visualization_websocket(websocket: WebSocket):
                     "type": "presence.customer_left",
                     "payload": presence_payload,
                     "correlation_id": f"presence:{presence_payload['visitor_id']}",
-                    "created_at": datetime.utcnow().isoformat(),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
 
@@ -2044,6 +2131,87 @@ def clear_chat_history(user_id: int):
     clear_history(user_id)
     return {"ok": True}
 
+
+@app.get("/orders/{user_id}")
+def list_orders(user_id: int, db: Session = Depends(get_db)):
+    """返回某用户的订单列表（最近 10 单），供网页侧栏展示"""
+    rows = (
+        db.query(Order)
+        .filter(Order.user_id == user_id)
+        .order_by(Order.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    return [
+        {
+            "order_id": o.order_id,
+            "coffee_name": o.coffee_name,
+            "amount": float(o.amount),
+            "status": o.status,
+            "source_type": o.source_type,
+            "payment_status": o.payment_status,
+            "created_at": o.created_at.strftime("%Y-%m-%d %H:%M"),
+        }
+        for o in rows
+    ]
+
+
+@app.get("/status")
+def status():
+    """Return system status: database backend + memory backend + LLM config."""
+    return {
+        "database": settings.db_mode,
+        "memory": "fakeredis" if settings.use_fakeredis else "redis",
+        "llm_active": llm.has_real_key(),
+        "llm_key_source": settings.llm_api_key_source,
+        "llm_status_reason": settings.llm_status_reason,
+        "llm_base_url": settings.llm_base_url,
+        "llm_model": settings.llm_model,
+    }
+
+
+@app.get("/3d")
+def three_d_app():
+    """Serve the 3D office SPA. Assets are under /3d/assets (Vite base ./)."""
+    index_path = _3D_STATIC_DIR / "index.html"
+    if not index_path.is_file():
+        raise HTTPException(status_code=404, detail="3D build not found. Run: cd frontend && npm run build")
+    return FileResponse(
+        index_path,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+@app.get("/3d/{full_path:path}")
+def three_d_app_spa(full_path: str):
+    """SPA fallback: any /3d/* sub-path serves index.html so client-side
+    routing (/3d/scene, /3d/login, /3d/dashboard) works. Static assets under
+    /3d/assets are handled by the /3d StaticFiles mount."""
+    index_path = _3D_STATIC_DIR / "index.html"
+    if not index_path.is_file():
+        raise HTTPException(status_code=404, detail="3D build not found. Run: cd frontend && npm run build")
+    return FileResponse(
+        index_path,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.get("/")
+def index(request: Request, db: Session = Depends(get_db)):
+    """Root: 未登录 → 302 跳 /3d/login；已登录 → 2D 聊天页。"""
+    from app.auth.router import current_account
+
+    account = current_account(request, db)
+    if not account:
+        return RedirectResponse(url="/3d/login", status_code=302)
+    chat_index = _STATIC_DIR / "index.html"
+    if chat_index.is_file():
+        return FileResponse(chat_index)
+    raise HTTPException(status_code=404, detail="index page not found")
 
 @app.get("/orders/{user_id}")
 def list_orders(user_id: int, db: Session = Depends(get_db)):

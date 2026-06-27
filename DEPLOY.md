@@ -191,6 +191,98 @@ docker exec coffee-ai-boss python scripts/migrate_order_sources.py
 | 想要多 worker 提吞吐 | 当前 `--workers 1`。多 worker 会割裂 `/ws/visualization` 的在线 presence 状态，需先引入 Redis pub/sub 同步，再改 `--workers N` |
 | `--reload` | **生产禁用**（性能、文件监听开销、Windows 行为差异）。`start.sh` 与 systemd 均未带 |
 | 权限错误 | systemd `User=coffee` 需对 `/opt/coffee-ai-boss` 有读写权（含 `.venv`） |
+| **切分支后网页白屏/打不开** | 见下方「分支切换排查清单」 |
+| **切分支后 `/status` 返回 500** | `dev_Code`/`dev_x` 分支删除了 `db_mode`/`use_fakeredis` 配置项，只支持 MySQL+Redis，但 `.env` 仍设 `DB_MODE=sqlite`。解法：① 恢复 `.env` 为 MySQL/Redis 模式并确保服务可达；② 或在本地继续用 `main` 分支（支持 SQLite+fakeredis 降级） |
+| **切分支后 3D 页面 JS 404** | 各分支构建产物 hash 不同（如 `index-D0k-m-ay.js` vs `index-BwgXzfEe.js`）。`git checkout` 只恢复 `index.html` 的引用，不清理旧 hash 的 `.js` 文件，但也不自动构建新的。**解法：每次切分支后必须 `cd frontend && npm run build`**，确保 `app/static/3d/assets/` 下有该分支 `index.html` 引用的 JS 文件 |
+| **切分支后 `ModuleNotFoundError: passlib`** | `dev_Code` 的 `requirements.txt` 有 `passlib[bcrypt]`，而 `main` 删除了它改用裸 `bcrypt`。解法：切分支后执行 `pip install -r requirements.txt` 重新安装依赖 |
+
+---
+
+## 10. 分支切换排查清单
+
+从其他分支（`dev_x`/`dev_Code`）拉取代码后无法打开网页，按以下顺序排查：
+
+### ① 构建产物不匹配（最常见）
+
+```bash
+# 检查 index.html 引用的 JS 是否存在
+grep -oP 'src="([^"]+)"' app/static/3d/index.html
+# 检查该文件是否存在
+ls app/static/3d/assets/
+
+# 如果缺失，重新构建
+cd frontend
+npm install
+npm run build
+cd ..
+```
+
+**原因**：Vite 每次构建生成带 content hash 的 JS 文件名（`index-XXXX.js`）。`git checkout` 切分支时，`index.html` 被切换为新分支版本引用另一个 hash，但对应的 JS 文件可能不在当前文件系统中。
+
+### ② 数据库配置冲突
+
+| 分支 | 数据库模式 | Redis 模式 |
+|------|-----------|------------|
+| `main` | SQLite（`DB_MODE=sqlite`）或 MySQL | fakeredis（`USE_FAKEREDIS=true`）或 Redis |
+| `dev_x` | SQLite（同 main） | fakeredis（同 main） |
+| `dev_Code` | **仅 MySQL**（无 `db_mode` 字段） | **仅 Redis**（无 `use_fakeredis` 字段） |
+
+```bash
+# 检查当前配置
+curl http://localhost:8000/status
+# 预期输出: {"database":"sqlite","memory":"fakeredis",...}
+
+# 如果切到 dev_Code 分支后启动报错，检查 .env
+# dev_Code 不认 DB_MODE/USE_FAKEREDIS，强制 MySQL+Redis
+# 解法：确保 MySQL 和 Redis 服务可用，或切回 main
+```
+
+### ③ Python 依赖不一致
+
+```bash
+# 切分支后重新安装
+pip install -r requirements.txt
+
+# 主要差异：
+# main:          redis>=5.0.0,<6.0.0 + fakeredis>=2.20.0（降级模式）
+# dev_Code:      redis>=5.0.0 + passlib[bcrypt]>=1.7.4（无 fakeredis）
+```
+
+### ④ 后端模块缺失
+
+```bash
+# 快速验证后端能启动
+python -c "from app.main import app; print('OK')"
+
+# 常见报错及解法：
+# ModuleNotFoundError: app.services.autonomous_agent_service
+#   → main 分支有此模块，dev_x/dev_Code 可能已删除
+# ModuleNotFoundError: app.services.visitor_analytics_service
+#   → main 分支有此模块，dev_x 不含
+# ImportError: cannot import name 'Base' from 'app.db.database'
+#   → main 分支 database.py 有 Base 导出，dev_Code 版本无
+```
+
+### ⑤ 完整恢复流程（从任意分支恢复到可运行状态）
+
+```bash
+# 1. 切回 main 分支
+git checkout main
+
+# 2. 重新构建前端
+cd frontend && npm install && npm run build && cd ..
+
+# 3. 重装依赖
+pip install -r requirements.txt
+
+# 4. 重启服务
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# 5. 验证
+curl http://localhost:8000/status       # 应返回 JSON
+curl -I http://localhost:8000/3d        # 应返回 200
+curl -I http://localhost:8000/3d/login  # 应返回 200
+```
 
 ---
 
