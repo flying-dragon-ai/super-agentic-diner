@@ -16,11 +16,11 @@ import logging
 import re
 from datetime import datetime
 
-import redis
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.models import AgentExperience
+from app.memory._redis_client import get_redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +29,8 @@ _REDIS_COMMUNITY_KEY = "agent:community_experience"
 _REDIS_MAX = 20
 
 
-def _client() -> redis.Redis:
-    return redis.Redis.from_url(settings.redis_url, decode_responses=True)
+def _client():
+    return get_redis_client()
 
 
 def save_experience(

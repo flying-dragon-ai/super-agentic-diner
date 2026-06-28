@@ -20,14 +20,21 @@ def _is_real_secret(value: str | None) -> bool:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # MySQL is the only supported persistent database.
+    # DB_MODE(数据库模式)：决定数据存到哪里。sqlite=本地文件运行，mysql=远程服务器。
+    # 默认 sqlite(本地文件数据库)，本地开发零配置即可跑。
+    db_mode: str = "sqlite"
+    sqlite_path: str = "coffee_ai.db"
+
+    # MySQL 连接信息（仅 DB_MODE=mysql 时使用）。
     mysql_host: str = "localhost"
     mysql_port: int = 3306
     mysql_user: str = "coffee"
     mysql_password: str = "coffee123"
     mysql_database: str = "coffee_ai"
 
-    # Redis is the only supported memory/middleware backend.
+    # USE_FAKEREDIS(启用模拟Redis)：true=进程内模拟，无需安装 Redis 服务。
+    # 默认 true(本地零配置)，设为 false 则连接真实 Redis 服务器。
+    use_fakeredis: bool = True
     redis_host: str = "localhost"
     redis_port: int = 6379
     redis_db: int = 0
@@ -77,6 +84,8 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
+        if self.db_mode == "sqlite":
+            return f"sqlite:///./{self.sqlite_path}"
         return (
             f"mysql+pymysql://{self.mysql_user}:{self.mysql_password}"
             f"@{self.mysql_host}:{self.mysql_port}/{self.mysql_database}?charset=utf8mb4"

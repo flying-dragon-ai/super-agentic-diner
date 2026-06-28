@@ -1,8 +1,10 @@
 // Big-screen dashboard. Aggregates /admin/restaurant-state (today's order count
 // + amount, source split, recent orders/events, active agents/consumers) and a
 // recent event feed, on a dark monitoring-friendly layout.
+// Also shows visitor analytics (conversion rate, intent distribution) and
+// churn analysis (AI-powered reasons for why visitors didn't order).
 import { useEffect, useState } from "react";
-import { getRestaurantState, listEvents, type VisEvent } from "../net/api";
+import { getRestaurantState, listEvents, getVisitorAnalytics, getChurnAnalysis, type VisEvent, type VisitorAnalytics, type ChurnAnalysis } from "../net/api";
 
 type State = {
   summary?: {
@@ -24,6 +26,7 @@ type State = {
 const card: React.CSSProperties = { background: "rgba(14,22,34,0.9)", border: "1px solid rgba(80,130,200,0.18)", borderRadius: 10, padding: 18 };
 const label: React.CSSProperties = { color: "#7fa6d8", fontSize: 12, letterSpacing: 2, textTransform: "uppercase" };
 const num: React.CSSProperties = { color: "#e8dfc0", fontSize: 34, fontWeight: 700, fontFamily: "monospace" };
+const smallNum: React.CSSProperties = { color: "#e8dfc0", fontSize: 22, fontWeight: 700, fontFamily: "monospace" };
 
 const SOURCE_TEXT: Record<string, string> = {
   web_dialog: "网页点单",
@@ -74,6 +77,29 @@ const AGENT_ACTION_TEXT: Record<string, string> = {
   leave_scene: "员工离开EvoMap 进化咖啡馆",
 };
 
+const INTENT_TEXT: Record<string, string> = {
+  order: "下单",
+  recommend: "求推荐",
+  chat: "闲聊",
+  browse: "浏览",
+};
+
+const INTENT_COLOR: Record<string, string> = {
+  order: "#4ade80",
+  recommend: "#f0c060",
+  chat: "#7fa6d8",
+  browse: "#9ca3af",
+};
+
+const CHURN_CATEGORY_TEXT: Record<string, string> = {
+  price: "价格敏感",
+  taste: "口味不符",
+  variety: "品种不足",
+  hesitation: "犹豫未决",
+  experience: "体验问题",
+  other: "其他原因",
+};
+
 function formatEvent(event: VisEvent) {
   if (event.type === "agent.action") {
     const actionType = typeof event.payload?.action_type === "string" ? event.payload.action_type : "";
@@ -89,15 +115,23 @@ function sourceText(sourceType: string) {
 export default function Dashboard() {
   const [state, setState] = useState<State | null>(null);
   const [events, setEvents] = useState<VisEvent[]>([]);
+  const [visitorData, setVisitorData] = useState<VisitorAnalytics | null>(null);
+  const [churnData, setChurnData] = useState<ChurnAnalysis | null>(null);
 
   useEffect(() => {
     const load = () => {
       getRestaurantState().then((s) => setState(s as State)).catch(() => {});
       listEvents(30).then(setEvents).catch(() => {});
     };
+    const loadVisitor = () => {
+      getVisitorAnalytics().then(setVisitorData).catch(() => {});
+      getChurnAnalysis().then(setChurnData).catch(() => {});
+    };
     load();
+    loadVisitor();
     const t = setInterval(load, 4000);
-    return () => clearInterval(t);
+    const tv = setInterval(loadVisitor, 8000);
+    return () => { clearInterval(t); clearInterval(tv); };
   }, []);
 
   const recentEvents = events.length ? events : (state?.recent_events ?? []);
@@ -113,19 +147,142 @@ export default function Dashboard() {
     state?.consumers?.length ??
     state?.today?.active_consumer_count;
 
+  const totalVisitors = visitorData?.total_visitors ?? 0;
+  const orderedVisitors = visitorData?.ordered_visitors ?? 0;
+  const churnedVisitors = visitorData?.churned_visitors ?? 0;
+  const conversionRate = visitorData?.conversion_rate ?? 0;
+
   return (
-    <div style={{ width: "100vw", height: "100vh", background: "#080c12", color: "#dfe8f5", fontFamily: "system-ui, sans-serif", padding: 24, boxSizing: "border-box", overflow: "auto" }}>
+    <div style={{ width: "100vw", minHeight: "100vh", background: "#080c12", color: "#dfe8f5", fontFamily: "system-ui, sans-serif", padding: 24, boxSizing: "border-box", overflow: "auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <h1 style={{ margin: 0, fontSize: 24, letterSpacing: 2 }}>EvoMap 进化咖啡馆 · 实时监控大屏</h1>
         <span style={{ color: "#7fa6d8", fontSize: 13 }}>{new Date().toLocaleString("zh-CN")}</span>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 16 }}>
+
+      {/* Row 1: Core stats */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, marginBottom: 16 }}>
         <div style={card}><div style={label}>今日订单</div><div style={num}>{todayOrderCount ?? "—"}</div></div>
         <div style={card}><div style={label}>今日金额</div><div style={num}>¥{todayAmount != null ? Number(todayAmount).toFixed(2) : "—"}</div></div>
-        <div style={card}><div style={label}>在线员工</div><div style={num}>{activeStaffCount ?? "—"}</div></div>
-        <div style={card}><div style={label}>活跃访客</div><div style={num}>{activeConsumerCount ?? "—"}</div></div>
+        <div style={card}><div style={label}>今日访客</div><div style={{ ...num, color: "#7fa6d8" }}>{totalVisitors}</div></div>
+        <div style={card}><div style={label}>转化率</div><div style={{ ...num, color: conversionRate >= 50 ? "#4ade80" : conversionRate > 0 ? "#f0c060" : "#9ca3af" }}>{conversionRate}%</div></div>
+        <div style={card}><div style={label}>在线员工</div><div style={smallNum}>{activeStaffCount ?? "—"}</div></div>
+        <div style={card}><div style={label}>活跃访客</div><div style={smallNum}>{activeConsumerCount ?? "—"}</div></div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1.4fr", gap: 16 }}>
+
+      {/* Row 2: Visitor analytics + Churn analysis */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
+        {/* Visitor conversion funnel */}
+        <div style={card}>
+          <div style={{ ...label, marginBottom: 12 }}>访客转化漏斗</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ color: "#7fa6d8", fontSize: 13 }}>总访客</span>
+              <span style={{ color: "#e8dfc0", fontSize: 18, fontWeight: 700 }}>{totalVisitors}</span>
+            </div>
+            <div style={{ height: 6, background: "rgba(127,166,216,0.15)", borderRadius: 3, overflow: "hidden" }}>
+              <div style={{ width: "100%", height: "100%", background: "#7fa6d8", borderRadius: 3 }} />
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+              <span style={{ color: "#4ade80", fontSize: 13 }}>已下单</span>
+              <span style={{ color: "#e8dfc0", fontSize: 18, fontWeight: 700 }}>{orderedVisitors}</span>
+            </div>
+            <div style={{ height: 6, background: "rgba(74,222,128,0.15)", borderRadius: 3, overflow: "hidden" }}>
+              <div style={{ width: `${totalVisitors > 0 ? (orderedVisitors / totalVisitors * 100) : 0}%`, height: "100%", background: "#4ade80", borderRadius: 3 }} />
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+              <span style={{ color: "#f87171", fontSize: 13 }}>未下单（流失）</span>
+              <span style={{ color: "#e8dfc0", fontSize: 18, fontWeight: 700 }}>{churnedVisitors}</span>
+            </div>
+            <div style={{ height: 6, background: "rgba(248,113,113,0.15)", borderRadius: 3, overflow: "hidden" }}>
+              <div style={{ width: `${totalVisitors > 0 ? (churnedVisitors / totalVisitors * 100) : 0}%`, height: "100%", background: "#f87171", borderRadius: 3 }} />
+            </div>
+          </div>
+        </div>
+
+        {/* Intent distribution */}
+        <div style={card}>
+          <div style={{ ...label, marginBottom: 12 }}>访客意图分布</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {visitorData?.intent_distribution && Object.entries(visitorData.intent_distribution).map(([intent, count]) => {
+              const pct = totalVisitors > 0 ? (count / totalVisitors * 100) : 0;
+              const color = INTENT_COLOR[intent] ?? "#9ca3af";
+              return (
+                <div key={intent}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                    <span style={{ color, fontSize: 12 }}>{INTENT_TEXT[intent] ?? intent}</span>
+                    <span style={{ color: "#e8dfc0", fontSize: 12 }}>{count} ({pct.toFixed(0)}%)</span>
+                  </div>
+                  <div style={{ height: 8, background: "rgba(255,255,255,0.05)", borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 4, transition: "width 0.5s" }} />
+                  </div>
+                </div>
+              );
+            })}
+            {(!visitorData?.intent_distribution || Object.keys(visitorData.intent_distribution).length === 0) && (
+              <div style={{ opacity: 0.5 }}>暂无访客数据</div>
+            )}
+          </div>
+        </div>
+
+        {/* Churn analysis */}
+        <div style={card}>
+          <div style={{ ...label, marginBottom: 12 }}>流失原因分析 <span style={{ color: "#f0c060", fontSize: 10, marginLeft: 4 }}>AI 自进化</span></div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {churnData?.churn_patterns && Object.entries(churnData.churn_patterns).sort((a, b) => b[1] - a[1]).map(([cat, count]) => (
+              <div key={cat} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 8px", background: "rgba(248,113,113,0.06)", borderRadius: 6 }}>
+                <span style={{ color: "#f87171", fontSize: 12 }}>{CHURN_CATEGORY_TEXT[cat] ?? cat}</span>
+                <span style={{ color: "#e8dfc0", fontSize: 13, fontWeight: 700 }}>{count}</span>
+              </div>
+            ))}
+            {(!churnData?.churn_patterns || Object.keys(churnData.churn_patterns).length === 0) && (
+              <div style={{ opacity: 0.5, fontSize: 12 }}>
+                {churnData?.today_churned === 0 ? "今日暂无流失访客" : "AI 正在分析流失原因..."}
+              </div>
+            )}
+            {churnData && churnData.total_analyzed > 0 && (
+              <div style={{ marginTop: 4, color: "#7fa6d8", fontSize: 11 }}>
+                已分析 {churnData.total_analyzed} 条流失记录
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Row 3: Visitor list + Recent orders + Events */}
+      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.4fr 1.2fr", gap: 16, marginBottom: 16 }}>
+        {/* Today's visitors */}
+        <div style={card}>
+          <div style={{ ...label, marginBottom: 12 }}>今日访客列表</div>
+          <div style={{ maxHeight: 280, overflowY: "auto" }}>
+            {(visitorData?.visitors ?? []).map((v) => (
+              <div key={v.user_id} style={{ padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.05)", fontSize: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ color: "#e8dfc0" }}>#{v.user_id} · {v.visit_time}</span>
+                  <span style={{
+                    padding: "1px 6px",
+                    borderRadius: 4,
+                    fontSize: 10,
+                    color: v.ordered ? "#4ade80" : (INTENT_COLOR[v.primary_intent] ?? "#9ca3af"),
+                    border: `1px solid ${v.ordered ? "rgba(74,222,128,0.3)" : "rgba(255,255,255,0.1)"}`,
+                  }}>
+                    {v.ordered ? "已下单" : (INTENT_TEXT[v.primary_intent] ?? v.primary_intent)}
+                  </span>
+                </div>
+                <div style={{ color: "#9fb6d8", fontSize: 11, marginTop: 2 }}>
+                  {v.last_message ? `"${v.last_message.slice(0, 40)}${v.last_message.length > 40 ? "..." : ""}"` : ""} · {v.message_count} 条消息
+                </div>
+                {v.churn_reason && !v.ordered && (
+                  <div style={{ color: "#f87171", fontSize: 11, marginTop: 2 }}>流失: {v.churn_reason}</div>
+                )}
+              </div>
+            ))}
+            {(!visitorData?.visitors || visitorData.visitors.length === 0) && (
+              <div style={{ opacity: 0.5 }}>暂无访客</div>
+            )}
+          </div>
+        </div>
+
+        {/* Recent orders */}
         <div style={card}>
           <div style={{ ...label, marginBottom: 12 }}>最近订单</div>
           {(state?.recent_orders ?? []).map((o) => (
@@ -138,9 +295,11 @@ export default function Dashboard() {
           ))}
           {(state?.recent_orders ?? []).length === 0 ? <div style={{ opacity: 0.5 }}>暂无订单</div> : null}
         </div>
+
+        {/* Real-time events */}
         <div style={card}>
           <div style={{ ...label, marginBottom: 12 }}>实时事件流</div>
-          <div style={{ maxHeight: 360, overflowY: "auto" }}>
+          <div style={{ maxHeight: 280, overflowY: "auto" }}>
             {recentEvents.map((e) => (
               <div key={String(e.event_id)} style={{ padding: "4px 0", borderBottom: "1px solid rgba(255,255,255,0.05)", fontFamily: "monospace", fontSize: 12 }}>
                 <span style={{ color: "#f0c060" }}>{formatEvent(e)}</span>

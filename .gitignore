@@ -10,6 +10,7 @@ __pycache__/
 .env.*
 !.env.example
 coffee.db
+coffee_ai.db
 logs/
 *.log
 server.*.log

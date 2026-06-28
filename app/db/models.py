@@ -37,7 +37,9 @@ from app.domain_constants import (
     WALLET_CURRENCIES,
 )
 
-_PK = BigInteger
+# 主键类型：MySQL 用 BigInteger(大整数)，SQLite 用 Integer(普通整数)。
+# SQLite 要求 INTEGER PRIMARY KEY 才能自动自增，BigInteger 在 SQLite 下不会自增。
+_PK = BigInteger().with_variant(Integer, "sqlite")
 
 
 class User(Base):
@@ -533,6 +535,49 @@ class AgentExperience(Base):
     __table_args__ = (
         Index("idx_agent_exp_user_tags", "user_id", "context_tags"),
         Index("idx_agent_exp_created", "created_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Visitor insights: per-visit analytics for the monitoring dashboard.
+# ---------------------------------------------------------------------------
+
+
+class VisitorInsight(Base):
+    """访客洞察：每次访问的意图、是否下单、流失原因、AI 分析结论。
+
+    每个 user_id 每天一条记录（按 visit_date 去重），实时更新意图和下单状态。
+    流失时由 LLM 分析聊天历史生成流失原因，并通过 experience_agent 记录到自进化系统。
+    """
+
+    __tablename__ = "visitor_insight"
+
+    insight_id = Column(_PK, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, ForeignKey("user.user_id"), nullable=False)
+    visit_date = Column(DateTime, nullable=False, default=datetime.utcnow)
+    first_message = Column(Text, nullable=True)
+    last_message = Column(Text, nullable=True)
+    message_count = Column(Integer, nullable=False, default=0)
+    # primary_intent: order(下单) / recommend(求推荐) / chat(闲聊) / browse(浏览)
+    primary_intent = Column(String(32), nullable=False, default="browse")
+    ordered = Column(Integer, nullable=False, default=0)
+    order_id = Column(BigInteger, nullable=True)
+    # churn_reason: LLM 分析的流失原因（如「价格偏高」「未找到心仪口味」）
+    churn_reason = Column(Text, nullable=True)
+    # ai_insight: LLM 生成的综合洞察
+    ai_insight = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    __table_args__ = (
+        Index("idx_visitor_user_date", "user_id", "visit_date"),
+        Index("idx_visitor_date", "visit_date"),
+        Index("idx_visitor_ordered", "ordered"),
     )
 
 

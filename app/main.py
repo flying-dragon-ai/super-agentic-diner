@@ -1,7 +1,8 @@
 """FastAPI entrypoint for chat ordering and Agent visualization APIs."""
 import asyncio
+import logging
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import anyio
@@ -16,7 +17,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db.database import SessionLocal, get_db
+from app.db.database import SessionLocal, get_db, Base, engine
 from app.db.models import (
     AgentProfile,
     EvomapConsumer,
@@ -47,6 +48,7 @@ from app.memory.chat_history import (
 from app.services.chat_service import extract_price, handle_message, match_by_price, get_all_products
 from app.services.agent_orchestrator import orchestrate as agent_orchestrate
 from app.services.agents.experience_agent import list_recent_experiences
+from app.services import visitor_analytics_service
 from app.services import evomap_evolution_service
 from app.services.agents.experience_agent import sync_community_experience as _sync_community_exp
 from app.rag.keywords import extract_keywords
@@ -78,6 +80,8 @@ from app.auth import service as auth_service
 from app.colyseus_bridge import start_colyseus_server, stop_colyseus_server
 
 app = FastAPI(title="EvoMap 进化咖啡馆")
+
+logger = logging.getLogger(__name__)
 
 # EvoMap 心跳定时器（群体进化：保持节点在线 + 定时拉取社区经验）
 _evomap_heartbeat_thread: threading.Thread | None = None
@@ -119,8 +123,14 @@ def _ensure_staff_seeded() -> None:
 
 @app.on_event("startup")
 async def _startup_colyseus() -> None:
+    # SQLite/MySQL 双后端：首次启动自动建表（幂等，已有表不会重建）。
+    Base.metadata.create_all(bind=engine)
     start_colyseus_server()
     _ensure_staff_seeded()
+    # 预加载 jieba(中文分词库)：词典初始化需 ~1s，放启动期避免首个 /chat 请求卡顿。
+    _preload_jieba()
+    # 预热 LLM httpx 连接池：提前完成 DNS 解析 + TLS 握手，省首请求 ~0.5s。
+    _warm_llm_connection()
     # Background sweep: drop Skill/CLI customer avatars once their heartbeat window
     # expires (they can't push a leave signal — the order.py script already exited).
     global _skill_sweep_task
@@ -133,6 +143,45 @@ async def _startup_colyseus() -> None:
         _evomap_heartbeat_stop.clear()
         _evomap_heartbeat_thread = threading.Thread(target=_evomap_heartbeat_loop, daemon=True)
         _evomap_heartbeat_thread.start()
+
+
+def _preload_jieba() -> None:
+    """在启动时预加载 jieba 词典（~1s），避免第一个 /chat 请求承担延迟。"""
+    try:
+        import jieba  # noqa: F401
+        jieba.initialize()
+        logger.info("jieba(中文分词) 词典预加载完成")
+    except Exception:
+        logger.warning("jieba 预加载失败，将在首个请求时延迟加载", exc_info=True)
+
+
+def _warm_llm_connection() -> None:
+    """预热 LLM httpx 连接池：提前建立到 LLM 服务器的 TCP+TLS 连接。
+
+    首个 LLM 调用省去 DNS 解析 + TLS 握手（~0.5s）。用 HEAD 请求探测，
+    不消耗 API 额度；失败静默（首个请求时会正常建连）。
+    """
+    if not settings.effective_llm_api_key:
+        return
+    try:
+        from app.llm.client import get_client
+        from urllib.parse import urlparse
+        parsed = urlparse(settings.llm_base_url)
+        host = parsed.hostname
+        if not host:
+            return
+        scheme = parsed.scheme or "https"
+        port = parsed.port or (443 if scheme == "https" else 80)
+        base = f"{scheme}://{host}:{port}"
+        # 建一个 dummy 连接放进连接池（不发送真实请求）
+        client = get_client()
+        try:
+            client.head(base, timeout=2.0)
+        except Exception:
+            pass  # 连接已建立，即使 HEAD 被拒绝也达到预热目的
+        logger.info("LLM 连接池预热完成: %s", base)
+    except Exception:
+        pass  # 预热失败不影响功能
 
 
 @app.on_event("shutdown")
@@ -488,7 +537,7 @@ def _try_publish_visualization_event(
                 "agent_id": agent_id,
                 "payload": payload,
                 "correlation_id": correlation_id,
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
             }
         )
 
@@ -765,6 +814,15 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     # ===== 第1步：读 Redis 上下文（短期记忆，最近5轮对话）=====
     history = get_history(req.user_id)
 
+    # 访客分析：记录今日访客（best-effort，不阻断主流程）
+    try:
+        visitor_analytics_service.record_visit(db, user_id=req.user_id, message=req.message)
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
     # ===== 第0步：检查 Redis 是否有待确认订单（两段式下单）=====
     pending = get_pending_order(req.user_id)
 
@@ -877,6 +935,11 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                 correlation_id=req.request_id,
             )
             _broadcast_reply_speech(reply)
+            # 访客分析：标记已下单
+            try:
+                visitor_analytics_service.mark_ordered(db, user_id=req.user_id, order_id=orders[0].order_id)
+            except Exception:
+                pass
             return ChatResponse(reply=reply, order_id=orders[0].order_id)
         else:
             # 不是纯确认词 → 清掉待确认，落入下方正常流程重新处理
@@ -907,6 +970,12 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     except Exception:
         _staff = {}
     staff_service.orchestrate_staff_node(db, _staff, "intent_detected", req.request_id)
+
+    # 访客分析：更新意图分类（best-effort）
+    try:
+        visitor_analytics_service.update_visit_intent(db, req.user_id, intent.get("intent", "chat"))
+    except Exception:
+        pass
 
     # ===== 第3步：LLM 判断为"下单"意图 → 解析具体是哪杯咖啡 =====
     # 四路优先级：价格匹配 > LLM显式名 > RAG关键词 > 历史提取
@@ -1065,6 +1134,8 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     # 若编排器已写对话历史并给出回复，直接返回
     if orch.reply:
         _broadcast_reply_speech(orch.reply)
+        # 访客分析：非下单路径，异步触发流失分析
+        visitor_analytics_service.analyze_churn_async()
         return ChatResponse(reply=orch.reply, products=orch.products if orch.products else None)
     # 编排器降级（如无 LLM key）：回退到原 handle_message
     reply, products = handle_message(db, req.user_id, req.message)
@@ -1075,6 +1146,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         correlation_id=req.request_id,
     )
     _broadcast_reply_speech(reply)
+    visitor_analytics_service.analyze_churn_async()
     return ChatResponse(reply=reply, products=products if products else None)
 
 
@@ -1478,6 +1550,181 @@ def evomap_status():
     return evomap_evolution_service.get_node_status()
 
 
+@app.get("/admin/visitor-analytics")
+def visitor_analytics(db: Session = Depends(get_db)):
+    """访客分析面板：今日访客数、转化率、意图分布、访客列表。"""
+    return visitor_analytics_service.get_daily_analytics(db)
+
+
+@app.get("/admin/churn-analysis")
+def churn_analysis(db: Session = Depends(get_db)):
+    """流失分析面板：流失原因分类、今日流失详情、自进化洞察。"""
+    return visitor_analytics_service.get_churn_analysis(db)
+
+
+# ============================================================
+# 访客社交：在线访客列表 + 访客聊天消息
+# ============================================================
+
+# 进程内在线访客注册表（WebSocket 连接时注册，断开时移除）。
+# 格式: { agent_id: { display_name, joined_at, user_id } }
+_online_visitors: dict[int, dict[str, Any]] = {}
+
+# 最近的访客聊天消息缓存（最近100条，供新连接者回看）。
+_visitor_chat_buffer: list[dict[str, Any]] = []
+_VISITOR_CHAT_MAX = 100
+
+
+def _register_online_visitor(agent_id: int, display_name: str, user_id: int | None = None) -> None:
+    _online_visitors[agent_id] = {
+        "agent_id": agent_id,
+        "display_name": display_name,
+        "user_id": user_id,
+        "joined_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _unregister_online_visitor(agent_id: int) -> None:
+    _online_visitors.pop(agent_id, None)
+
+
+def _add_visitor_chat(message: dict[str, Any]) -> None:
+    _visitor_chat_buffer.append(message)
+    if len(_visitor_chat_buffer) > _VISITOR_CHAT_MAX:
+        _visitor_chat_buffer.pop(0)
+
+
+@app.get("/admin/online-visitors")
+def online_visitors():
+    """获取当前在线访客列表（供大屏和社交面板展示）。"""
+    return {
+        "count": len(_online_visitors),
+        "visitors": list(_online_visitors.values()),
+    }
+
+
+@app.get("/admin/visitor-chat")
+def visitor_chat_history(limit: int = 50):
+    """获取最近的访客聊天记录（供新连接者回看历史消息）。"""
+    safe_limit = max(1, min(limit, _VISITOR_CHAT_MAX))
+    return {
+        "messages": _visitor_chat_buffer[-safe_limit:],
+        "total": len(_visitor_chat_buffer),
+    }
+
+
+@app.get("/admin/today-topics")
+def today_topics(db: Session = Depends(get_db)):
+    """当天话题热度榜：聚合今日订单 + 访客聊天关键词，返回 TOP-N 热门话题。"""
+    from collections import Counter
+
+    today_start = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    # --- 1. 今日订单饮品统计 ---
+    todays = (
+        db.query(Order)
+        .filter(Order.created_at >= today_start)
+        .filter(Order.coffee_name.isnot(None))
+        .all()
+    )
+    drink_counts: Counter[str] = Counter()
+    for o in todays:
+        name = (o.coffee_name or "").strip()
+        if name:
+            drink_counts[name] += 1
+
+    # --- 2. 访客聊天关键词统计（今日）---
+    chat_keywords: Counter[str] = Counter()
+    HOT_KW = [
+        ("冷饮", ["冷", "冰", "冷萃", "气泡"]),
+        ("热饮", ["热", "拿铁", "美式", "摩卡", "卡布"]),
+        ("特调", ["特调", "季节", "限定", "芒", "肉桂"]),
+        ("推荐", ["推荐", "建议", "人气"]),
+        ("优惠", ["优惠", "折扣", "活动", "券"]),
+    ]
+    today_chat = [
+        m for m in _visitor_chat_buffer
+        if m.get("created_at") and m["created_at"] >= today_start.isoformat()
+    ]
+    for m in today_chat:
+        text = m.get("message", "")
+        for label, kws in HOT_KW:
+            if any(kw in text for kw in kws):
+                chat_keywords[label] += 1
+
+    # --- 3. 合并计算热度 ---
+    topics: list[dict[str, Any]] = []
+    max_orders = max(drink_counts.values(), default=1)
+    for name, cnt in drink_counts.most_common(5):
+        heat = int(40 + (cnt / max_orders) * 50)  # 40-90 range
+        topics.append({
+            "label": name,
+            "type": "drink",
+            "count": cnt,
+            "heat": min(99, heat),
+            "rank": 0,
+        })
+    max_kw = max(chat_keywords.values(), default=1)
+    for label, cnt in chat_keywords.most_common(3):
+        if cnt == 0:
+            continue
+        heat = int(30 + (cnt / max_kw) * 40)
+        topics.append({
+            "label": label,
+            "type": "topic",
+            "count": cnt,
+            "heat": min(89, heat),
+            "rank": 0,
+        })
+
+    # Deduplicate + sort by heat
+    seen = set()
+    unique = []
+    for t in topics:
+        if t["label"] in seen:
+            continue
+        seen.add(t["label"])
+        unique.append(t)
+    unique.sort(key=lambda x: x["heat"], reverse=True)
+    for i, t in enumerate(unique):
+        t["rank"] = i + 1
+
+    return {
+        "topics": unique[:6],
+        "total_orders_today": len(todays),
+        "total_chats_today": len(today_chat),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+class VisitorChatRequest(BaseModel):
+    user_id: int
+    display_name: str = Field(default="匿名访客")
+    message: str
+
+
+@app.post("/api/visitor-chat")
+def post_visitor_chat(req: VisitorChatRequest):
+    """访客发送社交聊天消息（通过 HTTP POST，服务端广播到所有 WebSocket 客户端）。"""
+    msg = {
+        "event_id": None,
+        "type": "visitor.chat",
+        "agent_id": None,
+        "payload": {
+            "user_id": req.user_id,
+            "display_name": req.display_name,
+            "message": req.message[:500],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        },
+        "correlation_id": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _add_visitor_chat(msg["payload"])
+    visualization_hub.broadcast_from_sync(msg)
+    return {"ok": True}
+
+
 def _public_agent(agent: AgentProfile | None) -> dict[str, Any] | None:
     if not agent:
         return None
@@ -1559,7 +1806,7 @@ def _presence_message_from_client(message: dict[str, Any]) -> dict[str, Any] | N
         "type": event_type,
         "payload": payload,
         "correlation_id": f"presence:{visitor_id}",
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -1705,7 +1952,7 @@ async def _sweep_offline_skill_customers() -> None:
                 "agent_id": agent_id,
                 "payload": {"agent_id": agent_id, "action_type": "leave_scene"},
                 "correlation_id": None,
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
             }
         )
 
@@ -1727,6 +1974,7 @@ async def visualization_websocket(websocket: WebSocket):
     customer = await anyio.to_thread.run_sync(_register_web_customer_presence, websocket)
     if customer is not None:
         visualization_hub.register_ws_presence(websocket, customer["agent_id"])
+        _register_online_visitor(customer["agent_id"], customer["display_name"])
     agents = await anyio.to_thread.run_sync(_build_snapshot_agents_for_connect)
     await visualization_hub.connect(websocket, agents=agents)
     # Real-time appear: transient notice to OTHER clients (excludes self, not replayed).
@@ -1745,7 +1993,7 @@ async def visualization_websocket(websocket: WebSocket):
                     "sprite_seed": customer["sprite_seed"],
                 },
                 "correlation_id": None,
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
             },
         )
     presence_payload: dict[str, Any] | None = None
@@ -1757,9 +2005,27 @@ async def visualization_websocket(websocket: WebSocket):
                     {
                         "type": "pong",
                         "payload": {},
-                        "created_at": datetime.utcnow().isoformat(),
+                        "created_at": datetime.now(timezone.utc).isoformat(),
                     }
                 )
+                continue
+            # Visitor social chat: broadcast to all connected clients.
+            if message.get("type") == "visitor.chat":
+                chat_payload = {
+                    "user_id": message.get("user_id"),
+                    "display_name": message.get("display_name", "匿名访客"),
+                    "message": str(message.get("message", ""))[:500],
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }
+                _add_visitor_chat(chat_payload)
+                await visualization_hub.broadcast({
+                    "event_id": None,
+                    "type": "visitor.chat",
+                    "agent_id": None,
+                    "payload": chat_payload,
+                    "correlation_id": None,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                })
                 continue
             presence_message = _presence_message_from_client(message)
             if presence_message:
@@ -1770,6 +2036,8 @@ async def visualization_websocket(websocket: WebSocket):
                 await visualization_hub.broadcast(presence_message)
     except WebSocketDisconnect:
         visualization_hub.disconnect(websocket)
+        if customer is not None:
+            _unregister_online_visitor(customer["agent_id"])
         # Real-time disappear: transient leave_scene (this ws is already gone from
         # the connection set, so broadcast_transient reaches the remaining clients).
         if customer is not None:
@@ -1787,7 +2055,7 @@ async def visualization_websocket(websocket: WebSocket):
                         "action_type": "leave_scene",
                     },
                     "correlation_id": None,
-                    "created_at": datetime.utcnow().isoformat(),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
         if presence_payload:
@@ -1796,7 +2064,7 @@ async def visualization_websocket(websocket: WebSocket):
                     "type": "presence.customer_left",
                     "payload": presence_payload,
                     "correlation_id": f"presence:{presence_payload['visitor_id']}",
-                    "created_at": datetime.utcnow().isoformat(),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
 
@@ -1890,10 +2158,91 @@ def list_orders(user_id: int, db: Session = Depends(get_db)):
 
 @app.get("/status")
 def status():
-    """Return system status for the fixed MySQL/Redis architecture."""
+    """Return system status: database backend + memory backend + LLM config."""
     return {
-        "database": "mysql",
-        "memory": "redis",
+        "database": settings.db_mode,
+        "memory": "fakeredis" if settings.use_fakeredis else "redis",
+        "llm_active": llm.has_real_key(),
+        "llm_key_source": settings.llm_api_key_source,
+        "llm_status_reason": settings.llm_status_reason,
+        "llm_base_url": settings.llm_base_url,
+        "llm_model": settings.llm_model,
+    }
+
+
+@app.get("/3d")
+def three_d_app():
+    """Serve the 3D office SPA. Assets are under /3d/assets (Vite base ./)."""
+    index_path = _3D_STATIC_DIR / "index.html"
+    if not index_path.is_file():
+        raise HTTPException(status_code=404, detail="3D build not found. Run: cd frontend && npm run build")
+    return FileResponse(
+        index_path,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+@app.get("/3d/{full_path:path}")
+def three_d_app_spa(full_path: str):
+    """SPA fallback: any /3d/* sub-path serves index.html so client-side
+    routing (/3d/scene, /3d/login, /3d/dashboard) works. Static assets under
+    /3d/assets are handled by the /3d StaticFiles mount."""
+    index_path = _3D_STATIC_DIR / "index.html"
+    if not index_path.is_file():
+        raise HTTPException(status_code=404, detail="3D build not found. Run: cd frontend && npm run build")
+    return FileResponse(
+        index_path,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.get("/")
+def index(request: Request, db: Session = Depends(get_db)):
+    """Root: 未登录 → 302 跳 /3d/login；已登录 → 2D 聊天页。"""
+    from app.auth.router import current_account
+
+    account = current_account(request, db)
+    if not account:
+        return RedirectResponse(url="/3d/login", status_code=302)
+    chat_index = _STATIC_DIR / "index.html"
+    if chat_index.is_file():
+        return FileResponse(chat_index)
+    raise HTTPException(status_code=404, detail="index page not found")
+
+@app.get("/orders/{user_id}")
+def list_orders(user_id: int, db: Session = Depends(get_db)):
+    """返回某用户的订单列表（最近 10 单），供网页侧栏展示"""
+    rows = (
+        db.query(Order)
+        .filter(Order.user_id == user_id)
+        .order_by(Order.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    return [
+        {
+            "order_id": o.order_id,
+            "coffee_name": o.coffee_name,
+            "amount": float(o.amount),
+            "status": o.status,
+            "source_type": o.source_type,
+            "payment_status": o.payment_status,
+            "created_at": o.created_at.strftime("%Y-%m-%d %H:%M"),
+        }
+        for o in rows
+    ]
+
+
+@app.get("/status")
+def status():
+    """Return system status: database backend + memory backend + LLM config."""
+    return {
+        "database": settings.db_mode,
+        "memory": "fakeredis" if settings.use_fakeredis else "redis",
         "llm_active": llm.has_real_key(),
         "llm_key_source": settings.llm_api_key_source,
         "llm_status_reason": settings.llm_status_reason,

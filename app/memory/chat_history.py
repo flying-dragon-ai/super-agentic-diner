@@ -16,21 +16,16 @@ from __future__ import annotations
 import json
 import logging
 
-import redis
 from redis.exceptions import RedisError
 
 from app.config import settings
+from app.memory._redis_client import get_redis_client
 
 logger = logging.getLogger(__name__)
 
 
-def _client() -> redis.Redis:
-    return redis.Redis.from_url(
-        settings.redis_url,
-        decode_responses=True,
-        socket_connect_timeout=settings.redis_socket_connect_timeout,
-        socket_timeout=settings.redis_socket_timeout,
-    )
+def _client():
+    return get_redis_client()
 
 
 def _key(user_id: int) -> str:
