@@ -1,7 +1,28 @@
-# 智能咖啡馆 AI 店长
+# Crossroads Agent Café
 
 基于 **FastAPI + MySQL 8 + Redis 7 + LLM** 的轻量级 AI 点单助手 demo。
 不使用向量数据库，知识检索采用「关键词 RAG」（分词 + 同义词扩展 + 否定词过滤）。
+
+## 项目结构
+
+```text
+crossroads-agent-cafe/
+├── app/                  # FastAPI 后端：对话点单 / A2A Skill / 多 Agent 协作 / 可视化事件
+├── frontend/             # React 19 + Vite + R3F 3D 咖啡厅前端（构建产物 → app/static/3d）
+├── tests/                # pytest 测试套件
+├── scripts/              # 数据库迁移、启动（start.sh）、打包脚本
+├── deploy/               # systemd service、1Panel docker-compose
+├── docs/                 # 设计文档、部署指南（deployment/deploy.md / deployment/deploy-1panel.md）、归档清单
+├── .agents/skills/       # 对外 A2A 超级点单 Skill
+├── docker-compose.yml    # MySQL 8 + Redis 7 本地依赖
+├── Dockerfile            # 后端容器镜像
+├── requirements.txt      # Python 依赖
+├── .env.example          # 环境变量模板（复制为 .env 并填入真实配置）
+└── README.md
+```
+
+完整架构与变更记录见 [CLAUDE.md](./CLAUDE.md)。
+文档目录索引见 [docs/README.md](./docs/README.md)。
 
 ## 架构对应面试题三个任务
 

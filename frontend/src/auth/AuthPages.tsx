@@ -42,7 +42,7 @@ export function LoginPage() {
   return (
     <div style={wrap}>
       <form style={card} onSubmit={submit}>
-        <h2 style={{ marginTop: 0 }}>登录 · EvoMap 进化咖啡馆</h2>
+        <h2 style={{ marginTop: 0 }}>登录 · Crossroads Agent Café</h2>
         <input style={input} placeholder="用户名" value={username} onChange={(e) => setU(e.target.value)} autoFocus />
         <input style={input} type="password" placeholder="密码" value={password} onChange={(e) => setP(e.target.value)} />
         {err ? <div style={{ color: "#f87171", fontSize: 13, marginBottom: 10 }}>{err}</div> : null}
@@ -76,7 +76,7 @@ export function RegisterPage() {
   return (
     <div style={wrap}>
       <form style={card} onSubmit={submit}>
-        <h2 style={{ marginTop: 0 }}>注册 · EvoMap 进化咖啡馆</h2>
+        <h2 style={{ marginTop: 0 }}>注册 · Crossroads Agent Café</h2>
         <input style={input} placeholder="用户名" value={username} onChange={(e) => setU(e.target.value)} autoFocus />
         <input style={input} placeholder="昵称（可选）" value={nickname} onChange={(e) => setN(e.target.value)} />
         <input style={input} type="password" placeholder="密码" value={password} onChange={(e) => setP(e.target.value)} />

@@ -1,5 +1,5 @@
 # ============================================================================
-# Coffee AI Boss — 1Panel 面板部署编排（仅 app 容器）
+# Crossroads Agent Café — 1Panel 面板部署编排（仅 app 容器）
 # ============================================================================
 # MySQL / Redis 假定已由 1Panel 应用商店或宿主机提供，本编排不重复起 db。
 #
@@ -7,16 +7,16 @@
 #   docker compose -f deploy/docker-compose.1panel.yml up -d --build
 #
 # 启动后 app 容器会出现在 1Panel「容器」列表，可用面板查看日志 / 重启 / 删除。
-# 反向代理 + SSL 在 1Panel「网站」配置（见 DEPLOY-1PANEL.md 第 5、6、7 步）。
+# 反向代理 + SSL 在 1Panel「网站」配置（见 docs/deployment/deploy-1panel.md 第 5、6、7 步）。
 # ============================================================================
 
 services:
-  coffee-ai-boss:
+  crossroads-agent-cafe:
     build:
       context: ..
       dockerfile: Dockerfile
-    image: coffee-ai-boss:latest
-    container_name: coffee-ai-boss
+    image: crossroads-agent-cafe:latest
+    container_name: crossroads-agent-cafe
     restart: unless-stopped
 
     # 只绑 127.0.0.1：外部访问经 1Panel 网站(OpenResty)反向代理，不直接暴露到公网

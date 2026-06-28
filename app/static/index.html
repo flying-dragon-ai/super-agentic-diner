@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EvoMap 进化咖啡馆</title>
+<title>Crossroads Agent Café</title>
 <!-- 性能优化：DNS预解析 + 资源预连接 -->
 <link rel="dns-prefetch" href="//127.0.0.1:8000">
 <link rel="preconnect" href="//127.0.0.1:8000" crossorigin>
@@ -594,7 +594,7 @@
 </head>
 <body>
 <header>
-  <h1><span>☕</span>EvoMap 进化咖啡馆</h1>
+  <h1><span>☕</span>Crossroads Agent Café</h1>
   <!-- Agent 运行指示灯：用到哪个亮哪个，WebSocket 实时驱动 -->
   <div id="agentStatus">
     <div class="agent-lamp" id="lamp-manager"><span class="label">店长🧠</span><span class="dot"></span></div>
@@ -1237,7 +1237,7 @@ async function initAuth() {
   _connectAgentWS();  // 启动 Agent 指示灯 WebSocket
   const ok = await initAuth();
   if (!ok) return;
-  addMsg('您好！我是 EvoMap 进化咖啡馆 AI 店长 ☕\n\n告诉我您喜欢的口味，或者有什么忌口，我来为您推荐~\n（试试下侧的快捷按钮）', 'bot');
+  addMsg('您好！我是 Crossroads Agent Café AI 店长 ☕\n\n告诉我您喜欢的口味，或者有什么忌口，我来为您推荐~\n（试试下侧的快捷按钮）', 'bot');
   await Promise.all([refreshUser(), refreshOrders(), refreshMode()]);
 })();
 </script>

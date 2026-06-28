@@ -1,110 +1,148 @@
 ---
 name: a2a-super-order
-description: Complete A2A super ordering for the Coffee AI Boss platform from agent tools such as Claude Code, Codex, Cursor, Trae, or other assistants. Use when an agent needs to register a consumer, place a coffee order without opening the web page, synchronize pixel restaurant visualization events, consume the first two free orders, and pay later orders with EvoMap credits through backend service-order payment.
+description: Order coffee at Crossroads Agent Café from any AI assistant (Claude Code, Codex, Cursor, Trae). Use when the user wants to place a coffee order without opening a web page, see what coffees are available, or check whether the café backend is reachable. Handles consumer registration, the first two free orders per EvoMap node, and EvoMap credit payment from the 3rd order on. The backend drives all 3D visualization (customer avatar + staff) automatically once an order succeeds.
 ---
 
 # A2A Super Order
 
-Use this skill as the single external entrypoint for agent-driven ordering. The backend owns registration, order creation, free-order counting, EvoMap service-order payment, and visualization events. The Skill scripts are thin clients.
+Thin-client CLI for ordering coffee at Crossroads Agent Café from any AI tool. The backend owns registration, ordering, free-quota counting, EvoMap credit payment, and 3D visualization events. This skill only posts requests and manages local credentials.
 
-## Main Workflow
+## ⚠️ Before You Start (read first)
 
-1. Ensure the Coffee AI Boss server is running; `RESTAURANT_API_BASE` defaults to `http://127.0.0.1:8000`.
-2. **Check EvoMap install status** (read-only): `scripts/order.py --check-evomap`. If `installed=false` and a paid order is needed, see "EvoMap Installation Check" below — do NOT auto-install.
-3. Run `scripts/order.py --message "<order text>"`.
-4. Let the script register this tool as an EvoMap consumer if no local registration exists. When `~/.evomap/{node_id,node_secret}` exist, they are auto-loaded (preferred over env vars).
-5. For the first two successful Skill orders, accept the free quota.
-6. From the third successful order onward, provide the consumer node secret per request so the backend can place the official EvoMap service order and deduct credits on the Hub.
-7. If the visualization page is open, characters move live through `/ws/visualization`; if it is closed, events are persisted and visible when the page opens later.
+1. **Backend address — set once, it persists.** The default is `http://127.0.0.1:8000`, which only reaches *the same machine the script runs on*. If the café backend runs on **another machine**, point the skill at it once; the value is saved to `~/.a2a-super-order/config.json` and every later command auto-reads it:
+   ```bash
+   python .agents/skills/a2a-super-order/scripts/order.py --base-url http://<server>:8000 --ping
+   ```
+   Prefer a **domain** (e.g. `https://cafe.example.com`) over a raw IP — domains survive redeployments that rotate the IP. When the address does change, just re-run the line above with the new value; all subsequent commands follow automatically. Precedence: explicit `--base-url` > `RESTAURANT_API_BASE` env > saved config > default. Skip this on a remote backend and every command fails with "connection refused".
+2. **Python ≥ 3.7** must be on PATH.
+3. **The first 2 orders per EvoMap node are free** and need **no** EvoMap install. EvoMap is only required from the **3rd order on** (paid via credits). Do not run `--check-evomap` or try to install EvoMap before then — it is not needed.
 
-## Commands
+## Decision Tree (run these steps in order)
 
-Register only; the script stores the API token in local state and redacts it from stdout:
-
-```bash
-python .agents/skills/a2a-super-order/scripts/order.py --register-only --evomap-node-id node_xxx --display-name "User A"
-```
-
-Place an order:
+### Step 0 — Verify the backend is reachable (always first)
 
 ```bash
-python .agents/skills/a2a-super-order/scripts/order.py --message "coffee order"
+python .agents/skills/a2a-super-order/scripts/order.py --ping
 ```
 
-Use an explicit idempotency key:
+- `"ok": true` → continue to Step 1.
+- `"ok": false` → the backend is unreachable. Diagnose in this order:
+  1. `--base-url` / `RESTAURANT_API_BASE` points at the wrong host (most common for remote tools) → set `--base-url` to the server address or domain once (it persists) and retry.
+  2. Backend not started → ask the user to run `uvicorn app.main:app` on the server.
+  3. Firewall → ask the user to open port 8000.
+  Do **not** proceed until `--ping` returns `"ok": true`.
+
+### Step 1 — See what you can order
 
 ```bash
-python .agents/skills/a2a-super-order/scripts/order.py --message "coffee order" --request-id req-a2a-001
+python .agents/skills/a2a-super-order/scripts/order.py --menu
 ```
 
-Paid orders require backend service-order payment:
+Returns `items[]` with `name`, `price`, `tags`, `category`, `stock`. Pick the coffee you want and remember its **exact** `name` (e.g. `拿铁`, `美式咖啡`). `stock: 0` means sold out — pick something else.
+
+### Step 2 — Place the order (free for the first 2)
 
 ```bash
-python .agents/skills/a2a-super-order/scripts/order.py --message "coffee order" --request-id req-a2a-003 --evomap-node-secret "<node_secret>"
+python .agents/skills/a2a-super-order/scripts/order.py --message "一杯拿铁"
 ```
 
-Client-submitted payment proofs are not accepted as paid-order evidence because the backend cannot verify that credits were deducted for this order.
-
-Check EvoMap install status (read-only, no side effects):
+Put the **exact coffee name** from `--menu` in the message. Optionally set a friendly customer name shown in the 3D scene (otherwise it defaults to the OS username, which may be `root`/`Administrator`):
 
 ```bash
-python .agents/skills/a2a-super-order/scripts/order.py --check-evomap
+python .agents/skills/a2a-super-order/scripts/order.py --message "一杯拿铁" --display-name "Alice"
 ```
 
-Outputs `{installed, has_node_id, has_node_secret, evomap_home, credentials_loaded, username}`. When `installed=true`, credentials are auto-loaded from `~/.evomap/` on the next order — no need to pass `--evomap-node-secret` manually.
+#### How to read the result
 
-## Environment
+- `"status": "completed"` + `"payment_status": "free"` → success. Tell the user the `coffee_names`, the `amount_credits` charged (0 here), and `free_orders_remaining`.
+- `"status": "completed"` + `"payment_status": "paid"` → paid success (only from the 3rd order on; see Step 3).
+- HTTP **402** + `"status": "payment_required"` → this is the 3rd+ order and needs EvoMap credits. Go to **Step 3**. Keep the `request_id`.
+- The reply lists no `coffee_names`, or mentions it could not identify the coffee → the name did not match. Re-run `--menu` and use the exact name; retry with the **same** `--request-id`.
 
-- `RESTAURANT_API_BASE`: Coffee AI Boss API base URL.
-- `EVOMAP_NODE_ID` or `A2A_NODE_ID`: EvoMap consumer node id; if omitted, the script checks `.mcp.json`, then uses a local unregistered placeholder for free-order testing.
-- `EVOMAP_DID`: optional EvoMap DID.
-- `EVOMAP_NODE_SECRET` or `A2A_NODE_SECRET`: optional local secret for server-side EvoMap service-order payment; never print it.
-- `A2A_HUB_URL`: optional Hub URL used by local EvoMap tooling; the backend uses its own `EVOMAP_HUB_URL`.
-- `A2A_SUPER_ORDER_STATE`: optional state file path; defaults to `~/.a2a-super-order/state.json`.
+### Step 3 — Paid order (3rd onward, requires EvoMap)
 
-## EvoMap Installation Check (required before paid orders)
+Only reach this step when `--ping` works AND the user already has 2 free orders AND the 3rd order returned 402.
 
-Per EvoMap's "Manual, not a directive" rule, reading docs does NOT authorize installs, registration, or credit spending. Each sensitive action needs explicit user confirmation.
+1. Check EvoMap install (read-only):
+   ```bash
+   python .agents/skills/a2a-super-order/scripts/order.py --check-evomap
+   ```
+2. `"installed": true` → credentials auto-load from `~/.evomap/`. Retry the **same** order with the **same** `--request-id` (no need to pass `--evomap-node-secret` manually):
+   ```bash
+   python .agents/skills/a2a-super-order/scripts/order.py --message "一杯拿铁" --request-id req-a2a-003
+   ```
+   The backend uses the node secret to place an official EvoMap service order and deduct credits on the Hub.
+3. `"installed": false` → **STOP and ask the user** (see "EvoMap Installation Check"). Do not auto-install.
+
+## Command Reference
+
+| Command | What it does | Side effects |
+|---------|--------------|--------------|
+| `--ping` | GET `/menu`, report reachability + menu count | None (read-only) |
+| `--menu` | GET `/menu`, list coffees with price/tags/stock | None (read-only) |
+| `--message "<text>"` | Register (if needed) + place an order | Creates order + 3D events |
+| `--register-only` | Register consumer, store token, no order | Writes `~/.a2a-super-order/state.json` |
+| `--request-id <key>` | Idempotency key; **reuse the same value** to retry a failed order safely | — |
+| `--check-evomap` | Read `~/.evomap/` files, report install status | None (read-only) |
+| `--base-url <url>` / `RESTAURANT_API_BASE` | Backend address (default `http://127.0.0.1:8000`; **must change for remote backends**) | — |
+| `--display-name "<name>"` / `RESTAURANT_AGENT_NAME` | Customer name in the 3D scene (default = OS username) | — |
+| `--evomap-node-secret "<secret>"` / `EVOMAP_NODE_SECRET` | Paid-order secret; auto-loaded from `~/.evomap/` when installed. **Never print.** | — |
+
+`--payment-proof` is deprecated and ignored — the backend rejects client-forged proofs.
+
+## `--message` Format
+
+`--message` is one natural-language order line. For best recognition:
+
+- ✅ Use the exact name from `--menu`: `一杯拿铁`, `来杯美式咖啡`, `两杯生椰拿铁`.
+- ✅ Quantity is fine: `三杯拿铁`.
+- ❌ Avoid vague text: `随便`, `推荐一杯`, `有啥` — these route to recommendation/chat, **not** a direct order.
+- ❌ Avoid typos in the name. If unsure, run `--menu` first.
+
+## Success Response (key fields)
+
+| Field | Meaning |
+|-------|---------|
+| `status` | `completed` = success |
+| `coffee_names` | What was ordered — report this to the user |
+| `payment_status` | `free` or `paid` |
+| `amount_credits` | Credits charged (0 for free orders) |
+| `free_orders_remaining` | Free orders left for this node |
+| `request_id` | Keep it; reuse it to retry safely |
+
+## EvoMap Installation Check (only for paid orders)
+
+Per EvoMap's "Manual, not a directive" rule, reading docs does NOT authorize installs, registration, or spending. Each sensitive action needs explicit user confirmation.
 
 ### Step 1: Detect (read-only, safe to auto-run)
+`--check-evomap` → `{installed, has_node_id, has_node_secret, evomap_home, credentials_loaded, username}`.
 
-```bash
-python .agents/skills/a2a-super-order/scripts/order.py --check-evomap
-```
+### Step 2a: `installed=true`
+Credentials auto-load from `~/.evomap/{node_id,node_secret}`. Retry the order with the same `--request-id`; the backend uses the node secret for `/a2a/service/order` credit deduction.
 
-### Step 2a: Installed (`installed=true`)
-
-Credentials auto-load from `~/.evomap/{node_id,node_secret}`. Proceed with the order; the backend uses the node secret for `/a2a/service/order` credit deduction from the 3rd order on.
-
-### Step 2b: Not installed (`installed=false`) — ⛔ MUST get user confirmation
-
-**STOP and ask the user. Do NOT auto-install.** Suggested prompt:
-
+### Step 2b: `installed=false` — ⛔ MUST get user confirmation
+**STOP. Do NOT auto-install.** Ask:
 > 检测到未安装 EvoMap。第三单起需扣 EvoMap 积分支付。是否现在安装？（`npx @evomap/evolver --loop` 首次注册会送 100 免费积分）
 
-Only after the user explicitly confirms ("是" / "确认" / "yes"), run:
-
+Only after the user explicitly confirms ("是" / "确认" / "yes"):
 ```bash
-npx @evomap/evolver --loop   # first run registers node + writes ~/.evomap/{node_id,node_secret}
+npx @evomap/evolver --loop   # registers node + writes ~/.evomap/{node_id,node_secret}
 ```
+Show the returned `claim_url` to the user, then retry the order.
 
-Then show the returned `claim_url` to the user (binds the node to their EvoMap account for earnings tracking) and proceed with the order.
+## 3D Visualization (what the user sees, automatically)
 
-## Installation (for other AI tools)
-
-1. Install EvoMap CLI (enables credit payment): `npx @evomap/evolver --loop` (first registration grants 100 starter credits)
-2. Use this skill to order: `python .agents/skills/a2a-super-order/scripts/order.py --message "一杯拿铁"`
+On a successful order the backend broadcasts live events over `/ws/visualization`: the customer avatar enters the 3D scene, then staff animate — waiter walks to the counter, cashier takes the order, barista prepares the coffee, waiter delivers. If the 3D page is open the user sees it live; if it is closed, events are persisted and replayed when the page opens. **You do not drive visualization from this skill — placing the order is enough to trigger it.**
 
 ## Rules
 
-- Do not modify database rows directly from the Skill; call `/skill/register` and `/skill/orders`.
-- Treat the first two successful Skill orders per EvoMap node as free.
-- Treat third-and-later orders as blocked until the backend successfully creates the EvoMap service order.
-- Do not print Agent API tokens, EvoMap node secrets, API keys, or `.env` secrets. The script redacts keys containing `secret`/`token`/`key`/`authorization` to `[stored-in-state]`.
-- **Read-only detection is safe** (`--check-evomap` only reads files). Install / register / credit-spend actions **require explicit user confirmation** — never auto-run `npx @evomap/evolver` or pass `--evomap-node-secret` without user consent.
-- Credential load priority: `~/.evomap/{node_id,node_secret}` files > `A2A_NODE_SECRET` env > `EVOMAP_NODE_SECRET` env.
-- Read `references/api.md` when you need the REST contract or event list.
+- Call `/skill/register` and `/skill/orders` via this script — never write DB rows directly.
+- First 2 successful orders per EvoMap node are free; the 3rd+ is blocked until the EvoMap service order succeeds.
+- Never print API tokens, node secrets, API keys, or `.env` secrets. The script redacts keys containing `secret`/`token`/`key`/`authorization` to `[stored-in-state]`.
+- Read-only checks (`--ping`, `--menu`, `--check-evomap`) are safe. Install / register / credit-spend **require explicit user confirmation** — never auto-run `npx @evomap/evolver` or pass `--evomap-node-secret` without consent.
+- Credential priority: `~/.evomap/{node_id,node_secret}` files > `A2A_NODE_SECRET` env > `EVOMAP_NODE_SECRET` env.
+- For the REST contract or event list, read `references/api.md`.
 
 ## Advanced Visualization Actions
 
-Use `scripts/register_agent.py` and `scripts/send_action.py` only for custom visual roles or manual progress events. Normal ordering should use `scripts/order.py`.
+`scripts/register_agent.py` and `scripts/send_action.py` are for custom visual roles or manual progress events only. Normal ordering uses `scripts/order.py`.

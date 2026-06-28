@@ -40,10 +40,11 @@ from app.services.evomap_payment_service import (
     place_service_order,
 )
 from app.services.visualization_service import (
-    create_visualization_event,
+    broadcast_visualization_message,
     decode_json,
     encode_json,
-    visualization_hub,
+    publish_visualization_event as publish_persisted_visualization_event,
+    publish_visualization_events as publish_persisted_visualization_events,
 )
 from app.db.models import Product
 from app.domain_constants import WALLET_CURRENCY_CREDITS
@@ -89,15 +90,13 @@ def publish_visualization_event(
     agent_id: int | None = None,
     correlation_id: str | None = None,
 ) -> dict[str, Any]:
-    message = create_visualization_event(
+    return publish_persisted_visualization_event(
         db,
         event_type=event_type,
         payload=payload,
         agent_id=agent_id,
         correlation_id=correlation_id,
     )
-    visualization_hub.broadcast_from_sync(message)
-    return message
 
 
 def try_publish_visualization_event(
@@ -118,7 +117,7 @@ def try_publish_visualization_event(
         )
     except Exception:
         db.rollback()
-        visualization_hub.broadcast_from_sync(
+        broadcast_visualization_message(
             {
                 "event_id": None,
                 "type": event_type,
@@ -126,8 +125,28 @@ def try_publish_visualization_event(
                 "payload": payload,
                 "correlation_id": correlation_id,
                 "created_at": datetime.utcnow().isoformat(),
-            }
+            },
+            replay=True,
         )
+
+
+def try_publish_visualization_events(db: Session, events: list[dict[str, Any]]) -> None:
+    try:
+        publish_persisted_visualization_events(db, events)
+    except Exception:
+        db.rollback()
+        for event in events:
+            broadcast_visualization_message(
+                {
+                    "event_id": None,
+                    "type": event["event_type"],
+                    "agent_id": event.get("agent_id"),
+                    "payload": event.get("payload") or {},
+                    "correlation_id": event.get("correlation_id"),
+                    "created_at": datetime.utcnow().isoformat(),
+                },
+                replay=True,
+            )
 
 
 def _skill_restaurant_payload(
@@ -179,6 +198,77 @@ def _skill_restaurant_payload(
         "stage": stage,
         "patience": patience,
         "satisfaction": satisfaction,
+    }
+
+
+def _skill_restaurant_event_record(
+    event_type: str,
+    *,
+    consumer: EvomapConsumer,
+    agent: AgentProfile,
+    correlation_id: str,
+    state: str,
+    items: list[dict[str, Any]] | None = None,
+    coffee_names: list[str] | None = None,
+    total: Decimal | float | None = None,
+    amount_credits: int | None = None,
+    payment_status: str | None = None,
+    order_ids: list[int] | None = None,
+    ledger: SkillOrderLedger | None = None,
+    message: str | None = None,
+    reason: str | None = None,
+    stage: str | None = None,
+    free_order_sequence: int | None = None,
+    evomap_order_id: str | None = None,
+    patience: int | None = None,
+    satisfaction: int | None = None,
+) -> dict[str, Any]:
+    return {
+        "event_type": event_type,
+        "payload": _skill_restaurant_payload(
+            consumer,
+            state=state,
+            items=items,
+            coffee_names=coffee_names,
+            total=total,
+            amount_credits=amount_credits,
+            payment_status=payment_status,
+            order_ids=order_ids,
+            ledger=ledger,
+            message=message,
+            reason=reason,
+            stage=stage,
+            free_order_sequence=free_order_sequence,
+            evomap_order_id=evomap_order_id,
+            patience=patience,
+            satisfaction=satisfaction,
+        ),
+        "agent_id": agent.agent_id,
+        "correlation_id": correlation_id,
+    }
+
+
+def _staff_action_event_record(
+    staff: dict[str, AgentProfile],
+    role: str,
+    action_type: str,
+    correlation_id: str,
+) -> dict[str, Any] | None:
+    staff_agent = staff.get(role)
+    if staff_agent is None:
+        return None
+    return {
+        "event_type": "agent.action",
+        "payload": {
+            "agent_id": staff_agent.agent_id,
+            "tool_name": staff_agent.tool_name,
+            "display_name": staff_agent.display_name,
+            "role_type": staff_agent.role_type,
+            "sprite_seed": staff_agent.sprite_seed,
+            "action_type": action_type,
+        },
+        "agent_id": staff_agent.agent_id,
+        "correlation_id": correlation_id,
     }
 
 
@@ -264,22 +354,23 @@ def _publish_skill_completion_flow(
     except Exception:
         staff = {}
     correlation = ledger.request_id
-    _publish_skill_restaurant_event(
-        db,
+    events: list[dict[str, Any]] = []
+    events.append(_skill_restaurant_event_record(
         "restaurant.payment_completed",
         state="payment_completed",
         patience=82,
         satisfaction=88,
         **common,
-    )
-    orchestrate_staff_node(db, staff, "payment_completed", correlation)
+    ))
+    staff_event = _staff_action_event_record(staff, "cashier", "take_order", correlation)
+    if staff_event:
+        events.append(staff_event)
     for stage, label, patience in (
         ("grinding", "grinding beans", 78),
         ("brewing", "brewing coffee", 72),
         ("plating", "plating order", 68),
     ):
-        _publish_skill_restaurant_event(
-            db,
+        events.append(_skill_restaurant_event_record(
             "restaurant.preparation_progress",
             state="making",
             stage=stage,
@@ -287,44 +378,50 @@ def _publish_skill_completion_flow(
             patience=patience,
             satisfaction=90,
             **common,
-        )
-        orchestrate_staff_node(db, staff, "preparation_progress", correlation)
-    _publish_skill_restaurant_event(
-        db,
+        ))
+        staff_event = _staff_action_event_record(staff, "barista", "prepare_coffee", correlation)
+        if staff_event:
+            events.append(staff_event)
+    events.append(_skill_restaurant_event_record(
         "restaurant.order_ready",
         state="ready",
         patience=70,
         satisfaction=92,
         **common,
-    )
-    orchestrate_staff_node(db, staff, "order_ready", correlation)
-    _publish_skill_restaurant_event(
-        db,
+    ))
+    staff_event = _staff_action_event_record(staff, "barista", "enter_scene", correlation)
+    if staff_event:
+        events.append(staff_event)
+    events.append(_skill_restaurant_event_record(
         "restaurant.order_delivered",
         state="delivered",
         patience=74,
         satisfaction=94,
         **common,
-    )
-    orchestrate_staff_node(db, staff, "order_delivered", correlation)
-    _publish_skill_restaurant_event(
-        db,
+    ))
+    staff_event = _staff_action_event_record(staff, "waiter", "deliver_order", correlation)
+    if staff_event:
+        events.append(staff_event)
+    events.append(_skill_restaurant_event_record(
         "restaurant.customer_reviewed",
         state="reviewed",
         message="顾客评价：出餐顺利",
         patience=76,
         satisfaction=96,
         **common,
-    )
-    _publish_skill_restaurant_event(
-        db,
+    ))
+    events.append(_skill_restaurant_event_record(
         "restaurant.customer_left",
         state="left",
         patience=80,
         satisfaction=96,
         **common,
-    )
-    orchestrate_staff_node(db, staff, "customer_left", correlation)
+    ))
+    for role in ("waiter", "cashier"):
+        staff_event = _staff_action_event_record(staff, role, "enter_scene", correlation)
+        if staff_event:
+            events.append(staff_event)
+    try_publish_visualization_events(db, events)
 
 
 def ensure_consumer(

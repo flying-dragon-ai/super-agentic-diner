@@ -35,7 +35,7 @@ Use `codegraph` first when you need to understand or locate local code and `.cod
 
 ### coffee-mysql
 
-Use `coffee-mysql` for the real Coffee AI Boss MySQL database.
+Use `coffee-mysql` for the real Crossroads Agent Café MySQL database.
 
 - MCP server name: `coffee-mysql`
 - Database type: MySQL
@@ -49,7 +49,7 @@ Use this server when verifying SQLAlchemy model/schema alignment, inspecting ord
 
 ### coffee-redis
 
-Use `coffee-redis` for the real Coffee AI Boss Redis memory backend.
+Use `coffee-redis` for the real Crossroads Agent Café Redis memory backend.
 
 - MCP server name: `coffee-redis`
 - Database type: Redis
@@ -66,7 +66,7 @@ Use this server when inspecting chat history, pending-order memory, short-term w
 <!-- PROJECT_ARCHITECTURE_START -->
 ## Project Architecture
 
-Coffee AI Boss is a FastAPI application with static HTML/CSS/JS frontends, SQLAlchemy ORM, SQLite/MySQL persistence, fakeredis/Redis short-term memory, A2A Skill/EvoMap ordering integration, and a WebSocket visualization event stream.
+Crossroads Agent Café is a FastAPI application with static HTML/CSS/JS frontends, SQLAlchemy ORM, SQLite/MySQL persistence, fakeredis/Redis short-term memory, A2A Skill/EvoMap ordering integration, and a WebSocket visualization event stream.
 
 Core runtime boundaries:
 

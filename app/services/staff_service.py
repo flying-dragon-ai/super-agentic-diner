@@ -8,11 +8,10 @@ from sqlalchemy.orm import Session
 from app.db.models import AgentProfile
 from app.domain_constants import IDENTITY_STATUS_ACTIVE
 from app.services.visualization_service import (
-    create_visualization_event,
     encode_json,
     hash_agent_token,
     make_sprite_seed,
-    visualization_hub,
+    publish_visualization_event,
 )
 
 # Fixed restaurant staff. One agent per role, created at startup and referenced
@@ -185,14 +184,13 @@ def publish_staff_action(
     if agent is None:
         return
     try:
-        message = create_visualization_event(
+        publish_visualization_event(
             db,
             event_type="agent.action",
             payload=_agent_payload(agent, action_type, **extra),
             agent_id=agent.agent_id,
             correlation_id=correlation_id,
         )
-        visualization_hub.broadcast_from_sync(message)
     except Exception:
         try:
             db.rollback()
@@ -213,14 +211,13 @@ def publish_agent_action(
     Best-effort: failures are swallowed so visualization never blocks business.
     """
     try:
-        message = create_visualization_event(
+        publish_visualization_event(
             db,
             event_type="agent.action",
             payload=_agent_payload(agent, action_type, **extra),
             agent_id=agent.agent_id,
             correlation_id=correlation_id,
         )
-        visualization_hub.broadcast_from_sync(message)
     except Exception:
         try:
             db.rollback()

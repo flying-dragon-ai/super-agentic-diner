@@ -1,12 +1,12 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
-title Coffee AI Boss
+title Crossroads Agent Café
 
 if "%PORT%"=="" set "PORT=8000"
 
 echo ============================================
-echo   Coffee AI Boss - Launcher
+echo   Crossroads Agent Café - Launcher
 echo ============================================
 echo.
 

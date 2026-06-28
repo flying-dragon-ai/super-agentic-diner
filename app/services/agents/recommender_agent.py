@@ -143,7 +143,7 @@ def recommend(
             names = "、".join(r.name for r in kb_rows[:3])
             reply = f"好嘞~根据您的喜好，推荐这几款：{names}。想试试哪一杯？告诉我名字就可以下单啦~"
         else:
-            reply = "您好~我是 EvoMap 进化咖啡馆 AI 店长 ☕ 今天想喝点什么口味的？可以告诉我喜欢的风味或者忌口，我来帮您挑一杯~"
+            reply = "您好~我是 Crossroads Agent Café AI 店长 ☕ 今天想喝点什么口味的？可以告诉我喜欢的风味或者忌口，我来帮您挑一杯~"
 
     return {
         "reply": reply,
