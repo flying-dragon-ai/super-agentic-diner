@@ -132,6 +132,15 @@ export const hasAllDefaultSignatures = (items: FurnitureItem[]) => {
   );
 };
 
+export const isDefaultFurnitureLayout = (items: FurnitureItem[]) => {
+  if (items.length !== DEFAULT_LAYOUT_SIGNATURES.size) return false;
+  const itemSignatures = new Set(items.map(createFurnitureSignature));
+  if (itemSignatures.size !== DEFAULT_LAYOUT_SIGNATURES.size) return false;
+  return [...DEFAULT_LAYOUT_SIGNATURES].every((signature) =>
+    itemSignatures.has(signature),
+  );
+};
+
 const EVOMAP_TERMINAL_DEFAULT_ITEMS = DEFAULT_FURNITURE
   .map((item, index) => ({ ...item, _uid: `office_${index}` }))
   .filter((item): item is FurnitureItem => item.type === "evomap_terminal");

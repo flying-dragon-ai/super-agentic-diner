@@ -8,6 +8,7 @@ service is intentionally thin — the editor treats the layout as an opaque
 from __future__ import annotations
 
 import json
+from datetime import timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -17,24 +18,39 @@ from app.db.models import OfficeLayout
 NAMESPACE_DEFAULT = "default"
 
 
-def get_layout(db: Session, namespace: str = NAMESPACE_DEFAULT) -> Optional[list]:
-    """Return the stored layout items, or None when no layout is saved yet.
-
-    Corrupt JSON degrades to None (caller falls back to default/localStorage)
-    rather than raising — layout must never block the scene from rendering.
-    """
+def get_layout_record(
+    db: Session,
+    namespace: str = NAMESPACE_DEFAULT,
+) -> tuple[Optional[list], Optional[str]]:
+    """Return stored layout items plus the row update timestamp."""
     row = (
         db.query(OfficeLayout)
         .filter(OfficeLayout.namespace == namespace)
         .first()
     )
     if not row:
-        return None
+        return None, None
     try:
         parsed = json.loads(row.layout_json)
-        return parsed if isinstance(parsed, list) else None
+        items = parsed if isinstance(parsed, list) else None
     except (ValueError, TypeError):
-        return None
+        items = None
+    updated_at = (
+        row.updated_at.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+        if row.updated_at
+        else None
+    )
+    return items, updated_at
+
+
+def get_layout(db: Session, namespace: str = NAMESPACE_DEFAULT) -> Optional[list]:
+    """Return the stored layout items, or None when no layout is saved yet.
+
+    Corrupt JSON degrades to None (caller falls back to default/localStorage)
+    rather than raising — layout must never block the scene from rendering.
+    """
+    items, _ = get_layout_record(db, namespace)
+    return items
 
 
 def save_layout(db: Session, items: list, namespace: str = NAMESPACE_DEFAULT) -> None:

@@ -95,6 +95,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5174",
         "http://127.0.0.1:5174",
+        "http://localhost:5175",
+        "http://127.0.0.1:5175",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -156,9 +158,10 @@ async def _startup_colyseus() -> None:
     # expires (they can't push a leave signal — the order.py script already exited).
     global _skill_sweep_task
     _skill_sweep_task = asyncio.create_task(_skill_presence_sweep_loop())
-    # 自主数字顾客循环（P1：每 45-75s 跑一次模拟买咖啡会话，3D 人偶可见）
+    # 自主数字顾客循环：后端 Agent runtime 定时决策并驱动 3D 人偶。
     global _autonomous_task
-    _autonomous_task = asyncio.create_task(autonomous_agent_service.autonomous_loop())
+    if settings.autonomous_agent_enabled:
+        _autonomous_task = asyncio.create_task(autonomous_agent_service.autonomous_loop())
     # 启动 EvoMap 心跳（仅当配置了节点身份）
     if settings.evomap_node_id and settings.evomap_node_secret:
         _evomap_heartbeat_stop.clear()
@@ -1563,6 +1566,12 @@ def list_visualization_events(limit: int = 50, db: Session = Depends(get_db)):
     return [event_to_message(row) for row in reversed(rows)]
 
 
+@app.get("/admin/autonomous-agent/status")
+def autonomous_agent_status(db: Session = Depends(get_db)):
+    """Read-only status for the backend-driven autonomous 3D customer."""
+    return autonomous_agent_service.status_snapshot(db)
+
+
 @app.get("/admin/restaurant-state")
 def restaurant_state(limit: int = 50, db: Session = Depends(get_db)):
     """Read-only aggregate state for the restaurant visualization screen."""
@@ -2356,8 +2365,8 @@ class OfficeLayoutRequest(BaseModel):
 @app.get("/api/office/layout")
 def get_office_layout(namespace: str = "default", db: Session = Depends(get_db)):
     """3D 编辑器布局读取（匿名可读）。未保存时返回空列表，前端用默认/localStorage 兜底。"""
-    items = office_layout_service.get_layout(db, namespace)
-    return {"items": items or [], "namespace": namespace}
+    items, updated_at = office_layout_service.get_layout_record(db, namespace)
+    return {"items": items or [], "namespace": namespace, "updated_at": updated_at}
 
 
 @app.put("/api/office/layout")

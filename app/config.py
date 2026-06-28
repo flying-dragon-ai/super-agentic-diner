@@ -68,6 +68,13 @@ class Settings(BaseSettings):
     visualization_presence_ttl_seconds: int = 45
     visualization_skill_sweep_lock_ttl_seconds: int = 75
 
+    # Autonomous digital customer agent.
+    autonomous_agent_enabled: bool = True
+    autonomous_agent_interval_min_seconds: float = 45.0
+    autonomous_agent_interval_max_seconds: float = 75.0
+    autonomous_agent_step_interval_seconds: float = 4.0
+    autonomous_agent_status_ttl_seconds: int = 180
+
     # A2A Skill / EvoMap credit ordering.
     skill_free_order_limit: int = 2
     evomap_payment_mode: str = "service_order"

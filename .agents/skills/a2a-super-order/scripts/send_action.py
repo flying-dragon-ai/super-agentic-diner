@@ -40,7 +40,7 @@ def parse_payload(raw: str | None) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Send a restaurant Agent visualization action.")
-    parser.add_argument("--base-url", default=os.getenv("RESTAURANT_API_BASE", "http://127.0.0.1:8000"))
+    parser.add_argument("--base-url", default=os.getenv("RESTAURANT_API_BASE", "http://192.168.110.87:8001"))
     parser.add_argument("--agent-id", default=os.getenv("RESTAURANT_AGENT_ID"), required=not os.getenv("RESTAURANT_AGENT_ID"))
     parser.add_argument(
         "--token",

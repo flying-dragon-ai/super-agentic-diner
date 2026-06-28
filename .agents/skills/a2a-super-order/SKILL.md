@@ -9,9 +9,9 @@ Thin-client CLI for ordering coffee at Crossroads Agent Café from any AI tool. 
 
 ## ⚠️ Before You Start (read first)
 
-1. **Backend address — set once, it persists.** The default is `http://127.0.0.1:8000`, which only reaches *the same machine the script runs on*. If the café backend runs on **another machine**, point the skill at it once; the value is saved to `~/.a2a-super-order/config.json` and every later command auto-reads it:
+1. **Backend address — set once, it persists.** The default is `http://192.168.110.87:8001`, which only reaches *the same machine the script runs on*. If the café backend runs on **another machine**, point the skill at it once; the value is saved to `~/.a2a-super-order/config.json` and every later command auto-reads it:
    ```bash
-   python .agents/skills/a2a-super-order/scripts/order.py --base-url http://<server>:8000 --ping
+   python .agents/skills/a2a-super-order/scripts/order.py --base-url http://192.168.110.87:8001 --ping
    ```
    Prefer a **domain** (e.g. `https://cafe.example.com`) over a raw IP — domains survive redeployments that rotate the IP. When the address does change, just re-run the line above with the new value; all subsequent commands follow automatically. Precedence: explicit `--base-url` > `RESTAURANT_API_BASE` env > saved config > default. Skip this on a remote backend and every command fails with "connection refused".
 2. **Python ≥ 3.7** must be on PATH.
@@ -29,7 +29,7 @@ python .agents/skills/a2a-super-order/scripts/order.py --ping
 - `"ok": false` → the backend is unreachable. Diagnose in this order:
   1. `--base-url` / `RESTAURANT_API_BASE` points at the wrong host (most common for remote tools) → set `--base-url` to the server address or domain once (it persists) and retry.
   2. Backend not started → ask the user to run `uvicorn app.main:app` on the server.
-  3. Firewall → ask the user to open port 8000.
+  3. Firewall → ask the user to open port 8001.
   Do **not** proceed until `--ping` returns `"ok": true`.
 
 ### Step 1 — See what you can order
@@ -84,7 +84,7 @@ Only reach this step when `--ping` works AND the user already has 2 free orders 
 | `--register-only` | Register consumer, store token, no order | Writes `~/.a2a-super-order/state.json` |
 | `--request-id <key>` | Idempotency key; **reuse the same value** to retry a failed order safely | — |
 | `--check-evomap` | Read `~/.evomap/` files, report install status | None (read-only) |
-| `--base-url <url>` / `RESTAURANT_API_BASE` | Backend address (default `http://127.0.0.1:8000`; **must change for remote backends**) | — |
+| `--base-url <url>` / `RESTAURANT_API_BASE` | Backend address (default `http://192.168.110.87:8001`; **must change for remote backends**) | — |
 | `--display-name "<name>"` / `RESTAURANT_AGENT_NAME` | Customer name in the 3D scene (default = OS username) | — |
 | `--evomap-node-secret "<secret>"` / `EVOMAP_NODE_SECRET` | Paid-order secret; auto-loaded from `~/.evomap/` when installed. **Never print.** | — |
 

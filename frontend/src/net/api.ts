@@ -1,8 +1,9 @@
 // Thin fetch wrappers for the FastAPI backend. Backend contract is read-only
 // here; do not change event structure, roles, or actions server-side.
-const base = (import.meta as unknown as { env: { DEV?: boolean } }).env?.DEV
-  ? "http://localhost:8000"
-  : "";
+const env = (import.meta as unknown as {
+  env: { DEV?: boolean; VITE_API_BASE_URL?: string };
+}).env;
+const base = env?.VITE_API_BASE_URL ?? (env?.DEV ? "http://localhost:8000" : "");
 
 export async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${base}${path}`, { credentials: "include" });
@@ -99,7 +100,11 @@ export const sendChat = (userId: number, message: string) =>
 
 // 3D editor layout (server-side persistence). items is FurnitureItem[]; kept
 // loosely typed here to avoid a types -> net import cycle.
-export type OfficeLayoutResponse = { items: unknown[]; namespace: string };
+export type OfficeLayoutResponse = {
+  items: unknown[];
+  namespace: string;
+  updated_at?: string | null;
+};
 export const getOfficeLayout = () => getJson<OfficeLayoutResponse>("/api/office/layout");
 export const saveOfficeLayout = (items: unknown[]) =>
   putJson<{ ok: boolean; namespace: string }>("/api/office/layout", { items });

@@ -354,7 +354,7 @@ export function VisitorSocialPanel({ registerChatConsumer }: Props) {
             {botMessages.length === 0 && (
               <>
                 <div style={{ textAlign: "center", color: "#7a8aa0", padding: "12px 0 8px" }}>
-                  {"\u{1F916} \u6211\u662f EvoMap \u5496\u5561\u9986 AI \u52a9\u624b\uff0c\u95ee\u6211\u4efb\u4f55\u95ee\u9898\uff01"}
+                  {"\u{1F916} \u6211\u662f Crossroads Agent Caf\u00e9 AI \u52a9\u624b\uff0c\u95ee\u6211\u4efb\u4f55\u95ee\u9898\uff01"}
                 </div>
                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
                   {BOT_QUICK.map((q) => (

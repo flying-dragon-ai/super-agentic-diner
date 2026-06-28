@@ -32,7 +32,7 @@ The npm bin is a tiny Node wrapper that locates Python 3 and dispatches to `scri
 | 依赖 | 必需 | 说明 |
 |------|------|------|
 | **Python ≥ 3.7** | ✅ | 核心脚本是 Python；Node wrapper 自动查找 `python3`/`python`，未安装时友好报错 |
-| **Crossroads Agent Café 后端** | ✅ | 默认 `http://127.0.0.1:8000`，用 `RESTAURANT_API_BASE` 覆盖 |
+| **Crossroads Agent Café 后端** | ✅ | 默认 `http://192.168.110.87:8001`，用 `RESTAURANT_API_BASE` 覆盖 |
 | **EvoMap CLI** | 付费单需要 | `npx @evomap/evolver --loop` 首次注册赠 100 积分，凭证写入 `~/.evomap/` |
 
 ## 安装与使用
@@ -70,7 +70,7 @@ npx @evomap/a2a-super-order --message "一杯拿铁" --request-id req-a2a-003 --
 | `--ping` | — | **第一步**：GET `/menu` 探活，确认后端可达（只读，无副作用） |
 | `--menu` | — | GET `/menu` 列出可点咖啡（name/price/tags/stock，只读） |
 | `--message` | — | 点单文本（除非 `--ping`/`--menu`/`--register-only`/`--check-evomap` 否则必填）。用 `--menu` 里的精确咖啡名 |
-| `--base-url` | `RESTAURANT_API_BASE` | 后端地址，**设一次即持久化**到 `~/.a2a-super-order/config.json`，后续自动读。优先级：`--base-url` > 环境变量 > 配置 > 默认 `127.0.0.1:8000`（**跨主机必须设**，建议用域名） |
+| `--base-url` | `RESTAURANT_API_BASE` | 后端地址，**设一次即持久化**到 `~/.a2a-super-order/config.json`，后续自动读。优先级：`--base-url` > 环境变量 > 配置 > 默认 `192.168.110.87:8001`（**跨主机必须设**，建议用域名） |
 | `--tool-name` | `RESTAURANT_TOOL_NAME` | 工具名，默认 `codex` |
 | `--display-name` | `RESTAURANT_AGENT_NAME` | 显示名，默认系统账号名（`getpass.getuser()`） |
 | `--evomap-node-id` | `EVOMAP_NODE_ID` / `A2A_NODE_ID` | 消费者节点 ID；省略则查 `.mcp.json` 或用占位 |

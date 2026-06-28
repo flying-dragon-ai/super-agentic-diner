@@ -155,6 +155,23 @@ def _index_exists(conn, table_name: str, index_name: str) -> bool:
     return bool(result.scalar())
 
 
+def _unique_index_on_column_exists(conn, table_name: str, column_name: str) -> bool:
+    result = conn.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = :table_name
+              AND COLUMN_NAME = :column_name
+              AND NON_UNIQUE = 0
+            """
+        ),
+        {"table_name": table_name, "column_name": column_name},
+    )
+    return bool(result.scalar())
+
+
 def _check_exists(conn, table_name: str, constraint_name: str) -> bool:
     result = conn.execute(
         text(
@@ -199,6 +216,57 @@ def _foreign_key_exists(
         },
     )
     return bool(result.scalar())
+
+
+def _ensure_office_layout_table(conn) -> None:
+    """Ensure the global 3D editor layout table exists in existing MySQL DBs."""
+    if not _table_exists(conn, "office_layout"):
+        conn.execute(
+            text(
+                """
+                CREATE TABLE `office_layout` (
+                  `layout_id` BIGINT NOT NULL AUTO_INCREMENT,
+                  `namespace` VARCHAR(32) NOT NULL,
+                  `layout_json` TEXT NOT NULL,
+                  `updated_at` DATETIME NOT NULL
+                    DEFAULT CURRENT_TIMESTAMP
+                    ON UPDATE CURRENT_TIMESTAMP,
+                  PRIMARY KEY (`layout_id`),
+                  UNIQUE KEY `uq_office_layout_namespace` (`namespace`),
+                  KEY `idx_office_layout_namespace` (`namespace`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+        )
+        print("created table office_layout")
+        return
+
+    print("table office_layout already exists")
+    if not _unique_index_on_column_exists(conn, "office_layout", "namespace"):
+        conn.execute(
+            text(
+                """
+                ALTER TABLE `office_layout`
+                ADD CONSTRAINT `uq_office_layout_namespace`
+                UNIQUE (`namespace`)
+                """
+            )
+        )
+        print("added unique index office_layout.namespace")
+    else:
+        print("unique index office_layout.namespace already exists")
+    if not _index_exists(conn, "office_layout", "idx_office_layout_namespace"):
+        conn.execute(
+            text(
+                """
+                CREATE INDEX `idx_office_layout_namespace`
+                ON `office_layout` (`namespace`)
+                """
+            )
+        )
+        print("added index office_layout.idx_office_layout_namespace")
+    else:
+        print("index office_layout.idx_office_layout_namespace already exists")
 
 
 def _ensure_columns(conn) -> None:
@@ -338,6 +406,7 @@ def _ensure_checks(conn) -> None:
 def main() -> None:
     _ensure_mysql()
     with engine.begin() as conn:
+        _ensure_office_layout_table(conn)
         _ensure_columns(conn)
         _backfill_order(conn)
         _ensure_indexes(conn)

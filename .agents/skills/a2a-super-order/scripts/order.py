@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_BASE_URL = "http://127.0.0.1:8000"
+DEFAULT_BASE_URL = "http://192.168.110.87:8001"
 # Use `os.getenv(KEY) or default` (not `os.getenv(KEY, default)`) so that an
 # empty-string env var falls back to the default instead of writing state to cwd.
 STATE_PATH = Path(os.getenv("A2A_SUPER_ORDER_STATE") or str(Path.home() / ".a2a-super-order" / "state.json"))
@@ -119,9 +119,9 @@ def cmd_ping(args: argparse.Namespace) -> int:
             "error": err,
             "hint": (
                 "If the café backend runs on another machine, set "
-                "RESTAURANT_API_BASE=http://<server-ip>:8000 and retry. "
+                "RESTAURANT_API_BASE=http://192.168.110.87:8001 and retry. "
                 "Also confirm `uvicorn app.main:app` is running on the server "
-                "and port 8000 is open."
+                "and port 8001 is open."
             ),
         }, ensure_ascii=False, indent=2))
         return 1
@@ -340,7 +340,7 @@ def main() -> int:
             pass
 
     parser = argparse.ArgumentParser(description="Order coffee through the A2A super order Skill.")
-    parser.add_argument("--base-url", default=None, help="Backend URL. Saved on first explicit use; later commands auto-read it. Precedence: --base-url > RESTAURANT_API_BASE env > saved config > http://127.0.0.1:8000.")
+    parser.add_argument("--base-url", default=None, help="Backend URL. Saved on first explicit use; later commands auto-read it. Precedence: --base-url > RESTAURANT_API_BASE env > saved config > http://192.168.110.87:8001.")
     parser.add_argument("--tool-name", default=os.getenv("RESTAURANT_TOOL_NAME", "codex"))
     parser.add_argument("--display-name", default=os.getenv("RESTAURANT_AGENT_NAME") or detect_username())
     parser.add_argument("--evomap-node-id", default=os.getenv("EVOMAP_NODE_ID") or os.getenv("A2A_NODE_ID"))

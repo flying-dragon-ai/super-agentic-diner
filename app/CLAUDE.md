@@ -180,10 +180,10 @@ _complete_order(落库 + 钱包镜像):
 
 | role | tool_name | display_name | sprite_seed | 工位坐标（前端 roleMap.ts） |
 |------|-----------|-------------|-------------|---------------------------|
-| barista | `staff:barista` | 咖啡师 | 100001 | (360, 540) |
-| cashier | `staff:cashier` | 收银员 | 100002 | (620, 320) |
-| waiter | `staff:waiter` | 服务员 | 100003 | (880, 660) |
-| manager | `staff:manager` | 主管 | 100004 | (1180, 320) |
+| barista | `staff:barista` | 咖啡师 | 100001 | (200, 300) |
+| cashier | `staff:cashier` | 收银员 | 100002 | (350, 300) |
+| waiter | `staff:waiter` | 服务员 | 100003 | (755, 480) |
+| manager | `staff:manager` | 主管 | 100004 | (480, 340) |
 
 **核心函数**：
 - `ensure_staff_agents(db)`：按 `tool_name=staff:{role}` 幂等查询/创建 4 个 agent（`metadata_json={"source":"staff"}`，`api_token_hash` 用 `staff:{role}:internal` 占位满足 NOT NULL 但不做鉴权）。

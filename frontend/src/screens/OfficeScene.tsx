@@ -40,10 +40,17 @@ import {
 } from "../office3d/core/constants";
 import {
   ensureEvoMapSceneMaterials,
+  isDefaultFurnitureLayout,
   materializeDefaults,
   resolveFurnitureLayout,
 } from "../office3d/core/furnitureDefaults";
-import { saveFurniture, fetchServerLayout, pushServerLayout } from "../office3d/core/persistence";
+import {
+  saveFurniture,
+  loadFurniture,
+  loadFurnitureSavedAt,
+  fetchServerLayout,
+  pushServerLayout,
+} from "../office3d/core/persistence";
 import { createWallItem, nextUid, normalizeDegrees, snap } from "../office3d/core/geometry";
 import type { FurnitureItem, RenderAgent } from "../office3d/core/types";
 import { createSimStore, applyEvent, clearSpeech } from "../sim/agentStore";
@@ -66,6 +73,13 @@ import {
 } from "../office3d/systems/visualSystems";
 
 const DEFAULT_FURNITURE: FurnitureItem[] = materializeDefaults();
+type LayoutSaveStatus = "idle" | "saving" | "saved" | "local-only";
+const LAYOUT_SAVE_TEXT: Record<LayoutSaveStatus, string> = {
+  idle: "",
+  saving: "保存中",
+  saved: "已保存",
+  "local-only": "仅本地保存",
+};
 
 type DragState =
   | { kind: "idle" }
@@ -95,6 +109,7 @@ const EVENT_TEXT: Record<string, string> = {
   "restaurant.customer_left": "顾客离开Crossroads Agent Café",
   "restaurant.order_failed": "订单流程异常",
   "agent.registered": "员工已进入Crossroads Agent Café",
+  "agent.autonomous.decision": "数字顾客自主决策",
   "presence.customer_joined": "在线顾客已进入",
   "presence.customer_moved": "在线顾客正在移动",
   "presence.customer_left": "在线顾客已离开",
@@ -135,6 +150,7 @@ export default function OfficeScene() {
   const [furniture, setFurniture] = useState<FurnitureItem[]>(() =>
     resolveFurnitureLayout(),
   );
+  const [layoutSaveStatus, setLayoutSaveStatus] = useState<LayoutSaveStatus>("idle");
   const [drag, setDrag] = useState<DragState>({ kind: "idle" });
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
   // B1: synchronous flag — when a furniture/machine is clicked, the R3F event
@@ -185,15 +201,32 @@ export default function OfficeScene() {
     void (async () => {
       const server = await fetchServerLayout();
       if (cancelled) return;
-      if (server && server.length > 0) {
-        const upgraded = ensureEvoMapSceneMaterials(server);
-        setFurniture(upgraded);
-        saveFurniture(upgraded);
-        if (upgraded.length !== server.length) {
-          void pushServerLayout(upgraded);
+      if (server && server.items.length > 0) {
+        const serverLayout = ensureEvoMapSceneMaterials(server.items);
+        const local = loadFurniture();
+        const localLayout = local && local.length > 0 ? ensureEvoMapSceneMaterials(local) : null;
+        const localSavedAt = loadFurnitureSavedAt();
+        const localIsNewer =
+          Boolean(localLayout && localSavedAt && server.updatedAt) &&
+          Date.parse(localSavedAt as string) > Date.parse(server.updatedAt as string);
+        const serverIsDefault = isDefaultFurnitureLayout(serverLayout);
+        const shouldRecoverLocal =
+          Boolean(localLayout) &&
+          !isDefaultFurnitureLayout(localLayout as FurnitureItem[]) &&
+          (localIsNewer || (!localSavedAt && serverIsDefault));
+        const nextLayout = shouldRecoverLocal ? (localLayout as FurnitureItem[]) : serverLayout;
+
+        setFurniture(nextLayout);
+        saveFurniture(nextLayout);
+        if (shouldRecoverLocal || nextLayout.length !== server.items.length) {
+          setLayoutSaveStatus("saving");
+          const ok = await pushServerLayout(nextLayout);
+          if (!cancelled) setLayoutSaveStatus(ok ? "saved" : "local-only");
         }
       } else {
-        pushServerLayout(furniture);
+        setLayoutSaveStatus("saving");
+        const ok = await pushServerLayout(furniture);
+        if (!cancelled) setLayoutSaveStatus(ok ? "saved" : "local-only");
       }
       hydratedRef.current = true;
     })();
@@ -203,11 +236,17 @@ export default function OfficeScene() {
 
   useEffect(() => {
     if (!hydratedRef.current) return;
+    let cancelled = false;
     const timeoutId = window.setTimeout(() => {
       saveFurniture(furniture);
-      pushServerLayout(furniture);
+      setLayoutSaveStatus("saving");
+      void (async () => {
+        const ok = await pushServerLayout(furniture);
+        if (!cancelled) setLayoutSaveStatus(ok ? "saved" : "local-only");
+      })();
     }, 300);
     return () => {
+      cancelled = true;
       window.clearTimeout(timeoutId);
     };
   }, [furniture]);
@@ -674,6 +713,28 @@ export default function OfficeScene() {
         >
           {editMode ? "✏️ 编辑中" : "✏️ 编辑"}
         </button>
+        {editMode && layoutSaveStatus !== "idle" && (
+          <span
+            style={{
+              alignSelf: "center",
+              padding: "4px 8px",
+              fontFamily: "monospace",
+              fontSize: 11,
+              borderRadius: 6,
+              border:
+                layoutSaveStatus === "local-only"
+                  ? "1px solid rgba(248,113,113,0.45)"
+                  : "1px solid rgba(74,222,128,0.35)",
+              background:
+                layoutSaveStatus === "local-only"
+                  ? "rgba(248,113,113,0.16)"
+                  : "rgba(74,222,128,0.12)",
+              color: layoutSaveStatus === "local-only" ? "#fca5a5" : "#86efac",
+            }}
+          >
+            {LAYOUT_SAVE_TEXT[layoutSaveStatus]}
+          </span>
+        )}
       </div>
       {editMode && (
         <Palette activeType={drag.kind === "placing" ? drag.itemType : null} onPick={startPlacing} />

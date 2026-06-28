@@ -7,11 +7,15 @@ import type { FacingPoint } from "../office3d/core/types";
 // 2x2 round-table seating (center x:480-1180), lounge (right x:1200-1750).
 // Roles map to fixed standby points inside the canvas; entry/exit at the left-edge door.
 export const ROLE_DESK: Record<string, FacingPoint> = {
-  barista: { x: 360, y: 540, facing: Math.PI },
-  cashier: { x: 620, y: 320, facing: Math.PI },
-  waiter: { x: 880, y: 660, facing: Math.PI },
-  manager: { x: 1180, y: 320, facing: Math.PI },
-  customer: { x: 880, y: 580, facing: 0 },
+  // 工位 = 待机点 + 动作锚点(walk_to_counter→cashier 吧台收银, walk_to_table→customer 座位,
+  // work→各自工位原地绿圈)。坐标对齐家具分区(2026-06-28 重摆,修「工位 vs 家具」错位:
+  // 吧台设施原全挤左上,工位却散在中/右区)。现:吧台三人靠左上吧台/咖啡机/收银区,
+  // 服务员+顾客在中间座位区。
+  barista: { x: 200, y: 300, facing: Math.PI },   // 吧台区:咖啡机 (130,150) 前下方
+  cashier: { x: 350, y: 300, facing: Math.PI },   // 吧台收银位 (=counter):atm (410,220) 前下方
+  waiter: { x: 755, y: 480, facing: Math.PI },    // 座位区中央:4 圆桌之间送餐动线
+  manager: { x: 480, y: 340, facing: Math.PI },   // 吧台↔座位过渡:主管巡视位
+  customer: { x: 755, y: 580, facing: 0 },        // 座位区:顾客入座 (=table)
 };
 
 export const ROLE_COLOR: Record<string, string> = {

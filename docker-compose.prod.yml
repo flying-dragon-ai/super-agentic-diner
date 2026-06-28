@@ -1,0 +1,23 @@
+# docker-compose.prod.yml — 生产部署（前端+后端单容器；数据库已上云，不在本 compose）
+# 用法：docker compose -f docker-compose.prod.yml up -d --build
+services:
+  cafe:
+    build: .
+    image: crossroads-agent-cafe:latest
+    container_name: crossroads-cafe
+    restart: unless-stopped
+    ports:
+      - "8000:8000"                          # 公网入口 → http://47.93.176.175:8000
+    env_file:
+      - .env.production                      # 云 MySQL/Redis 连接 + LLM/EvoMap/Auth
+    environment:
+      DB_MODE: mysql                         # ★ 兜底强制连云 MySQL（environment 优先于 env_file）
+      USE_FAKEREDIS: "false"                 # ★ 兜底强制连云 Redis
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # 容器经宿主机回环连本机 MySQL/Redis（走内网，不走公网）
+    command:
+      - sh
+      - -c
+      - >-
+        python scripts/init_db.py &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1

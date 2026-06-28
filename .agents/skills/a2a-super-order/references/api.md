@@ -1,6 +1,6 @@
 # A2A Super Order API
 
-Base URL resolution: explicit `--base-url` > `RESTAURANT_API_BASE` env > saved `~/.a2a-super-order/config.json` > default `http://127.0.0.1:8000`. An explicit `--base-url` is **persisted** to config.json, so set it once and every later command auto-reads it. **For remote/production backends prefer a domain** (e.g. `https://cafe.example.com`) over a raw IP — the address can change between deploys; when it does, re-run `--base-url <new-address> --ping` once. `127.0.0.1` only reaches the machine the script runs on, so commands fail with "connection refused" until you point at the real backend.
+Base URL resolution: explicit `--base-url` > `RESTAURANT_API_BASE` env > saved `~/.a2a-super-order/config.json` > default `http://192.168.110.87:8001`. An explicit `--base-url` is **persisted** to config.json, so set it once and every later command auto-reads it. **For remote/production backends prefer a domain** (e.g. `https://cafe.example.com`) over a raw IP — the address can change between deploys; when it does, re-run `--base-url <new-address> --ping` once. `127.0.0.1` only reaches the machine the script runs on, so commands fail with "connection refused" until you point at the real backend.
 
 ## Ping & Menu (read-only — run these first)
 
@@ -16,7 +16,7 @@ python .agents/skills/a2a-super-order/scripts/order.py --menu
 ```json
 {
   "ok": true,
-  "base_url": "http://192.168.1.5:8000",
+  "base_url": "http://192.168.110.87:8001",
   "status": "reachable",
   "menu_count": 5,
   "sample": ["拿铁", "美式咖啡", "生椰拿铁", "橘子冷萃", "燕麦拿铁"]
@@ -28,10 +28,10 @@ python .agents/skills/a2a-super-order/scripts/order.py --menu
 ```json
 {
   "ok": false,
-  "base_url": "http://127.0.0.1:8000",
+  "base_url": "http://192.168.110.87:8001",
   "status": "unreachable",
   "error": "[Errno 111] Connection refused",
-  "hint": "If the café backend runs on another machine, set RESTAURANT_API_BASE=http://<server-ip>:8000 and retry. Also confirm `uvicorn app.main:app` is running on the server and port 8000 is open."
+  "hint": "If the café backend runs on another machine, set RESTAURANT_API_BASE=http://192.168.110.87:8001 and retry. Also confirm `uvicorn app.main:app` is running on the server and port 8001 is open."
 }
 ```
 
@@ -181,7 +181,7 @@ The EvoMap Hub charges the service listing price from the sender node/account. `
 The browser page subscribes to:
 
 ```text
-ws://127.0.0.1:8000/ws/visualization
+ws://192.168.110.87:8001/ws/visualization
 ```
 
 Event history:

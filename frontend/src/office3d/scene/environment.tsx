@@ -1,7 +1,7 @@
 // Simplified port of Claw3D retro-office scene/environment.tsx.
 // Single local office floor + walls only (no remote-office district, no city path).
 import { memo, useMemo, useRef } from "react";
-import { Html, Text } from "@react-three/drei";
+import { Text } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { CANVAS_H, CANVAS_W, SCALE } from "../core/constants";
@@ -161,13 +161,9 @@ function EvoMapWallPlaque() {
           opacity={0.92}
         />
       </mesh>
-      <Html position={[0, 0.09, 0.012]} transform distanceFactor={1.4} center>
-        <img
-          src="/3d/evomap-materials/evomap-logo-white.svg"
-          alt="EvoMap"
-          style={{ width: 220, height: 50, display: "block", pointerEvents: "none", userSelect: "none" }}
-        />
-      </Html>
+      <Text position={[0, 0.09, 0.012]} fontSize={0.15} color="#f8fbff" anchorX="center" anchorY="middle">
+        Crossroads Agent Café
+      </Text>
       <Text position={[0, -0.25, 0.012]} fontSize={0.085} color="#8be9ff" anchorX="center" anchorY="middle">
         Experience Network · Cafe Runtime
       </Text>
