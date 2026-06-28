@@ -201,10 +201,12 @@ export default function OfficeScene() {
     void (async () => {
       const server = await fetchServerLayout();
       if (cancelled) return;
-      if (server && server.items.length > 0) {
-        const serverLayout = ensureEvoMapSceneMaterials(server.items);
+      if (server) {
+        const serverLayout =
+          server.items.length > 0 ? ensureEvoMapSceneMaterials(server.items) : [];
         const local = loadFurniture();
-        const localLayout = local && local.length > 0 ? ensureEvoMapSceneMaterials(local) : null;
+        const localLayout =
+          local ? (local.length > 0 ? ensureEvoMapSceneMaterials(local) : []) : null;
         const localSavedAt = loadFurnitureSavedAt();
         const localIsNewer =
           Boolean(localLayout && localSavedAt && server.updatedAt) &&

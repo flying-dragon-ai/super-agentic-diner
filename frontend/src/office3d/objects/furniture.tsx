@@ -40,7 +40,7 @@ export const FURNITURE_SCALE: Record<string, [number, number, number]> = {
   desk_cubicle: [1.5, 1.5, 1.5],
   executive_desk: [1.8, 1.8, 1.8],
   chair: [1.2, 1.2, 1.2],
-  round_table: [1.5, 1.5, 1.5],
+  round_table: [3.2, 3.2, 3.2],  // 恢复设计 scale: furnitureDefaults 注释假设 scale 3.2 + 53px 视觉半径(0.95m),85px 椅距 clears 桌沿围桌;此前误为 1.5 致桌偏小、椅距偏远不围
   couch: [1.8, 1.8, 1.8],
   couch_v: [1.4, 1.4, 1.4],
   bookshelf: [1.5, 2, 1.5],
