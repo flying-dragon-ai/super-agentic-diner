@@ -45,10 +45,13 @@ from app.memory.chat_history import (
     get_pending_order,
     set_pending_order,
 )
-from app.services.chat_service import extract_price, handle_message, match_by_price, get_all_products
+from app.services.chat_service import extract_price, handle_message, match_by_price, get_all_products, resolve_image_path
 from app.services.agent_orchestrator import orchestrate as agent_orchestrate
 from app.services.agents.experience_agent import list_recent_experiences
 from app.services import visitor_analytics_service
+from app.services import user_profile_service
+from app.services.reorder_service import detect_reorder_intent as _detect_reorder_intent
+from app.services.reorder_service import resolve_reorder_target as _resolve_reorder_target
 from app.services import evomap_evolution_service
 from app.services.agents.experience_agent import sync_community_experience as _sync_community_exp
 from app.rag.keywords import extract_keywords
@@ -701,6 +704,12 @@ def _publish_web_completion_flow(
     )
     _publish_web_restaurant_event(db, "restaurant.customer_left", state="left", patience=80, satisfaction=96, **common)
     staff_service.orchestrate_staff_node(db, staff, "customer_left", correlation)
+    # 画像总结（购买完成触发）：异步 fire-and-forget，仅登录用户有效，
+    # 失败 swallow 绝不阻断下单。放在完成流最末，确保订单已落库可被画像读取。
+    try:
+        user_profile_service.summarize_async(req.user_id)
+    except Exception:
+        logger.warning("web 画像总结触发失败 user_id=%s", req.user_id, exc_info=True)
 
 
 def _extract_agent_token(authorization: str | None, x_agent_token: str | None) -> str:
@@ -986,6 +995,21 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         price = extract_price(req.message)
         if price is not None:
             coffees = [c.name for c in match_by_price(db, price)]
+
+        # 第3.15路：复购意图 → 查真实历史订单最常点款（优先于 LLM 盲猜）
+        # 用户说「和之前一样/老样子/上次那杯」时，LLM 会从对话上下文盲猜出刚推荐
+        # 的同款（如刚推荐柑橘冷萃→"和之前一样"又被解析成柑橘冷萃）。这是错的：
+        # "之前"在用户语境里指历史订单/常点款。所以复购意图必须优先于 LLM 盲猜，
+        # 查真实历史订单最常点的那杯。历史为空（新用户）回退到后续 LLM/RAG 路。best-effort。
+        if not coffees:
+            try:
+                if _detect_reorder_intent(req.message):
+                    reorder_coffee = _resolve_reorder_target(db, req.user_id)
+                    if reorder_coffee:
+                        coffees = [reorder_coffee]
+                        logger.info("复购解析命中 user_id=%s → %s", req.user_id, reorder_coffee)
+            except Exception:
+                logger.warning("复购意图解析失败 user_id=%s", req.user_id, exc_info=True)
 
         # 第3.2路：LLM 显式给出了咖啡名（它能理解"一开始说的""刚才那杯"等引用）
         # 信任 LLM 的引用理解能力，排在历史盲扫之前
@@ -2099,7 +2123,7 @@ def get_menu(db: Session = Depends(get_db)):
             "tags": p.tags or "",
             "category": p.category or "",
             "description": (p.description or "")[:120],
-            "image": f"/imag/{p.name}.png",
+            "image": resolve_image_path(p.name),
             "stock": p.stock,
         }
         for p in products

@@ -22,18 +22,35 @@ if exist ".venv\Scripts\python.exe" (
     echo Using existing .venv.
 ) else (
     set "BASE_PYTHON="
-    where python >nul 2>nul
-    if not errorlevel 1 set "BASE_PYTHON=python"
-    if "!BASE_PYTHON!"=="" (
-        where py >nul 2>nul
-        if not errorlevel 1 set "BASE_PYTHON=py -3"
+    rem Detect a Python 3.10+ interpreter. The app uses PEP 604 `X | None`
+    rem type hints (app/config.py), so Python < 3.10 will crash at import.
+    rem Prefer the `py` launcher and target a specific modern version, because
+    rem the bare `python` in PATH may resolve to an older copy (e.g. 3.8).
+    py -3.13 --version >nul 2>nul && set "BASE_PYTHON=py -3.13"
+    if not defined BASE_PYTHON ( py -3.12 --version >nul 2>nul && set "BASE_PYTHON=py -3.12" )
+    if not defined BASE_PYTHON ( py -3.11 --version >nul 2>nul && set "BASE_PYTHON=py -3.11" )
+    if not defined BASE_PYTHON ( py -3.10 --version >nul 2>nul && set "BASE_PYTHON=py -3.10" )
+    if not defined BASE_PYTHON (
+        where py >nul 2>nul && set "BASE_PYTHON=py -3"
+    )
+    if not defined BASE_PYTHON (
+        where python >nul 2>nul && set "BASE_PYTHON=python"
     )
     if "!BASE_PYTHON!"=="" (
         echo [ERROR] Python was not found in PATH.
         echo Install Python 3.11+ and run this launcher again.
         goto fail
     )
-    echo Creating .venv...
+    rem Guard: refuse to build a venv from an interpreter older than 3.10,
+    rem otherwise we silently get a broken venv that crashes at import time.
+    !BASE_PYTHON! -c "import sys; sys.exit(0 if sys.version_info[:2]>=(3,10) else 1)" >nul 2>nul
+    if errorlevel 1 (
+        echo [ERROR] Detected Python is too old. This project needs 3.10+.
+        !BASE_PYTHON! --version
+        echo Install Python 3.11+ and run this launcher again.
+        goto fail
+    )
+    echo Using !BASE_PYTHON! to create .venv...
     !BASE_PYTHON! -m venv .venv
     if errorlevel 1 (
         echo [ERROR] Failed to create .venv.

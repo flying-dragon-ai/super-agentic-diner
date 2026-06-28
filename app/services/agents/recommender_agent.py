@@ -17,6 +17,19 @@ from app.llm import client as llm
 from app.rag.keywords import extract_keywords
 from app.rag.retrieval import retrieve
 from app.services.agents.experience_agent import get_experience_for_user, get_hard_filters
+from app.services.user_profile_service import get_profile_summary
+
+
+def get_profile_hint(user_id: int) -> str:
+    """读取用户画像摘要（推荐软引导用）。无画像返回空字符串。
+
+    复用 user_profile_service.get_profile_summary，独立 session 读取避免污染调用方。
+    """
+    try:
+        return get_profile_summary(user_id)
+    except Exception:
+        logger.warning("读取用户画像失败 user_id=%s", user_id, exc_info=True)
+        return ""
 
 logger = logging.getLogger(__name__)
 
@@ -100,11 +113,20 @@ def recommend(
     context = "\n---\n".join(context_parts)
 
     # 第4步：读取历史经验（软引导：注入提示词，LLM 大概率遵守）
+    # 4a. 用户画像（正向偏好，来自 chat+order 的 LLM 归纳摘要）
+    profile_hint = get_profile_hint(user_id)
+    # 4b. 历史经验（反向教训：不要什么，来自复盘 Agent）
     experience_text = get_experience_for_user(user_id)
-    applied_experience = False
+
+    guidance_parts: list[str] = []
+    if profile_hint:
+        guidance_parts.append(f"《用户画像·推荐前必读》\n{profile_hint}")
     if experience_text:
-        context = f"《历史经验·推荐前必读》\n{experience_text}\n\n《咖啡风味手册》相关段落：\n{context}"
-        applied_experience = True
+        guidance_parts.append(f"《历史经验·推荐前必读》\n{experience_text}")
+    applied_experience = bool(guidance_parts)
+
+    if guidance_parts:
+        context = "\n\n".join(guidance_parts) + f"\n\n《咖啡风味手册》相关段落：\n{context}"
     else:
         context = f"《咖啡风味手册》相关段落：\n{context}"
 

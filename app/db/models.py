@@ -608,3 +608,65 @@ class OfficeLayout(Base):
     __table_args__ = (
         Index("idx_office_layout_namespace", "namespace"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Chat message log: durable archive of every /chat message for user profiling.
+# ---------------------------------------------------------------------------
+
+
+class ChatMessage(Base):
+    """对话消息持久化归档（用户画像的数据源）。
+
+    Redis(缓存中间件) 的对话历史只存最近 10 条、30 分钟过期，无法支撑长期画像。
+    本表把每条 user/assistant(用户/助手) 消息落库，供 user_profile_service 增量总结。
+    写入由 chat_history.add_message 双写触发，best-effort：失败 swallow 不阻断聊天。
+    """
+
+    __tablename__ = "chat_message"
+
+    message_id = Column(_PK, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, ForeignKey("user.user_id"), nullable=False)
+    role = Column(String(16), nullable=False)  # user / assistant
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        # 按用户拉取历史 + 增量游标（last_msg_id 之后）的主查询索引
+        Index("idx_chat_msg_user_id", "user_id", "message_id"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# User profile: LLM-summarized taste/persona derived from chat + orders.
+# ---------------------------------------------------------------------------
+
+
+class UserProfile(Base):
+    """用户画像：基于聊天历史 + 订单历史 + 经验教训，LLM 归纳的口味偏好摘要。
+
+    每个登录用户一行（user_id 唯一）。summary 是 ≤200 字自然语言摘要，
+    同步镜像到 User.taste_preference(口味偏好字段) 供前端 /user 端点零改动展示。
+    profile_json 存结构化字段（favorite_tags/avoid_tags/price_tier/persona）。
+    last_msg_id 是增量游标：下次只总结该 id 之后的新对话，不重复算旧消息。
+    """
+
+    __tablename__ = "user_profile"
+
+    profile_id = Column(_PK, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, ForeignKey("user.user_id"), nullable=False, unique=True)
+    summary = Column(String(200), nullable=True)
+    profile_json = Column(Text, nullable=True)
+    last_msg_id = Column(BigInteger, nullable=False, default=0)
+    order_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    __table_args__ = (
+        Index("idx_user_profile_user_id", "user_id"),
+    )

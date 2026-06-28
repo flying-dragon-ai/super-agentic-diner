@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -26,6 +25,11 @@ from app.services.agents import manager_agent, recommender_agent, reviewer_agent
 from app.services.chat_service import product_to_card, _is_browse_all, get_all_products
 
 logger = logging.getLogger(__name__)
+
+
+# 触发复盘（纠正/生气/重复）后给用户的统一道歉回复。
+# 用户诉求：检测到不满 → 复盘完成 → 回复道歉语（而非继续推下一款）。
+APOLOGY_REPLY = "很抱歉给您带来了不好的体验，我已将这次问题上传复盘，下次会做得更好～"
 
 
 def _extract_products_from_reply(db: Session, reply: str) -> list[dict]:
@@ -57,36 +61,6 @@ def _emit_now(emit, event_type: str, payload: dict) -> None:
             emit(event_type, payload)
         except Exception:
             logger.warning("实时推送 agent 事件失败 type=%s", event_type, exc_info=True)
-
-
-def _run_review_background(
-    user_id: int,
-    user_msg: str,
-    history: list[dict],
-    correlation_id: str | None,
-    trigger_reason: str,
-) -> None:
-    """后台执行复盘 Agent（独立 db session，失败 swallow 不阻塞主流程）。
-
-    复盘只负责写经验（MySQL+Redis+EvoMap），不影响当前推荐响应。
-    """
-    try:
-        from app.db.database import SessionLocal
-
-        db = SessionLocal()
-        try:
-            reviewer_agent.review_mistake(
-                db,
-                user_id=user_id,
-                user_msg=user_msg,
-                history=history,
-                correlation_id=correlation_id,
-                trigger_reason=trigger_reason,
-            )
-        finally:
-            db.close()
-    except Exception:
-        logger.warning("后台复盘 Agent(事后复盘) 执行失败", exc_info=True)
 
 
 def _detect_exact_product(db: Session, user_msg: str) -> str | None:
@@ -196,7 +170,9 @@ def orchestrate(
     )
     _emit_now(emit, "agent.manager.intent", result.events[-1]["payload"])
 
-    # ===== 第2步：纠正/生气/重复检测 → 触发复盘 Agent（后台异步，不阻塞推荐） =====
+    # ===== 第2步：纠正/生气/重复检测 → 同步复盘 Agent + 回复道歉语（短路，不再推下一款） =====
+    # 用户诉求：检测到不满信号 → 先完成复盘（总结）→ 再回复道歉语。
+    # 因此这里同步执行复盘（best-effort：失败也照常道歉），而非原先的后台线程。
     triggered, trigger_reason = manager_agent.detect_review_trigger(user_msg, history)
     if triggered:
         result.events.append(
@@ -206,18 +182,36 @@ def orchestrate(
             }
         )
         _emit_now(emit, "agent.reviewer.reviewing", result.events[-1]["payload"])
-        # 复盘在后台线程执行（独立 db session，不阻塞推荐响应，省 2-6 秒）
-        threading.Thread(
-            target=_run_review_background,
-            kwargs={
-                "user_id": user_id,
-                "user_msg": user_msg,
-                "history": list(history),  # 复制一份避免竞争
-                "correlation_id": correlation_id,
-                "trigger_reason": trigger_reason,
-            },
-            daemon=True,
-        ).start()
+        # 同步执行复盘（独立逻辑，失败 swallow 不影响道歉回复）
+        review_result = None
+        try:
+            review_result = reviewer_agent.review_mistake(
+                db,
+                user_id=user_id,
+                user_msg=user_msg,
+                history=list(history),
+                correlation_id=correlation_id,
+                trigger_reason=trigger_reason,
+            )
+        except Exception:
+            logger.warning("复盘 Agent(事后复盘) 执行失败", exc_info=True)
+        result.review = review_result
+        result.events.append(
+            {
+                "type": "agent.reviewer.reviewed",
+                "payload": {
+                    "user_id": user_id,
+                    "trigger": trigger_reason,
+                    "has_insight": bool(review_result),
+                },
+            }
+        )
+        _emit_now(emit, "agent.reviewer.reviewed", result.events[-1]["payload"])
+        # 复盘完成 → 回复道歉语，写历史，直接返回（不走后续推荐/闲聊）
+        result.reply = APOLOGY_REPLY
+        add_message(user_id, "user", user_msg)
+        add_message(user_id, "assistant", result.reply)
+        return result
 
     # ===== 第3步：按意图分派 =====
     if intent == "order":
