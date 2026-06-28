@@ -176,8 +176,15 @@ class _FakeSession:
 
 
 class SkillEvoMapPaymentTests(unittest.TestCase):
-    def _published_event_types(self, publish_mock):
-        return [call.args[1] for call in publish_mock.call_args_list]
+    def _published_event_types(self, *publish_mocks):
+        event_types = []
+        for publish_mock in publish_mocks:
+            for call in publish_mock.call_args_list:
+                if len(call.args) > 1 and isinstance(call.args[1], list):
+                    event_types.extend(event["event_type"] for event in call.args[1])
+                elif len(call.args) > 1:
+                    event_types.append(call.args[1])
+        return event_types
 
     def setUp(self):
         self._settings = {
@@ -253,8 +260,22 @@ class SkillEvoMapPaymentTests(unittest.TestCase):
             captured["timeout"] = timeout
             return _FakeResponse({"order_id": "evomap-order-123", "status": "created"})
 
+        def fake_batch_publish(db, events):
+            for event in events:
+                publish_mock(
+                    db,
+                    event["event_type"],
+                    event.get("payload") or {},
+                    agent_id=event.get("agent_id"),
+                    correlation_id=event.get("correlation_id"),
+                )
+
         with (
             patch("app.services.skill_order_service.try_publish_visualization_event") as publish_mock,
+            patch(
+                "app.services.skill_order_service.try_publish_visualization_events",
+                side_effect=fake_batch_publish,
+            ),
             patch("app.services.evomap_payment_service.urlopen", side_effect=fake_urlopen) as urlopen_mock,
         ):
             result = process_skill_order(

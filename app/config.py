@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     mysql_host: str = "localhost"
     mysql_port: int = 3306
     mysql_user: str = "coffee"
-    mysql_password: str = "coffee123"
+    mysql_password: str = ""
     mysql_database: str = "coffee_ai"
 
     # USE_FAKEREDIS(启用模拟Redis)：true=进程内模拟，无需安装 Redis 服务。
@@ -60,6 +60,13 @@ class Settings(BaseSettings):
     # Chat memory.
     chat_history_rounds: int = 5
     chat_history_ttl: int = 1800
+
+    # Real-time visualization fan-out.
+    visualization_redis_channel: str = "coffee:visualization:events"
+    visualization_connection_queue_size: int = 100
+    visualization_send_timeout_ms: int = 500
+    visualization_presence_ttl_seconds: int = 45
+    visualization_skill_sweep_lock_ttl_seconds: int = 75
 
     # A2A Skill / EvoMap credit ordering.
     skill_free_order_limit: int = 2

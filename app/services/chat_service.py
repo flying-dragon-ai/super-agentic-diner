@@ -13,10 +13,10 @@ from app.rag.retrieval import retrieve
 
 
 # ===== 产品图片解析（按规则缩放说明：免责声明，5 张图出自 5 款基础咖啡，其余 9 款商品复用同品类最接近的图）=====
-# 磁盘上 app/imag/ 只有 5 张 PNG(图片格式)：美式咖啡、柑橘冷萃、莓果拿铁、焦糖玛奇朵、椰香冷萃。
+# 磁盘上 app/images/ 只有 5 张 PNG(图片格式)：美式咖啡、柑橘冷萃、莓果拿铁、焦糖玛奇朵、椰香冷萃。
 # 这些图片对应原始 coffee_kb(咖啡知识库) 5 款基础咖啡。后来 product(产品) 表扩到 14 款，
-# 新增 9 款没有专属图。这里按"品类关键词"映射到同品类已有的图，避免 /imag/xxx.png 404 导致卡片裂图。
-_IMAG_DIR = Path(__file__).resolve().parent.parent / "imag"
+# 新增 9 款没有专属图。这里按"品类关键词"映射到同品类已有的图，避免 /images/xxx.png 404 导致卡片裂图。
+_IMAGES_DIR = Path(__file__).resolve().parent.parent / "images"
 _DEFAULT_IMAGE = "美式咖啡.png"  # 兜底通用咖啡图（纯黑咖啡，最中性）
 
 # 关键词→已有图片映射（按优先级，命中第一个即用）。映射依据：同品类视觉接近。
@@ -38,18 +38,18 @@ _IMAGE_KEYWORD_MAP = [
 def resolve_image_path(name: str) -> str:
     """把产品名解析成浏览器可用的图片 URL 路径。
 
-    解析顺序：① 精确命中 app/imag/{name}.png（5 款基础咖啡走这条）
+    解析顺序：① 精确命中 app/images/{name}.png（5 款基础咖啡走这条）
              ② 按品类关键词映射到同品类已有图（热美式→美式咖啡图 等）
              ③ 全部不命中则兜底通用咖啡图
-    返回形如 /imag/xxx.png 的路径。
+    返回形如 /images/xxx.png 的路径。
     """
     candidate = f"{name}.png"
-    if (_IMAG_DIR / candidate).is_file():
-        return f"/imag/{candidate}"
+    if (_IMAGES_DIR / candidate).is_file():
+        return f"/images/{candidate}"
     for keyword, img in _IMAGE_KEYWORD_MAP:
         if keyword in name:
-            return f"/imag/{img}"
-    return f"/imag/{_DEFAULT_IMAGE}"
+            return f"/images/{img}"
+    return f"/images/{_DEFAULT_IMAGE}"
 
 
 # ===== Product 表 TTL 缓存（菜单极少变化，避免每请求全表扫描）=====

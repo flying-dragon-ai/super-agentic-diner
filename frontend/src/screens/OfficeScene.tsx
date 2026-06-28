@@ -7,6 +7,8 @@ import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Perf } from "r3f-perf";
+import { Leva, useControls } from "leva";
 import { FloorAndWalls, EvoMapAmbientLayer } from "../office3d/scene/environment";
 import { MenuBoardArt, CafePendantLights } from "../office3d/scene/environment";
 import {
@@ -79,7 +81,7 @@ const EVENT_TEXT: Record<string, string> = {
   "order.paid": "支付完成，订单已确认",
   "order.failed": "订单处理失败",
   "order.reply": "店长已回复顾客",
-  "restaurant.customer_entered": "顾客进入EvoMap 进化咖啡馆",
+  "restaurant.customer_entered": "顾客进入Crossroads Agent Café",
   "restaurant.order_ticketed": "已生成点单小票",
   "restaurant.order_confirming": "正在确认订单内容",
   "restaurant.payment_requested": "已向顾客发起支付",
@@ -90,9 +92,9 @@ const EVENT_TEXT: Record<string, string> = {
   "restaurant.order_ready": "咖啡已制作完成",
   "restaurant.order_delivered": "咖啡已送达顾客",
   "restaurant.customer_reviewed": "顾客已完成评价",
-  "restaurant.customer_left": "顾客离开EvoMap 进化咖啡馆",
+  "restaurant.customer_left": "顾客离开Crossroads Agent Café",
   "restaurant.order_failed": "订单流程异常",
-  "agent.registered": "员工已进入EvoMap 进化咖啡馆",
+  "agent.registered": "员工已进入Crossroads Agent Café",
   "presence.customer_joined": "在线顾客已进入",
   "presence.customer_moved": "在线顾客正在移动",
   "presence.customer_left": "在线顾客已离开",
@@ -105,7 +107,7 @@ const AGENT_ACTION_TEXT: Record<string, string> = {
   prepare_coffee: "咖啡师开始制作",
   deliver_order: "服务员正在送餐",
   show_message: "员工正在回复顾客",
-  leave_scene: "员工离开EvoMap 进化咖啡馆",
+  leave_scene: "员工离开Crossroads Agent Café",
 };
 
 function formatSceneEvent(event: VisEvent) {
@@ -113,7 +115,7 @@ function formatSceneEvent(event: VisEvent) {
     const actionType = typeof event.payload?.action_type === "string" ? event.payload.action_type : "";
     return AGENT_ACTION_TEXT[actionType] ?? "员工正在处理订单";
   }
-  return EVENT_TEXT[event.type] ?? "EvoMap 进化咖啡馆状态已更新";
+  return EVENT_TEXT[event.type] ?? "Crossroads Agent Café状态已更新";
 }
 
 export default function OfficeScene() {
@@ -520,6 +522,14 @@ export default function OfficeScene() {
     return null;
   }, [drag, ghostPos, wallDrawStart, worldToCanvas]);
 
+  // Dev-only debug panel: r3f-perf performance monitor + leva coordinate grid.
+  // Hidden in production. Extend by parameterising FURNITURE_SCALE in
+  // office3d/objects/furniture.tsx and binding it through useControls below.
+  const debug = useControls("Scene Debug", {
+    showGrid: { value: false, label: "坐标网格" },
+    gridDivisions: { value: 20, min: 4, max: 100, step: 2, label: "网格密度" },
+  });
+
   return (
     <div style={{ position: "relative", width: "100vw", height: "100vh", background: "#0b0f14" }}>
       <SceneErrorBoundary>
@@ -594,6 +604,17 @@ export default function OfficeScene() {
           <AdaptiveDprController />
           <GameLoop tick={tick} />
         </Suspense>
+        {import.meta.env.DEV && (
+          <>
+            <Perf position="top-left" />
+            {debug.showGrid && (
+              <gridHelper
+                args={[40, debug.gridDivisions, "#ff4040", "#555555"]}
+                position={[0, 0.01, 0]}
+              />
+            )}
+          </>
+        )}
         <OrbitControls
           ref={orbitRef}
           target={[0, 0, 0]}
@@ -603,6 +624,7 @@ export default function OfficeScene() {
         />
       </Canvas>
       </SceneErrorBoundary>
+      <Leva collapsed hidden={!import.meta.env.DEV} />
       <ImmersiveOverlay kind={overlay} onClose={() => setOverlay(null)} />
       <TodayTopicsPanel top={statusTop} wsStatus={status} agentCount={sim.agents.length} />
       <div
@@ -668,7 +690,7 @@ export default function OfficeScene() {
       )}
       <div style={{ position: "absolute", bottom: 12, right: 12, width: "min(360px, calc(100vw - 24px))", maxHeight: eventLogMaxHeight, overflowY: "auto", background: "rgba(8,12,20,0.8)", color: "#cfe0ff", fontFamily: "monospace", fontSize: 11, padding: 8, borderRadius: 6 }}>
         <div style={{ color: "#9fb6d8", fontSize: 11, padding: "0 0 6px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-          EvoMap 进化咖啡馆动态
+          Crossroads Agent Café动态
         </div>
         {events.map((e) => {
           const text = formatSceneEvent(e);

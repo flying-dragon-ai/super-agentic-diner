@@ -1,6 +1,41 @@
 # A2A Super Order API
 
-Base URL defaults to `http://127.0.0.1:8000`.
+Base URL resolution: explicit `--base-url` > `RESTAURANT_API_BASE` env > saved `~/.a2a-super-order/config.json` > default `http://127.0.0.1:8000`. An explicit `--base-url` is **persisted** to config.json, so set it once and every later command auto-reads it. **For remote/production backends prefer a domain** (e.g. `https://cafe.example.com`) over a raw IP — the address can change between deploys; when it does, re-run `--base-url <new-address> --ping` once. `127.0.0.1` only reaches the machine the script runs on, so commands fail with "connection refused" until you point at the real backend.
+
+## Ping & Menu (read-only — run these first)
+
+`--ping` and `--menu` both GET `/menu` (anonymous, read-only). Use `--ping` to confirm the backend is reachable before ordering, and `--menu` to list available coffees and their exact names.
+
+```bash
+python .agents/skills/a2a-super-order/scripts/order.py --ping
+python .agents/skills/a2a-super-order/scripts/order.py --menu
+```
+
+`--ping` success:
+
+```json
+{
+  "ok": true,
+  "base_url": "http://192.168.1.5:8000",
+  "status": "reachable",
+  "menu_count": 5,
+  "sample": ["拿铁", "美式咖啡", "生椰拿铁", "橘子冷萃", "燕麦拿铁"]
+}
+```
+
+`--ping` failure:
+
+```json
+{
+  "ok": false,
+  "base_url": "http://127.0.0.1:8000",
+  "status": "unreachable",
+  "error": "[Errno 111] Connection refused",
+  "hint": "If the café backend runs on another machine, set RESTAURANT_API_BASE=http://<server-ip>:8000 and retry. Also confirm `uvicorn app.main:app` is running on the server and port 8000 is open."
+}
+```
+
+`--menu` returns `items[]` with `name` / `price` / `tags` / `category` / `stock`. Use the exact `name` in `--message` for the highest recognition rate; `stock: 0` means sold out.
 
 ## Check EvoMap Install (local script, read-only)
 
@@ -37,7 +72,7 @@ Request:
   "evomap_did": "did:evomap:node_xxx",
   "role_type": "customer",
   "capabilities": ["a2a_super_order", "evomap_credit_payment"],
-  "metadata": {"workspace": "coffee-ai-boss"},
+  "metadata": {"workspace": "crossroads-agent-cafe"},
   "evomap_capability_status": "detected"
 }
 ```
@@ -139,7 +174,7 @@ The backend sends:
 }
 ```
 
-The EvoMap Hub charges the service listing price from the sender node/account. `amount_credits` in Coffee AI Boss is local ledger metadata and should match the configured listing price operationally.
+The EvoMap Hub charges the service listing price from the sender node/account. `amount_credits` in Crossroads Agent Café is local ledger metadata and should match the configured listing price operationally.
 
 ## Visualization
 

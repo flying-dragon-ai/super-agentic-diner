@@ -1,12 +1,12 @@
 # @evomap/a2a-super-order
 
-> Coffee AI Boss 的 A2A 超级点单 Skill —— 让 Claude Code / Codex / Cursor 等外部 AI 工具**不开网页**就能点咖啡。
+> Crossroads Agent Café 的 A2A 超级点单 Skill —— 让 Claude Code / Codex / Cursor 等外部 AI 工具**不开网页**就能点咖啡。
 
 [English](#overview) · 中文
 
 ## Overview
 
-A **thin-client** CLI. All business logic (orders, payment, idempotency, visualization events) lives in the [Coffee AI Boss](https://github.com/flying-dragon-ai/super-agentic-diner) backend. This package only registers a consumer, posts order requests, and manages local credentials.
+A **thin-client** CLI. All business logic (orders, payment, idempotency, visualization events) lives in the [Crossroads Agent Café](https://github.com/flying-dragon-ai/super-agentic-diner) backend. This package only registers a consumer, posts order requests, and manages local credentials.
 
 The npm bin is a tiny Node wrapper that locates Python 3 and dispatches to `scripts/order.py` (pure standard library — zero Python dependencies).
 
@@ -14,17 +14,25 @@ The npm bin is a tiny Node wrapper that locates Python 3 and dispatches to `scri
 
 ## 工作流
 
-1. 确保 Coffee AI Boss 服务器运行中（默认 `http://127.0.0.1:8000`）
-2. 只读检测 EvoMap 安装状态：`npx @evomap/a2a-super-order --check-evomap`
-3. 下单：`npx @evomap/a2a-super-order --message "一杯拿铁"`
-4. 每个 EvoMap 节点的**前 2 单免费**；第 3 单起由后端发起 EvoMap service-order 扣 credits
+> ⚠️ **跨主机必读**：若后端在另一台机器，先设一次地址（**持久化**到 `~/.a2a-super-order/config.json`，后续命令自动读；**建议用域名**，IP 变化时重新设一次即可）：
+>
+> ```bash
+> npx @evomap/a2a-super-order --base-url https://cafe.example.com --ping
+> ```
+>
+> 不设的话默认 `127.0.0.1` 只连本机，所有命令报 `connection refused`。
+
+1. **探活**（确认后端可达）：`npx @evomap/a2a-super-order --ping`
+2. **看菜单**（拿到可点的咖啡名）：`npx @evomap/a2a-super-order --menu`
+3. **下单**（前 2 单免费，无需 EvoMap）：`npx @evomap/a2a-super-order --message "一杯拿铁"`
+4. 第 3 单起返回 402 时才检测 EvoMap：`npx @evomap/a2a-super-order --check-evomap`，按提示安装并扣 credits
 
 ## 前置条件
 
 | 依赖 | 必需 | 说明 |
 |------|------|------|
 | **Python ≥ 3.7** | ✅ | 核心脚本是 Python；Node wrapper 自动查找 `python3`/`python`，未安装时友好报错 |
-| **Coffee AI Boss 后端** | ✅ | 默认 `http://127.0.0.1:8000`，用 `RESTAURANT_API_BASE` 覆盖 |
+| **Crossroads Agent Café 后端** | ✅ | 默认 `http://127.0.0.1:8000`，用 `RESTAURANT_API_BASE` 覆盖 |
 | **EvoMap CLI** | 付费单需要 | `npx @evomap/evolver --loop` 首次注册赠 100 积分，凭证写入 `~/.evomap/` |
 
 ## 安装与使用
@@ -59,8 +67,10 @@ npx @evomap/a2a-super-order --message "一杯拿铁" --request-id req-a2a-003 --
 
 | 参数 | 环境变量 | 说明 |
 |------|---------|------|
-| `--message` | — | 点单文本（除非 `--register-only`/`--check-evomap` 否则必填） |
-| `--base-url` | `RESTAURANT_API_BASE` | API 地址，默认 `http://127.0.0.1:8000` |
+| `--ping` | — | **第一步**：GET `/menu` 探活，确认后端可达（只读，无副作用） |
+| `--menu` | — | GET `/menu` 列出可点咖啡（name/price/tags/stock，只读） |
+| `--message` | — | 点单文本（除非 `--ping`/`--menu`/`--register-only`/`--check-evomap` 否则必填）。用 `--menu` 里的精确咖啡名 |
+| `--base-url` | `RESTAURANT_API_BASE` | 后端地址，**设一次即持久化**到 `~/.a2a-super-order/config.json`，后续自动读。优先级：`--base-url` > 环境变量 > 配置 > 默认 `127.0.0.1:8000`（**跨主机必须设**，建议用域名） |
 | `--tool-name` | `RESTAURANT_TOOL_NAME` | 工具名，默认 `codex` |
 | `--display-name` | `RESTAURANT_AGENT_NAME` | 显示名，默认系统账号名（`getpass.getuser()`） |
 | `--evomap-node-id` | `EVOMAP_NODE_ID` / `A2A_NODE_ID` | 消费者节点 ID；省略则查 `.mcp.json` 或用占位 |

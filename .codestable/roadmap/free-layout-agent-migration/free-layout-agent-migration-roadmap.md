@@ -13,9 +13,9 @@ related_architecture: [ARCHITECTURE]
 
 ## 1. 背景
 
-Coffee AI Boss 当前已有 FastAPI + 静态 HTML/JS/CSS 的餐厅可视化：后端通过 `VisualizationEvent` 持久化事件，经 `/ws/visualization` 广播；前端 `order-visualization.js` 用固定 `points`、固定家具绘制和直线插值移动来表现订单流程。
+Crossroads Agent Café 当前已有 FastAPI + 静态 HTML/JS/CSS 的餐厅可视化：后端通过 `VisualizationEvent` 持久化事件，经 `/ws/visualization` 广播；前端 `order-visualization.js` 用固定 `points`、固定家具绘制和直线插值移动来表现订单流程。
 
-`D:\temp\EVOMAP\pixel-agents-main` 提供了更完整的像素空间机制：`OfficeLayout` 网格布局、tile/furniture/seat 数据结构、BFS 路径移动、RAF 渲染循环、z-sort、sprite asset catalog、编辑器拖拽/绘制，以及 Agent 生命周期事件接入。本 roadmap 目标是迁移这些核心能力到 Coffee AI Boss，但保留当前 FastAPI、MySQL、Redis、A2A Skill、订单/支付逻辑边界。
+`D:\temp\EVOMAP\pixel-agents-main` 提供了更完整的像素空间机制：`OfficeLayout` 网格布局、tile/furniture/seat 数据结构、BFS 路径移动、RAF 渲染循环、z-sort、sprite asset catalog、编辑器拖拽/绘制，以及 Agent 生命周期事件接入。本 roadmap 目标是迁移这些核心能力到 Crossroads Agent Café，但保留当前 FastAPI、MySQL、Redis、A2A Skill、订单/支付逻辑边界。
 
 ## 2. 范围与明确不做
 

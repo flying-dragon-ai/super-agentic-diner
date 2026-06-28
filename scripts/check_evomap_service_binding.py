@@ -135,7 +135,7 @@ def check_binding(env_path: Path, timeout: float) -> tuple[int, dict[str, Any]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Check Coffee AI Boss EvoMap service listing and provider-worker binding."
+        description="Check Crossroads Agent Café EvoMap service listing and provider-worker binding."
     )
     parser.add_argument("--env-file", default=".env", help="Path to the local env file.")
     parser.add_argument("--timeout", type=float, default=20.0, help="HTTP timeout in seconds.")

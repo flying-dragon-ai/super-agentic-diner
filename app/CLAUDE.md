@@ -6,7 +6,8 @@
 
 | 时间 | 动作 | 说明 |
 |------|------|------|
-| 2026-06-21 | 3D 交互增强（第三步） | **/chat 广播 show_message 打通 3D 店长气泡**（`docs/3D交互增强-执行计划.md` 第三步）。① `chat()` 新增 `_broadcast_reply_speech(text)` 闭包 helper：在 customer_agent 块后预取 `staff:manager` agent（只读 `db.query`，不触发创建），best-effort 调 `staff_service.publish_agent_action(db, mgr, "show_message", text=text[:200], correlation_id=req.request_id)`，失败 swallow 不阻断回复。② **7 个 return 点**（查看订单/下单失败/下单成功/咖啡未解析/待确认订单/编排器 orch.reply/降级 handle_message）前各加一行 `_broadcast_reply_speech(...)`，统一覆盖所有回复路径含 LLM 无 key 降级。③ **前端链路已就绪无需改动**：`sim/agentStore.applyEvent` 的 `show_message` 分支（`payload.text → speech Map`）早已存在，`office3d/objects/agents.tsx` 读 `speechText` 渲染气泡（`flattenSpeechBubbleMarkdown`+`clampSpeechBubbleText` 180 字截断）。④ 验证：`POST /chat`（user_id=99998）reply 正常（"你好呀！☕ 欢迎来到 EvoMap..."），**⚠️ 需后端重启加载新代码后 `show_message` 事件才广播**（当前 uvicorn 进程未带 `--reload` 或 Windows reload 卡死，改动未自动生效；重启后 `/visualization/events` 可见 `agent.action/show_message`）。语法检查通过（`ast.parse` OK）。`publish_agent_action` 是 best-effort，绝不阻断点单/支付 |
+| 2026-06-28 13:13 | 增量校验（第十次 init） | **数据栈本地化 + 用户画像/访客分析/复购/自主顾客四大新功能**（仅文档，不改源码；对照 `031608f`→`25ed549`，40+ commit）。① **⚠️ 数据栈本地化**（`a5938db`）：`DB_MODE=sqlite`（默认 `coffee_ai.db`）+ `USE_FAKEREDIS=true`（默认进程内），本地零配置；生产可切 mysql+真 Redis。② **表数 17→20**：新增 `VisitorInsight`(访客洞察,LLM 流失原因)/`ChatMessage`(对话持久化归档,`chat_history.add_message` 双写)/`UserProfile`(LLM 口味画像,镜像 `User.taste_preference`,增量游标)。③ **新 4 services**：`autonomous_agent_service`(数字顾客自主循环,`5dd3ce8`)/`visitor_analytics_service`(访客分析,`4031978`)/`user_profile_service`+`reorder_service`(画像+复购,`82e7dd1`)。④ **测试 12→16**：+`test_reorder`/`test_review_apology`/`test_user_profile`/`test_schema_consistency_migration`。⑤ **✅ reviewer 遗留 bug 已修**：`chat_with_role` 已加 `timeout_seconds` 形参(`llm/client.py:330`)，复盘不再静默失效。⑥ LLM 超时再调(connect 3→10s, generation 12→25→40s)。详见根 CLAUDE.md 第十次 init 条目 |
+| 2026-06-21 | 3D 交互增强（第三步） | **/chat 广播 show_message 打通 3D 店长气泡**（`docs/features/3d-interaction-enhancement-plan.md` 第三步）。① `chat()` 新增 `_broadcast_reply_speech(text)` 闭包 helper：在 customer_agent 块后预取 `staff:manager` agent（只读 `db.query`，不触发创建），best-effort 调 `staff_service.publish_agent_action(db, mgr, "show_message", text=text[:200], correlation_id=req.request_id)`，失败 swallow 不阻断回复。② **7 个 return 点**（查看订单/下单失败/下单成功/咖啡未解析/待确认订单/编排器 orch.reply/降级 handle_message）前各加一行 `_broadcast_reply_speech(...)`，统一覆盖所有回复路径含 LLM 无 key 降级。③ **前端链路已就绪无需改动**：`sim/agentStore.applyEvent` 的 `show_message` 分支（`payload.text → speech Map`）早已存在，`office3d/objects/agents.tsx` 读 `speechText` 渲染气泡（`flattenSpeechBubbleMarkdown`+`clampSpeechBubbleText` 180 字截断）。④ 验证：`POST /chat`（user_id=99998）reply 正常（"你好呀！☕ 欢迎来到 EvoMap..."），**⚠️ 需后端重启加载新代码后 `show_message` 事件才广播**（当前 uvicorn 进程未带 `--reload` 或 Windows reload 卡死，改动未自动生效；重启后 `/visualization/events` 可见 `agent.action/show_message`）。语法检查通过（`ast.parse` OK）。`publish_agent_action` 是 best-effort，绝不阻断点单/支付 |
 | 2026-06-21 09:55 | 增量校验（第九次 init） | **一致性校验 + 补漏**（仅文档，不改源码；对照 HEAD `031608f`）。① **表数校正 16→17**：`models.py` 实测 17 个 `class X(Base)`，新增**第 17 张表 `office_layout`**（3D 编辑器布局持久化，全局单例 by `namespace`）+ 新 service `office_layout_service.py`（`get_layout`/`save_layout` upsert，JSON 损坏降级 None 不阻塞渲染）。② **新增路由补录**：`GET /menu`（菜单图片卡片数据源，前端 `.menu-card` 消费，`get_all_products` 60s 缓存）、`GET|PUT /api/office/layout`（3D 编辑器布局读写，匿名可读写遵循无登录门槛原则）。③ **测试段校正**：app/CLAUDE.md 原"34 passed"已过时，实测 12 个 pytest 文件（根 CLAUDE.md 计数），详见测试段。④ **FAQ 根路由校正**：原第一条 Q 仍写"`/` 匿名直出不校验登录"——与 `d408c58` 恢复的登录门槛矛盾，已改为"根路由 `/` 需登录（未登录 302 `/3d/login`），但点单 API `/chat` 匿名"。⑤ 文件清单补 `office_layout_service.py` + 修 `main.py`/`models.py` 描述。⑥ 校验通过项（保持不动）：startup `_ensure_staff_seeded` 不广播、`/3d/sounds` mount 已恢复、reviewer timeout_seconds 遗留 bug 标注、多 Agent 协作架构、LLM 超时系统重构均准确 |
 | 2026-06-21 08:10 | 增量刷新（第八次 init） | **多 Agent 协作架构 + LLM 超时系统完整重构 + /chat 加速 + 16 表**。① **多 Agent 协作**（详见新增「多 Agent 协作架构」小节）：`services/agents/`（manager/recommender/reviewer/experience）+ `agent_orchestrator.orchestrate`（/chat 的 recommend/chat 入口）+ `evomap_evolution_service`（UA 伪装绕 Cloudflare + REST 风格记忆 API）+ 第 16 表 `AgentExperience` + 新端点 `/admin/agent-collaboration`·`/admin/evomap/status`；复盘走后台线程（`_run_review_background`），经验三写（MySQL+Redis+EvoMap）。② **LLM 超时系统完整重构**（`6ba57cc`）：config 加 `redis_socket_connect/timeout=3/5s` + `llm_connect/intent/generation/review_timeout=3/4/12/6s`（保留 `llm_timeout=15s`）；client `_timeout()` 分阶段 httpx.Timeout + `_run_with_wall_clock_timeout()` **ThreadPoolExecutor 挂钟超时** + `reset_client`；parse_intent 用 intent 超时 + temp=0.0 + 只传最近 2 轮。③ **暖身店长 persona** + INTENT_PROMPT 精简（省 ~470 tokens/次）。④ **/chat 加速**：`_detect_exact_product`（精确+部分匹配，歧义不返回）+ `_is_clearly_non_order` 启发式跳过 parse_intent；`ChatResponse` 新增 `products` 卡片字段；`get_all_products` 60s TTL 缓存。⑤ **同义词地图 70+ 条**（9 大类）+ 未知咖啡品类友好兜底。⑥ **EvoMap 进化服务** UA 伪装绕 Cloudflare + record_lesson/recall 改 REST 风格。⑦ **⚠️ 根路由 `/` 恢复登录门槛**（`d408c58`，反转第七次匿名直出）：未登录→302 `/3d/login`，已登录→2D 聊天页；`/3d/*` + `POST /chat` 仍匿名。⑧ startup `_ensure_staff_seeded()` **不广播**。⑨ **遗留 bug**：`reviewer_agent.py:67,81` 调 `chat_with_role(timeout_seconds=)` 签名不匹配→TypeError，被后台线程兜住→复盘静默失效（不伤业务）。测试 71 passed（11 文件，第九次 init 校正为 12 文件）。覆盖率 99% |
 | 2026-06-21 01:47 | 增量刷新 | **在线用户显示模型 + WS presence + Skill 心跳 + 服务员并发去重 + `/3d/sounds` 挂载**。① **`visualization_service.VisualizationHub`**：加 `_ws_agent` 在线映射（websocket→顾客 agent_id）+ `register_ws_presence`/`online_ws_agent_ids`；拆出 `broadcast_others`（排除自己、不持久化）与 `broadcast_transient`（不持久化，用于上线/离线/sweep 通知，避免污染 `_recent_events` 回放缓冲）；原 `broadcast` 仍持久化业务事件。② **WS 端点 `/ws/visualization` 重写**：连接时读 `websocket.cookies` → `auth_service.read_session_token` → `account.user_id` → `ensure_web_customer_agent` → `register_ws_presence`（未登录跳过、不显示）；DB 操作用 `anyio.to_thread.run_sync` 避免阻塞事件循环；snapshot 由 `_build_snapshot_agents(db)` 构造传入 `connect(ws, agents=...)`（修原先恒空）；上线 `broadcast_others`、离线 `broadcast_transient` 实时增删人偶。③ **`_build_snapshot_agents`**：4 服务员常驻 + 在线顾客（`agent_id in online_ws_agent_ids` OR `last_seen_at >= now - ONLINE_WINDOW_SECONDS(120)`）。④ **`_register_web_customer_presence`**：Cookie→account→建/复用顾客 agent→刷新 `last_seen_at` + display_name 用真实账号名。⑤ **startup `_ensure_staff_seeded`**（幂等创建 4 服务员；删掉原先无效的 `broadcast_from_sync` 广播——async 上下文失效且无接收者）+ **`_skill_presence_sweep_loop`**（后台每 30s 清扫过期 Skill 顾客，广播 `leave_scene`，修"Skill 用户离线后人偶不消失"；web 用户由 disconnect handler 即时处理，sweep 只管非 WS 的 Skill 用户）。⑥ **`staff_service` 重构**：`ensure_staff_agents`/`ensure_web_customer_agent` 改 ensure→`_collapse_duplicate_agents`→重查 survivor 返回（修并发 race：`tool_name` 无唯一约束 + query-then-create 重复创建；不能加全局唯一约束，因 skill 路径 `codex` 合法重复）；`ensure_staff_agents` 用 `in_` 批量查询。⑦ **`skill_order_service._complete_order`** 更新 `agent.last_seen_at`（Skill 心跳，原先只更新 consumer）。⑧ **静态挂载补 `/3d/sounds`**（修背景音乐 mp3 被 `/3d/{path}` SPA fallback 返回 HTML 的 bug）。新增 `tests/test_web_presence_snapshot.py`（5 用例）。覆盖率 99% |
@@ -19,19 +20,23 @@
 
 ## 模块职责
 
-Coffee AI Boss 的 Python 后端，提供：
+Crossroads Agent Café 的 Python 后端，提供：
 1. **对话式点单**（`/chat`）：LLM 意图分类 + RAG 推荐 + 两段式确认 + 余额扣款。匿名 `user_id`（`/chat` 本身无 auth 依赖；根路由 `/` 有登录门槛但点单 API 不依赖）。
 2. **A2A Skill 点单**（`/skill/register`、`/skill/orders`）：EvoMap 消费者身份 + 积分支付 + 免费额度（走 Agent token，非账户登录）。
 3. **Agent 可视化 API**（`/agents/*`、`/agents/{id}/actions`）：外部 Agent 工具注册并上报动作，生成可视化事件。
 4. **实时可视化**（`/ws/visualization`、`/visualization/events`、`/admin/restaurant-state`）：事件流持久化 + WebSocket 广播。
 5. **服务员团队编排**（`services/staff_service.py`）：4 个固有服务员 + 业务节点→服务员动作编排（2026-06-20 新增）。
-6. **多 Agent 协作**（`services/agents/` + `agent_orchestrator.py`，2026-06-21 落地）：店长(意图+纠正/生气/重复检测)→推荐(RAG+硬过滤+经验)→[后台]复盘(失误分析)→经验继承(MySQL+Redis+EvoMap 三写)；`/chat` 的 recommend/chat 走编排器，配合 EvoMap 群体进化共享经验。
+6. **多 Agent 协作**（`services/agents/` + `agent_orchestrator.py`，2026-06-21 落地）：店长(意图+纠正/生气/重复检测)→推荐(RAG+硬过滤+经验)→[后台]复盘(失误分析)→经验继承(持久化 DB+Redis+EvoMap 三写；DB 默认 SQLite 可选 MySQL)；`/chat` 的 recommend/chat 走编排器，配合 EvoMap 群体进化共享经验。
 7. **账户认证**（`/auth/*`）：3D 前端的注册/登录/登出/会话。根路由 `/` 的登录门槛依赖它；点单 API 不依赖。
 8. **3D 编辑器布局持久化**（`/api/office/layout` GET/PUT + `office_layout_service.py`，2026-06-20 新增）：全局单例（`namespace='default'`）家具布局存储，员工编辑一次所有访客共享，JSON 损坏降级 None 不阻塞渲染。
+9. **用户口味画像**（`user_profile_service.py` + `UserProfile`/`ChatMessage` 表，2026-06-27 `82e7dd1` 新增）：LLM 归纳用户口味摘要（≤200 字），镜像 `User.taste_preference` 供前端零改动展示；`ChatMessage` 表持久化对话（Redis 只存近期），增量游标 `last_msg_id` 避免重复总结。
+10. **访客分析**（`visitor_analytics_service.py` + `VisitorInsight` 表，2026-06-27 `4031978` 新增）：每用户每天一条访客洞察，实时跟踪意图/下单，流失时 LLM 分析原因并记入自进化系统，3D 社交面板展示。
+11. **复购意图识别**（`reorder_service.py`，2026-06-27 `82e7dd1` 新增）：基于用户画像 + 历史订单识别复购意图，辅助推荐。
+12. **数字顾客自主循环**（`autonomous_agent_service.py`，2026-06-21 `5dd3ce8` 新增）：数字顾客自主买咖啡循环 + 3D 交互优化。
 
 ## 入口与启动
 
-- **入口**：`app/main.py`（`app = FastAPI(title="智能咖啡馆 AI 店长")`）
+- **入口**：`app/main.py`（`app = FastAPI(title="Crossroads Agent Café")`）
 - **启动**（推荐二选一）：
   - `uvicorn app.main:app --reload --reload-dir app`（`--reload-dir app` 规避根目录 `_mock_hub.py` 触发的热重载干扰）
   - `uvicorn app.main:app`（不带 `--reload`，Windows + merge 频繁文件变化时 `--reload` 易卡死的兜底）
@@ -44,7 +49,7 @@ Coffee AI Boss 的 Python 后端，提供：
   - `/static` → `app/static/`（构建产物区，含回归活跃的 2D 聊天页 `index.html`，由根路由 `/` 在已登录时返回）
   - `/3d/assets`、`/3d/office-assets` → `app/static/3d/`（Vite 构建产物）
   - **`/3d/sounds` → `app/static/3d/sounds/`**（`m1.mp3`/`m2.mp3` 背景音乐；独立 mount 修此前被 `/3d/{path}` SPA fallback 返回 HTML 致 audio 静默的 bug）
-  - **`/` → 有登录门槛**：`index()`（`main.py:1855`）读会话 Cookie → 未登录 302 `/3d/login`；已登录返回 2D 聊天页 `app/static/index.html`（含 `.menu-card` 卡片，fetch `/menu`）。**点单 API `/chat` 与 `/3d/*` 仍匿名**。
+  - **`/` → 有登录门槛**：`index()`（`app/main.py`）读会话 Cookie → 未登录 302 `/3d/login`；已登录返回 2D 聊天页 `app/static/index.html`（含 `.menu-card` 卡片，fetch `/menu`）。**点单 API `/chat` 与 `/3d/*` 仍匿名**。
   - `/3d`、`/3d/{path}` → 3D SPA（fallback 到 index.html，支持 `/3d/scene`、`/3d/login`、`/3d/dashboard`、`/3d/machines` 客户端路由；均匿名可访问）
 
 ## 对外接口
@@ -81,15 +86,15 @@ Coffee AI Boss 的 Python 后端，提供：
 
 - **Web 框架**：FastAPI + Uvicorn（`requirements.txt`）
 - **ORM**：SQLAlchemy 2.0（`declarative_base`，`pool_pre_ping` + `pool_recycle=3600`）
-- **数据库**：MySQL 8.0（`mysql+pymysql`，唯一支持的持久化后端）
-- **缓存/记忆**：Redis（短期对话历史 List + 待确认订单 String）
+- **数据库**：**SQLite 默认**（`coffee_ai.db` 文件，`DB_MODE=sqlite`，零配置开箱即跑）/ MySQL 8.0 可选（`DB_MODE=mysql`，`mysql+pymysql`）；`config.database_url` property 按模式切换（`a5938db` 2026-06-26 起，"MySQL server compromised"）
+- **缓存/记忆**：**fakeredis 默认**（进程内模拟，`USE_FAKEREDIS=true`，零配置）/ Redis 7 可选（`USE_FAKEREDIS=false`，短期对话历史 List + 待确认订单 String）；redis-py pin <6.0.0 修 fakeredis 8s lrange stall（`0abcb08`）。**长期对话归档**走 `ChatMessage` 表（2026-06-27 新增，`chat_history.add_message` 双写 best-effort，供用户画像增量总结）
 - **LLM**：OpenAI 兼容协议，用 `httpx` 直连（**非** openai SDK，避免版本冲突）；429 自动重试 1 次
 - **EvoMap 支付**：用标准库 `urllib.request` 直连（`evomap_payment_service.py`，非 httpx），`x-correlation-id=request_id`
 - **分词**：jieba（中文关键词 RAG）
 - **认证**：bcrypt + itsdangerous（签名 Cookie）——根路由 `/` 门槛 + `/auth/*` + WS presence 用；点单 API（`/chat`、`/skill/orders`）不依赖
 - **配置**：`app/config.py` 用 `pydantic-settings` 从 `.env` 读取；`effective_llm_api_key` 按优先级选 `LLM_API_KEY > DEEPSEEK_API_KEY > OPENAI_API_KEY`，过滤 placeholder。 
 
-## 数据模型（`app/db/models.py`，17 张表）
+## 数据模型（`app/db/models.py`，20 张表）
 
 | 表 | 说明 | 关键字段 |
 |----|------|---------|
@@ -110,10 +115,13 @@ Coffee AI Boss 的 Python 后端，提供：
 | `visualization_event` | 可视化事件流（持久化） | event_type, payload_json, correlation_id, agent_id |
 | `agent_experience` | 多 Agent 经验（复盘教训持久化，2026-06-21 新增，第 16 张表） | experience_id, user_id, agent_role, coffee_name, context_tags, insight, rating, order_id, correlation_id（Index: user_id+context_tags） |
 | `office_layout` | 3D 编辑器布局（全局单例 by namespace，2026-06-20 新增，**第 17 张表**） | layout_id, namespace(unique), layout_json（FurnitureItem[] JSON blob）, updated_at |
+| `visitor_insight` | 访客洞察（2026-06-27 新增，**第 18 张表**，`4031978`）：每用户每天一条，实时更新意图/下单 | insight_id, user_id(FK), visit_date, primary_intent(order/recommend/chat/browse), ordered, churn_reason(LLM 流失分析), ai_insight |
+| `chat_message` | 对话消息持久化归档（2026-06-27 新增，**第 19 张表**，画像数据源） | message_id, user_id(FK), role(user/assistant), content, created_at；`chat_history.add_message` 双写 best-effort |
+| `user_profile` | 用户口味画像（2026-06-27 新增，**第 20 张表**，`82e7dd1`）：LLM 归纳摘要 | profile_id, user_id(FK,unique), summary(≤200字), profile_json(favorite_tags/avoid_tags/price_tier/persona), last_msg_id(增量游标), order_count |
 
 **CHECK 约束**：order.source_type / status / payment_status、agent/consumer.status、ledger.payment_status 都用域常量（`app/domain_constants.py`）做数据库级校验。`WALLET_CURRENCY_CREDITS = "credits"`（`domain_constants.py:88`）。
 
-> 说明：本次扫描（第九次 init）在 `models.py` 实测 **17 个 `class X(Base)`**。`order_item`/`product`/`user_wallet`/`balance_transaction` 是 Skill 点单落库与新目录体系引入；`agent_experience` 是多 Agent 协作引入；`office_layout` 是 3D 编辑器持久化引入（JSON blob，不做关系分解，~100 项家具）。服务员团队**不新增表**，复用 `agent_profile`（`tool_name` 用 `staff:{role}` 约定，`metadata_json={"source":"staff","staff_role":role}`）。
+> 说明：本次扫描（第十次 init）在 `models.py` 实测 **20 个 `class X(Base)`**。`order_item`/`product`/`user_wallet`/`balance_transaction` 是 Skill 点单落库与新目录体系引入；`agent_experience` 是多 Agent 协作引入；`office_layout` 是 3D 编辑器持久化引入；`visitor_insight`/`chat_message`/`user_profile` 是 2026-06-27 访客分析 + 用户画像引入（`4031978`/`82e7dd1`）。服务员团队**不新增表**，复用 `agent_profile`（`tool_name` 用 `staff:{role}` 约定，`metadata_json={"source":"staff","staff_role":role}`）。
 
 ## 核心流程
 
@@ -166,7 +174,7 @@ _complete_order(落库 + 钱包镜像):
 
 ### 服务员团队编排（`app/services/staff_service.py`，2026-06-20 新增）
 
-> 对应 `docs/smart-search-evidence/20260619-coffee-pixel-style/SKILL-VISUALIZATION-ROADMAP.md` 的 Phase 2/3/4。决策：**后端编排**（前端只读渲染），服务员 agent_id 用固定约定（`staff:barista` 等），无"谁空闲"调度（YAGNI）。
+> 对应 `docs/evidence/smart-search/20260619-coffee-pixel-style/SKILL-VISUALIZATION-ROADMAP.md` 的 Phase 2/3/4。决策：**后端编排**（前端只读渲染），服务员 agent_id 用固定约定（`staff:barista` 等），无"谁空闲"调度（YAGNI）。
 
 **4 个固有服务员**（`STAFF_ROLES`，启动幂等创建）：
 
@@ -221,7 +229,7 @@ _complete_order(落库 + 钱包镜像):
 | 店长 manager | `manager_agent.py` | `parse_intent`(委托 llm) + `detect_correction/anger/repeat`(bigram Jaccard ≥0.7) + `detect_review_trigger`(优先级 correction>anger>repeat) |
 | 推荐 recommender | `recommender_agent.py` | RAG 检索 + **硬过滤**(`_apply_hard_filters`: banned_names/banned_tags) + 经验软引导(注入《推荐前必读》) + `RECOMMENDER_PROMPT` |
 | 复盘 reviewer | `reviewer_agent.py` | `review_mistake`：LLM 分析失误(`REVIEWER_PROMPT`→mistake_type/insight/rating) + 经验继承压缩 + 三写 |
-| 经验继承 experience | `experience_agent.py` | `save_experience`(MySQL+Redis+EvoMap 三写) + `get_hard_filters`(低评分拉黑+否定口味 tag) + `sync_community_experience` |
+| 经验继承 experience | `experience_agent.py` | `save_experience`(DB+Redis+EvoMap 三写) + `get_hard_filters`(低评分拉黑+否定口味 tag) + `sync_community_experience` |
 
 **关键设计**：
 - **复盘后台异步**：`threading.Thread(target=_run_review_background, daemon=True)`，独立 db session，失败 swallow——省 2-6s，不阻塞推荐。
@@ -229,7 +237,7 @@ _complete_order(落库 + 钱包镜像):
 - **EvoMap 群体进化**：`evomap_evolution_service` 心跳(5min) + 进化圈共享经验池；`record_lesson`(sender_id+status+signals) / `recall_community_lessons`；UA 伪装绕 Cloudflare。
 - **可视化事件**：编排产生 `agent.manager.intent`/`agent.recommender.suggesting`/`agent.recommender.suggested`/`agent.reviewer.reviewing`/`agent.experience.applied`，大屏 `/admin/agent-collaboration` 展示。
 
-**⚠️ 遗留 bug**：`reviewer_agent.py:67,81` 调 `chat_with_role(timeout_seconds=...)` 签名不匹配 → TypeError；无 key 时提前 return 不触发，有 key 时被 `_run_review_background` 兜住→复盘静默失效（不伤业务）。修法：给 `chat_with_role` 加 `timeout_seconds: float | None = None` 透传。
+**✅ 遗留 bug 已修**（第十次 init 确认）：`reviewer_agent` 调 `chat_with_role(timeout_seconds=...)` 的签名问题已解决——`chat_with_role` 已在 `llm/client.py:330` 加 `timeout_seconds: float | None = None` 形参，调用合法，复盘不再静默失效（很可能就是 `7e7e46b`「修复复盘道歉失效」修的）。`test_review_apology.py` 是对应回归测试。
 
 ---
 
@@ -276,14 +284,14 @@ HTTP 错误映射: 401/402/429 原样透传；404/≥500 → 502；其余 → 40
 ## 测试与质量
 
 - 测试目录：仓库根 `tests/`（不在 app/ 内）
-- 后端相关测试（12 个 pytest 文件，详见根 CLAUDE.md「测试策略」）：`test_llm_configuration.py`(LLM key + 超时配置)、`test_chat_confirm.py`(两段式确认)、`test_chat_fast_path.py`(`_detect_exact_product`)、`test_chat_heuristic.py`(`_is_clearly_non_order`)、`test_chat_history_fallback.py`(Redis 降级)、`test_chat_order_view.py`(查看订单)、`test_catalog_disambiguation.py`(商品歧义)、`test_product_wallet_unit.py`+`test_product_wallet_integration.py`(商品目录+钱包)、`test_skill_evomap_payment.py`(Skill 支付)、`test_web_presence_snapshot.py`(WS presence)、`test_customer_enter_scene.py`(顾客进场统一入口，2026-06-21 08:40 新增)；另有 `verify_quick_menu.py`(快捷菜单验证脚本，非 pytest)。
+- 后端相关测试（16 个 pytest 文件，详见根 CLAUDE.md「测试策略」）：`test_llm_configuration.py`(LLM key + 超时配置)、`test_chat_confirm.py`(两段式确认)、`test_chat_fast_path.py`(`_detect_exact_product`)、`test_chat_heuristic.py`(`_is_clearly_non_order`)、`test_chat_history_fallback.py`(Redis 降级)、`test_chat_order_view.py`(查看订单)、`test_catalog_disambiguation.py`(商品歧义)、`test_product_wallet_unit.py`+`test_product_wallet_integration.py`(商品目录+钱包)、`test_skill_evomap_payment.py`(Skill 支付)、`test_web_presence_snapshot.py`(WS presence)、`test_customer_enter_scene.py`(顾客进场统一入口，2026-06-21 08:40 新增)、`test_reorder.py`(复购意图识别，`82e7dd1`)、`test_review_apology.py`(复盘道歉回归，`7e7e46b`)、`test_user_profile.py`(用户口味画像，`82e7dd1`)、`test_schema_consistency_migration.py`(schema 迁移一致性)；另有 `verify_quick_menu.py`(快捷菜单验证脚本，非 pytest)。
 - 种子数据：`app/db/seed.py`（5 款咖啡 + user_id=1 测试顾客，余额 100）；服务员团队由 `ensure_staff_agents` 在启动时幂等创建（非 seed.py）。
 - 迁移脚本（`scripts/`，均幂等不删数据）：`init_db.py`(建表+种子)、`migrate_order_sources.py`、`migrate_user_accounts.py`、`migrate_product_catalog.py`(从 coffee_kb 回填 product)、`migrate_wallet_ledger.py`、`migrate_order_lineitem.py`(order 列扩展+CHECK 重建)、`migrate_agent_experience.py`(第 16 表)；另 `start.sh` Linux 生产启动脚本（绑 0.0.0.0、单 worker 保 WS presence、含连通性检查）。
-- **覆盖缺口**：`staff_service` 编排无独立单元测试（靠真实订单链 + mock Hub 验证）；付费 Skill 单端到端未跑通（依赖 Owner 真实 EvoMap Hub 凭证，非代码缺陷）；`parse_intent`/`orchestrate_staff_node`/`_register_web_customer_presence` 无直接单测；`reviewer_agent` 的 `chat_with_role(timeout_seconds=)` TypeError 无测试暴露（无 LLM key 时 `review_mistake` 提前 return）。
+- **覆盖缺口**：`staff_service` 编排无独立单元测试（靠真实订单链 + mock Hub 验证）；付费 Skill 单端到端未跑通（依赖 Owner 真实 EvoMap Hub 凭证，非代码缺陷）；`parse_intent`/`orchestrate_staff_node`/`_register_web_customer_presence` 无直接单测；`reviewer_agent` 的 `chat_with_role(timeout_seconds=)` **签名已修**（`client.py:330`，第十次 init 确认），`test_review_apology.py` 提供回归覆盖；无 LLM key 时 `review_mistake` 仍提前 return。
 
 ## 常见问题 (FAQ)
 
-- **Q: 访问 `/` 需要登录吗？** A: **根路由 `/` 需登录**（`index()`，`main.py:1855`，`d408c58` 恢复门槛）：未登录→302 `/3d/login`，已登录→2D 聊天页 `app/static/index.html`。但**点单不受影响**——`POST /chat` 无 auth 依赖、`/3d/*` 与 `/skill/orders` 全程匿名（详见下条）。3D 未构建时根路由仍 404 提示 `cd frontend && npm run build`。
+- **Q: 访问 `/` 需要登录吗？** A: **根路由 `/` 需登录**（`index()`，`app/main.py`，`d408c58` 恢复门槛）：未登录→302 `/3d/login`，已登录→2D 聊天页 `app/static/index.html`。但**点单不受影响**——`POST /chat` 无 auth 依赖、`/3d/*` 与 `/skill/orders` 全程匿名（详见下条）。3D 未构建时根路由仍 404 提示 `cd frontend && npm run build`。
 - **Q: 点单（`/chat` / `/skill/orders`）需要登录账户吗？** A: **不需要**。`/chat` 无 auth 依赖、用匿名 `req.user_id`；`/skill/orders` 走 Agent token（非账户登录）。`/3d/scene` 等 3D 路由也匿名可访问。仅根页面 `/` 有访问门槛，点单 API 不依赖登录。
 - **Q: 那 `/auth/*` 和 `/3d/login` 还有什么用？** A: ① 根路由 `/` 登录门槛（登录后才能进 2D 聊天页）；② 个性化昵称（登录后用真实昵称而非占位名）；③ WS 在线顾客人偶 presence——`_register_web_customer_presence` 读签名 Cookie，登录用户的顾客人偶会出现在 snapshot/presence 广播里，匿名访客则被跳过。均非点单前置。
 - **Q: 匿名访客的 `/chat` 下单会触发服务员编排吗？** A: 会。`_publish_web_completion_flow` 各节点照常追加 `orchestrate_staff_node`，服务员接单/收银/做咖啡/送餐动画不受登录状态影响。唯一差别：匿名访客自身不会有"顾客人偶"在 snapshot 里（因为 `ensure_web_customer_agent` 仅在 WS presence 成功时触发），但订单业务流和事件广播完全正常。
@@ -321,6 +329,10 @@ HTTP 错误映射: 401/402/429 原样透传；404/≥500 → 502；其余 → 40
 | `services/wallet_service.py` | credits 钱包流水（apply_transaction：consume/free_order 等） |
 | `services/catalog_service.py` | 商品目录 + 库存递减（decrement_stock） |
 | `services/office_layout_service.py` | **3D 编辑器布局持久化（2026-06-20 新增）**：`get_layout`（JSON 损坏降级 None）/`save_layout`（upsert by namespace） |
+| `services/autonomous_agent_service.py` | **数字顾客自主循环（2026-06-21 `5dd3ce8` 新增）**：自主买咖啡循环 + 3D 交互优化 |
+| `services/visitor_analytics_service.py` | **访客分析（2026-06-27 `4031978` 新增）**：访客洞察记录（`visitor_insight` 表）+ 流失原因 LLM 分析 + 3D 社交面板数据 |
+| `services/user_profile_service.py` | **用户口味画像（2026-06-27 `82e7dd1` 新增）**：基于 `chat_message` + 订单 LLM 归纳口味摘要 + 增量游标（`last_msg_id`）+ 镜像 `User.taste_preference` |
+| `services/reorder_service.py` | **复购意图识别（2026-06-27 `82e7dd1` 新增）**：基于用户画像 + 历史订单识别复购意图，辅助推荐 |
 | `llm/client.py` | OpenAI 兼容 LLM 客户端（chat + parse_intent + 分阶段超时 + 挂钟超时） |
 | `rag/keywords.py` | jieba 关键词提取（正向 + 负向 + 同义词） |
 | `rag/retrieval.py` | LIKE 召回 + NOT LIKE 过滤 |

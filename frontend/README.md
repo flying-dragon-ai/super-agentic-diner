@@ -1,4 +1,4 @@
-﻿# Coffee AI Boss - Frontend (Phaser 3 + Colyseus)
+﻿# Crossroads Agent Café - Frontend (Phaser 3 + Colyseus)
 
 阶段 0 脚手架：基于 Vite + TypeScript 的 Phaser 3 游戏客户端，预留 Colyseus 客户端接入点。
 
@@ -22,7 +22,7 @@ npm run dev
 ```
 
 默认开发服务地址：`http://localhost:5173`。
-Boot 场景会在控制台打印 `[Boot] Phaser ready` 与 `[Boot] connected? (TODO)`，并在画面居中显示 `Coffee AI Boss - Phaser Boot OK`。
+Boot 场景会在控制台打印 `[Boot] Phaser ready` 与 `[Boot] connected? (TODO)`，并在画面居中显示 `Crossroads Agent Café - Phaser Boot OK`。
 
 ## 构建
 

@@ -1,11 +1,11 @@
-# Coffee AI Boss 架构总入口
+# Crossroads Agent Café 架构总入口
 
 > 状态：骨架（待填充）
 > 创建日期：2026-06-19
 
 ## 1. 项目简介
 
-Coffee AI Boss 是一个 FastAPI 应用，包含静态 HTML/CSS/JS 前端、SQLAlchemy ORM、MySQL 持久化、Redis 短期记忆、A2A Skill/EvoMap 点单集成，以及 WebSocket 可视化事件流。
+Crossroads Agent Café 是一个 FastAPI 应用，包含静态 HTML/CSS/JS 前端、SQLAlchemy ORM、MySQL 持久化、Redis 短期记忆、A2A Skill/EvoMap 点单集成，以及 WebSocket 可视化事件流。
 
 ## 2. 核心概念 / 术语表
 

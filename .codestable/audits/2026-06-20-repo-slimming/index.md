@@ -10,7 +10,7 @@ tags: [repo-hygiene, cleanup, slimming]
 
 ## Scope
 
-Whole-repository hygiene pass for Coffee AI Boss, focused on removable
+Whole-repository hygiene pass for Crossroads Agent Café, focused on removable
 dependencies, local runtime output, archived prototypes, generated verification
 evidence, and tracked secret-risk files.
 

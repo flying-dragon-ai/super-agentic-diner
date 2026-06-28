@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import threading
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -45,6 +46,7 @@ from app.memory.chat_history import (
     get_pending_order,
     set_pending_order,
 )
+from app.memory._redis_client import get_redis_client
 from app.services.chat_service import extract_price, handle_message, match_by_price, get_all_products, resolve_image_path
 from app.services.agent_orchestrator import orchestrate as agent_orchestrate
 from app.services.agents.experience_agent import list_recent_experiences
@@ -69,20 +71,22 @@ from app.services.skill_order_service import (
 from app.services.visualization_service import (
     VALID_AGENT_ACTIONS,
     VALID_AGENT_ROLES,
-    create_visualization_event,
+    broadcast_visualization_message,
     decode_json,
     encode_json,
     event_to_message,
     generate_agent_token,
     hash_agent_token,
     make_sprite_seed,
+    publish_visualization_event,
+    visualization_event_bus,
     visualization_hub,
 )
 from app.services import staff_service
 from app.auth import service as auth_service
 from app.colyseus_bridge import start_colyseus_server, stop_colyseus_server
 
-app = FastAPI(title="EvoMap 进化咖啡馆")
+app = FastAPI(title="Crossroads Agent Café")
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +133,7 @@ async def _startup_colyseus() -> None:
     # SQLite/MySQL 双后端：首次启动自动建表（幂等，已有表不会重建）。
     Base.metadata.create_all(bind=engine)
     start_colyseus_server()
+    await visualization_event_bus.start()
     _ensure_staff_seeded()
     # 预加载 jieba(中文分词库)：词典初始化需 ~1s，放启动期避免首个 /chat 请求卡顿。
     _preload_jieba()
@@ -190,6 +195,7 @@ def _warm_llm_connection() -> None:
 @app.on_event("shutdown")
 async def _shutdown_colyseus() -> None:
     stop_colyseus_server()
+    await visualization_event_bus.stop()
     _evomap_heartbeat_stop.set()
     global _skill_sweep_task
     if _skill_sweep_task is not None:
@@ -221,10 +227,10 @@ if _3D_STATIC_DIR.is_dir():
         # 不挂载则会被 /3d/{full_path:path} SPA fallback 返回 HTML，Audio.play 静默失败。
         app.mount("/3d/sounds", StaticFiles(directory=_3d_sounds), name="static-3d-sounds")
 
-# 咖啡菜单图片（app/imag/ 下的 PNG）
-_IMAG_DIR = Path(__file__).resolve().parent / "imag"
-if _IMAG_DIR.is_dir():
-    app.mount("/imag", StaticFiles(directory=_IMAG_DIR), name="menu-images")
+# 咖啡菜单图片（app/images/ 下的 PNG）
+_IMAGES_DIR = Path(__file__).resolve().parent / "images"
+if _IMAGES_DIR.is_dir():
+    app.mount("/images", StaticFiles(directory=_IMAGES_DIR), name="menu-images")
 
 from app.auth.router import router as auth_router  # noqa: E402
 
@@ -511,15 +517,13 @@ def _publish_visualization_event(
     agent_id: int | None = None,
     correlation_id: str | None = None,
 ) -> dict[str, Any]:
-    message = create_visualization_event(
+    return publish_visualization_event(
         db,
         event_type=event_type,
         payload=payload,
         agent_id=agent_id,
         correlation_id=correlation_id,
     )
-    visualization_hub.broadcast_from_sync(message)
-    return message
 
 
 def _try_publish_visualization_event(
@@ -533,7 +537,7 @@ def _try_publish_visualization_event(
         _publish_visualization_event(db, event_type, payload, agent_id, correlation_id)
     except Exception:
         db.rollback()
-        visualization_hub.broadcast_from_sync(
+        broadcast_visualization_message(
             {
                 "event_id": None,
                 "type": event_type,
@@ -541,7 +545,8 @@ def _try_publish_visualization_event(
                 "payload": payload,
                 "correlation_id": correlation_id,
                 "created_at": datetime.now(timezone.utc).isoformat(),
-            }
+            },
+            replay=True,
         )
 
 
@@ -1745,7 +1750,7 @@ def post_visitor_chat(req: VisitorChatRequest):
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     _add_visitor_chat(msg["payload"])
-    visualization_hub.broadcast_from_sync(msg)
+    broadcast_visualization_message(msg, replay=True)
     return {"ok": True}
 
 
@@ -1837,6 +1842,108 @@ def _presence_message_from_client(message: dict[str, Any]) -> dict[str, Any] | N
 # Skill/CLI users can't hold a WebSocket (order.py exits after each request), so
 # their "online" window is defined by agent.last_seen_at recency instead of presence.
 ONLINE_WINDOW_SECONDS = 120
+WEB_PRESENCE_KEY_PREFIX = "coffee:visualization:presence:web:"
+SKILL_SWEEP_PREV_KEY = "coffee:visualization:skill_online_prev"
+SKILL_SWEEP_LOCK_KEY = "coffee:visualization:skill_sweep_lock"
+
+
+def _redis_visualization_enabled() -> bool:
+    return not settings.use_fakeredis
+
+
+def _web_presence_key(connection_id: str) -> str:
+    return WEB_PRESENCE_KEY_PREFIX + connection_id
+
+
+def _set_web_customer_presence(connection_id: str, customer: dict[str, Any]) -> None:
+    if not _redis_visualization_enabled():
+        return
+    try:
+        get_redis_client(decode_responses=True).set(
+            _web_presence_key(connection_id),
+            encode_json(customer),
+            ex=max(5, settings.visualization_presence_ttl_seconds),
+        )
+    except Exception:
+        pass
+
+
+def _clear_web_customer_presence(connection_id: str) -> None:
+    if not _redis_visualization_enabled():
+        return
+    try:
+        get_redis_client(decode_responses=True).delete(_web_presence_key(connection_id))
+    except Exception:
+        pass
+
+
+def _redis_online_ws_agent_ids() -> set[int]:
+    if not _redis_visualization_enabled():
+        return set()
+    ids: set[int] = set()
+    try:
+        client = get_redis_client(decode_responses=True)
+        for key in client.scan_iter(match=WEB_PRESENCE_KEY_PREFIX + "*", count=100):
+            payload = decode_json(client.get(key), {})
+            agent_id = payload.get("agent_id") if isinstance(payload, dict) else None
+            if agent_id is not None:
+                ids.add(int(agent_id))
+    except Exception:
+        return set()
+    return ids
+
+
+def _acquire_skill_sweep_lock() -> str | None:
+    if not _redis_visualization_enabled():
+        return "local"
+    token = uuid.uuid4().hex
+    try:
+        ok = get_redis_client(decode_responses=True).set(
+            SKILL_SWEEP_LOCK_KEY,
+            token,
+            nx=True,
+            ex=max(10, settings.visualization_skill_sweep_lock_ttl_seconds),
+        )
+        return token if ok else None
+    except Exception:
+        return None
+
+
+def _release_skill_sweep_lock(token: str | None) -> None:
+    if not token or token == "local" or not _redis_visualization_enabled():
+        return
+    try:
+        client = get_redis_client(decode_responses=True)
+        if client.get(SKILL_SWEEP_LOCK_KEY) == token:
+            client.delete(SKILL_SWEEP_LOCK_KEY)
+    except Exception:
+        pass
+
+
+def _load_prev_skill_online() -> set[int]:
+    if not _redis_visualization_enabled():
+        return set(_prev_skill_online)
+    try:
+        return {
+            int(value)
+            for value in get_redis_client(decode_responses=True).smembers(SKILL_SWEEP_PREV_KEY)
+        }
+    except Exception:
+        return set()
+
+
+def _store_prev_skill_online(agent_ids: set[int]) -> None:
+    global _prev_skill_online
+    if not _redis_visualization_enabled():
+        _prev_skill_online = set(agent_ids)
+        return
+    try:
+        client = get_redis_client(decode_responses=True)
+        client.delete(SKILL_SWEEP_PREV_KEY)
+        if agent_ids:
+            client.sadd(SKILL_SWEEP_PREV_KEY, *[str(agent_id) for agent_id in agent_ids])
+    except Exception:
+        pass
 
 
 def _agent_snapshot_dict(agent: AgentProfile) -> dict[str, Any]:
@@ -1866,7 +1973,7 @@ def _build_snapshot_agents(db: Session) -> list[dict[str, Any]]:
     except Exception:
         pass
     # 2) Online customers: WS presence ∪ last_seen_at heartbeat window.
-    online_ws_ids = visualization_hub.online_ws_agent_ids()
+    online_ws_ids = visualization_hub.online_ws_agent_ids() | _redis_online_ws_agent_ids()
     cutoff = datetime.utcnow() - timedelta(seconds=ONLINE_WINDOW_SECONDS)
     query = db.query(AgentProfile).filter(
         AgentProfile.role_type == "customer",
@@ -1942,43 +2049,50 @@ _skill_sweep_task: asyncio.Task | None = None
 
 
 async def _sweep_offline_skill_customers() -> None:
-    global _prev_skill_online
+    token = _acquire_skill_sweep_lock()
+    if token is None:
+        return
     now_skill_online: set[int] = set()
     try:
-        db = SessionLocal()
         try:
-            cutoff = datetime.utcnow() - timedelta(seconds=ONLINE_WINDOW_SECONDS)
-            ws_online = visualization_hub.online_ws_agent_ids()
-            rows = (
-                db.query(AgentProfile)
-                .filter(
-                    AgentProfile.role_type == "customer",
-                    AgentProfile.status == IDENTITY_STATUS_ACTIVE,
+            db = SessionLocal()
+            try:
+                cutoff = datetime.utcnow() - timedelta(seconds=ONLINE_WINDOW_SECONDS)
+                ws_online = visualization_hub.online_ws_agent_ids() | _redis_online_ws_agent_ids()
+                rows = (
+                    db.query(AgentProfile)
+                    .filter(
+                        AgentProfile.role_type == "customer",
+                        AgentProfile.status == IDENTITY_STATUS_ACTIVE,
+                    )
+                    .all()
                 )
-                .all()
+                for agent in rows:
+                    if agent.agent_id in ws_online:
+                        continue  # web user — handled by the disconnect handler
+                    if agent.last_seen_at and agent.last_seen_at >= cutoff:
+                        now_skill_online.add(agent.agent_id)
+            finally:
+                db.close()
+        except Exception:
+            return
+        prev_skill_online = _load_prev_skill_online()
+        newly_offline = prev_skill_online - now_skill_online
+        _store_prev_skill_online(now_skill_online)
+        for agent_id in newly_offline:
+            await visualization_event_bus.publish(
+                {
+                    "event_id": None,
+                    "type": "agent.action",
+                    "agent_id": agent_id,
+                    "payload": {"agent_id": agent_id, "action_type": "leave_scene"},
+                    "correlation_id": None,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                },
+                replay=False,
             )
-            for agent in rows:
-                if agent.agent_id in ws_online:
-                    continue  # web user — handled by the disconnect handler
-                if agent.last_seen_at and agent.last_seen_at >= cutoff:
-                    now_skill_online.add(agent.agent_id)
-        finally:
-            db.close()
-    except Exception:
-        return
-    newly_offline = _prev_skill_online - now_skill_online
-    _prev_skill_online = now_skill_online
-    for agent_id in newly_offline:
-        await visualization_hub.broadcast_transient(
-            {
-                "event_id": None,
-                "type": "agent.action",
-                "agent_id": agent_id,
-                "payload": {"agent_id": agent_id, "action_type": "leave_scene"},
-                "correlation_id": None,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            }
-        )
+    finally:
+        _release_skill_sweep_lock(token)
 
 
 async def _skill_presence_sweep_loop() -> None:
@@ -1995,16 +2109,17 @@ async def visualization_websocket(websocket: WebSocket):
     # Identify the logged-in web user (login required) and register WS presence so the
     # snapshot includes them as an online customer. Anonymous visitors are skipped.
     # DB work runs off the event loop so concurrent connects don't block each other.
+    connection_id = uuid.uuid4().hex
     customer = await anyio.to_thread.run_sync(_register_web_customer_presence, websocket)
     if customer is not None:
         visualization_hub.register_ws_presence(websocket, customer["agent_id"])
+        _set_web_customer_presence(connection_id, customer)
         _register_online_visitor(customer["agent_id"], customer["display_name"])
     agents = await anyio.to_thread.run_sync(_build_snapshot_agents_for_connect)
     await visualization_hub.connect(websocket, agents=agents)
     # Real-time appear: transient notice to OTHER clients (excludes self, not replayed).
     if customer is not None:
-        await visualization_hub.broadcast_others(
-            websocket,
+        await visualization_event_bus.publish(
             {
                 "event_id": None,
                 "type": "agent.registered",
@@ -2019,13 +2134,18 @@ async def visualization_websocket(websocket: WebSocket):
                 "correlation_id": None,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             },
+            replay=False,
+            exclude=websocket,
         )
     presence_payload: dict[str, Any] | None = None
     try:
         while True:
             message = await websocket.receive_json()
+            if customer is not None:
+                _set_web_customer_presence(connection_id, customer)
             if message.get("type") == "ping":
-                await websocket.send_json(
+                visualization_hub.send_one(
+                    websocket,
                     {
                         "type": "pong",
                         "payload": {},
@@ -2042,14 +2162,17 @@ async def visualization_websocket(websocket: WebSocket):
                     "created_at": datetime.now(timezone.utc).isoformat(),
                 }
                 _add_visitor_chat(chat_payload)
-                await visualization_hub.broadcast({
-                    "event_id": None,
-                    "type": "visitor.chat",
-                    "agent_id": None,
-                    "payload": chat_payload,
-                    "correlation_id": None,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                })
+                await visualization_event_bus.publish(
+                    {
+                        "event_id": None,
+                        "type": "visitor.chat",
+                        "agent_id": None,
+                        "payload": chat_payload,
+                        "correlation_id": None,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                    replay=True,
+                )
                 continue
             presence_message = _presence_message_from_client(message)
             if presence_message:
@@ -2057,15 +2180,16 @@ async def visualization_websocket(websocket: WebSocket):
                     presence_payload = presence_message["payload"]
                 else:
                     presence_payload = None
-                await visualization_hub.broadcast(presence_message)
+                await visualization_event_bus.publish(presence_message, replay=True)
     except WebSocketDisconnect:
         visualization_hub.disconnect(websocket)
+        _clear_web_customer_presence(connection_id)
         if customer is not None:
             _unregister_online_visitor(customer["agent_id"])
         # Real-time disappear: transient leave_scene (this ws is already gone from
         # the connection set, so broadcast_transient reaches the remaining clients).
         if customer is not None:
-            await visualization_hub.broadcast_transient(
+            await visualization_event_bus.publish(
                 {
                     "event_id": None,
                     "type": "agent.action",
@@ -2080,16 +2204,18 @@ async def visualization_websocket(websocket: WebSocket):
                     },
                     "correlation_id": None,
                     "created_at": datetime.now(timezone.utc).isoformat(),
-                }
+                },
+                replay=False,
             )
         if presence_payload:
-            await visualization_hub.broadcast(
+            await visualization_event_bus.publish(
                 {
                     "type": "presence.customer_left",
                     "payload": presence_payload,
                     "correlation_id": f"presence:{presence_payload['visitor_id']}",
                     "created_at": datetime.now(timezone.utc).isoformat(),
-                }
+                },
+                replay=True,
             )
 
 
@@ -2207,87 +2333,8 @@ def three_d_app():
             "Pragma": "no-cache",
         },
     )
-@app.get("/3d/{full_path:path}")
-def three_d_app_spa(full_path: str):
-    """SPA fallback: any /3d/* sub-path serves index.html so client-side
-    routing (/3d/scene, /3d/login, /3d/dashboard) works. Static assets under
-    /3d/assets are handled by the /3d StaticFiles mount."""
-    index_path = _3D_STATIC_DIR / "index.html"
-    if not index_path.is_file():
-        raise HTTPException(status_code=404, detail="3D build not found. Run: cd frontend && npm run build")
-    return FileResponse(
-        index_path,
-        headers={
-            "Cache-Control": "no-store, max-age=0",
-            "Pragma": "no-cache",
-        },
-    )
 
 
-@app.get("/")
-def index(request: Request, db: Session = Depends(get_db)):
-    """Root: 未登录 → 302 跳 /3d/login；已登录 → 2D 聊天页。"""
-    from app.auth.router import current_account
-
-    account = current_account(request, db)
-    if not account:
-        return RedirectResponse(url="/3d/login", status_code=302)
-    chat_index = _STATIC_DIR / "index.html"
-    if chat_index.is_file():
-        return FileResponse(chat_index)
-    raise HTTPException(status_code=404, detail="index page not found")
-
-@app.get("/orders/{user_id}")
-def list_orders(user_id: int, db: Session = Depends(get_db)):
-    """返回某用户的订单列表（最近 10 单），供网页侧栏展示"""
-    rows = (
-        db.query(Order)
-        .filter(Order.user_id == user_id)
-        .order_by(Order.created_at.desc())
-        .limit(10)
-        .all()
-    )
-    return [
-        {
-            "order_id": o.order_id,
-            "coffee_name": o.coffee_name,
-            "amount": float(o.amount),
-            "status": o.status,
-            "source_type": o.source_type,
-            "payment_status": o.payment_status,
-            "created_at": o.created_at.strftime("%Y-%m-%d %H:%M"),
-        }
-        for o in rows
-    ]
-
-
-@app.get("/status")
-def status():
-    """Return system status: database backend + memory backend + LLM config."""
-    return {
-        "database": settings.db_mode,
-        "memory": "fakeredis" if settings.use_fakeredis else "redis",
-        "llm_active": llm.has_real_key(),
-        "llm_key_source": settings.llm_api_key_source,
-        "llm_status_reason": settings.llm_status_reason,
-        "llm_base_url": settings.llm_base_url,
-        "llm_model": settings.llm_model,
-    }
-
-
-@app.get("/3d")
-def three_d_app():
-    """Serve the 3D office SPA. Assets are under /3d/assets (Vite base ./)."""
-    index_path = _3D_STATIC_DIR / "index.html"
-    if not index_path.is_file():
-        raise HTTPException(status_code=404, detail="3D build not found. Run: cd frontend && npm run build")
-    return FileResponse(
-        index_path,
-        headers={
-            "Cache-Control": "no-store, max-age=0",
-            "Pragma": "no-cache",
-        },
-    )
 @app.get("/3d/{full_path:path}")
 def three_d_app_spa(full_path: str):
     """SPA fallback: any /3d/* sub-path serves index.html so client-side

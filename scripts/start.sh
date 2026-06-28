@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Coffee AI Boss — Linux 生产启动脚本
+# Crossroads Agent Café — Linux 生产启动脚本
 # 对应 start.bat 的 6 步逻辑，去除 Windows/本地开发专属行为：
 #   - 去掉 --reload / --reload-dir app（生产不热重载）
 #   - 绑 0.0.0.0（非 127.0.0.1，允许外部访问；前置 nginx 时可改回 127.0.0.1）
@@ -16,7 +16,7 @@ HOST="${HOST:-0.0.0.0}"
 WORKERS="${WORKERS:-1}"
 
 echo "============================================"
-echo "  Coffee AI Boss - Linux Launcher"
+echo "  Crossroads Agent Café - Linux Launcher"
 echo "============================================"
 echo
 
@@ -57,6 +57,20 @@ if [ -n "$MISSING_ENV" ]; then
   exit 1
 fi
 echo "[2/5] .env OK"
+if [ "${WORKERS}" != "1" ]; then
+  "$PYTHON_CMD" - <<'PY'
+from app.config import settings
+import sys
+
+if settings.use_fakeredis:
+    print(
+        "[ERROR] WORKERS>1 requires USE_FAKEREDIS=false so Redis Pub/Sub can "
+        "synchronize /ws/visualization events across workers.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+PY
+fi
 echo
 
 # [3/5] Install dependencies

@@ -1,11 +1,11 @@
-# Python(编程语言) 虚拟环境与编译缓存，不应入库
+# Python virtual environments and caches
 .venv/
 __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
 
-# 本地运行产物
+# Local runtime data and secrets
 .env
 .env.*
 !.env.example
@@ -38,14 +38,16 @@ memory/atp-autobuyer-ledger.json
 
 # Local task-runner transcripts
 .ccg/tasks/archive/
+.ccg/tasks/*/.turns.json
+.ccg/tasks/*/context.jsonl
 
-# Local EvoMap consumer credentials for paid Skill testing.
+# Local EvoMap consumer credentials for paid Skill testing
 .local-consumer.env
 
-# Local MCP backups may contain machine-specific paths or credentials.
+# Local MCP backups may contain machine-specific paths or credentials
 .mcp.json.backup
 
-# === Deployment prep: personal AI-editor / IDE configs (dev-only, not deployed) ===
+# Personal AI editor / IDE configs
 .idea/
 .cursor/
 .codex/
@@ -59,14 +61,26 @@ memory/atp-autobuyer-ledger.json
 smoke-*.png
 3d-scene-*.png
 
-# Root-level evolver-only node manifest (not project deps; frontend/package.json IS tracked)
+# Root-level evolver-only node manifest; frontend/package.json is tracked
 /package.json
 /package-lock.json
 
-# Claude Code personal settings (keep shared CLAUDE.md / commands / hooks / skills)
+# Claude Code personal settings; shared commands/hooks/skills remain tracked
 .claude/settings.local.json
 .claude/settings.local.json.backup
 
-# SQLite WAL runtime sidecar files (regenerated on every run; the main .db is tracked)
+# SQLite runtime sidecar files. Main local DB files are ignored above.
 *.db-shm
 *.db-wal
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Python test coverage
+.coverage
+htmlcov/
+
+# Frontend local build caches; frontend/dist is covered by frontend/.gitignore
+.vite/
+build/

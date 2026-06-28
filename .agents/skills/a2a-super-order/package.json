@@ -1,7 +1,7 @@
 {
   "name": "@evomap/a2a-super-order",
   "version": "1.0.0",
-  "description": "A2A super ordering Skill for Coffee AI Boss — order coffee from agent tools (Claude Code, Codex, Cursor) without a web page. First two orders free, then EvoMap credit payment.",
+  "description": "A2A super ordering Skill for Crossroads Agent Café — order coffee from agent tools (Claude Code, Codex, Cursor) without a web page. First two orders free, then EvoMap credit payment.",
   "bin": {
     "a2a-super-order": "./bin/cli.js"
   },
@@ -30,7 +30,7 @@
     "codex",
     "cursor",
     "agent",
-    "coffee-ai-boss"
+    "crossroads-agent-cafe"
   ],
   "repository": {
     "type": "git",
@@ -42,6 +42,6 @@
   },
   "homepage": "https://github.com/flying-dragon-ai/super-agentic-diner/tree/main/.agents/skills/a2a-super-order#readme",
   "license": "MIT",
-  "author": "Coffee AI Boss",
+  "author": "Crossroads Agent Café",
   "private": false
 }

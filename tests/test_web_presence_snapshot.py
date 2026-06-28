@@ -11,6 +11,7 @@ from __future__ import annotations
 import unittest
 import uuid
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -150,6 +151,10 @@ class SkillOfflineSweepTests(unittest.IsolatedAsyncioTestCase):
         import app.main as main_mod
 
         self._main = main_mod
+        self._redis_mode_patch = patch.object(
+            main_mod, "_redis_visualization_enabled", lambda: False
+        )
+        self._redis_mode_patch.start()
         self._saved_prev = set(main_mod._prev_skill_online)
         self.user_id = 950000 + int(uuid.uuid4().hex[:6], 16) % 49999
         self.tool_name = f"web:customer:{self.user_id}"
@@ -171,6 +176,7 @@ class SkillOfflineSweepTests(unittest.IsolatedAsyncioTestCase):
         finally:
             db.close()
         self._main._prev_skill_online = self._saved_prev
+        self._redis_mode_patch.stop()
 
     async def test_expired_customer_emits_leave_scene(self):
         from unittest.mock import AsyncMock, patch
@@ -191,13 +197,13 @@ class SkillOfflineSweepTests(unittest.IsolatedAsyncioTestCase):
             db.close()
         main_mod._prev_skill_online = {self.agent_id}
 
-        mock_broadcast = AsyncMock()
-        with patch.object(main_mod.visualization_hub, "broadcast_transient", mock_broadcast):
+        mock_publish = AsyncMock()
+        with patch.object(main_mod.visualization_event_bus, "publish", mock_publish):
             await main_mod._sweep_offline_skill_customers()
 
         broadcast_ids = [
             call.args[0]["agent_id"]
-            for call in mock_broadcast.call_args_list
+            for call in mock_publish.call_args_list
             if call.args[0].get("type") == "agent.action"
         ]
         self.assertIn(self.agent_id, broadcast_ids, "expired customer must get a leave_scene broadcast")
@@ -218,11 +224,11 @@ class SkillOfflineSweepTests(unittest.IsolatedAsyncioTestCase):
             db.close()
         main_mod._prev_skill_online = {self.agent_id}
 
-        mock_broadcast = AsyncMock()
-        with patch.object(main_mod.visualization_hub, "broadcast_transient", mock_broadcast):
+        mock_publish = AsyncMock()
+        with patch.object(main_mod.visualization_event_bus, "publish", mock_publish):
             await main_mod._sweep_offline_skill_customers()
 
-        broadcast_ids = [call.args[0]["agent_id"] for call in mock_broadcast.call_args_list]
+        broadcast_ids = [call.args[0]["agent_id"] for call in mock_publish.call_args_list]
         self.assertNotIn(self.agent_id, broadcast_ids, "still-online customer must not be swept")
         self.assertIn(self.agent_id, main_mod._prev_skill_online, "still-online id stays in prev set")
 

@@ -18,6 +18,9 @@ DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 # Use `os.getenv(KEY) or default` (not `os.getenv(KEY, default)`) so that an
 # empty-string env var falls back to the default instead of writing state to cwd.
 STATE_PATH = Path(os.getenv("A2A_SUPER_ORDER_STATE") or str(Path.home() / ".a2a-super-order" / "state.json"))
+# Persisted backend address so AI tools set it once and all later commands
+# auto-read it. The backend address can change between deploys (IP/domain).
+CONFIG_PATH = Path(os.getenv("A2A_SUPER_ORDER_CONFIG") or str(Path.home() / ".a2a-super-order" / "config.json"))
 
 
 class ApiError(Exception):
@@ -82,6 +85,88 @@ def request_json(
         # (it travels in headers, never in the URL); surface a friendly message
         # instead of a raw traceback.
         raise SystemExit(f"无法连接服务器 {url}: {exc.reason}") from exc
+
+
+def fetch_menu(base_url: str) -> tuple[bool, Any, str]:
+    """GET {base_url}/menu. Read-only reachability + menu probe.
+
+    ``/menu`` is anonymous and returns a list of products, so a 200 here also
+    proves the backend is reachable for ordering. Used by ``--ping`` and
+    ``--menu``. Returns ``(ok, data, error_message)``.
+    """
+    url = base_url.rstrip("/") + "/menu"
+    request = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        return True, data, ""
+    except urllib.error.HTTPError as exc:
+        return False, None, f"HTTP {exc.code}"
+    except urllib.error.URLError as exc:
+        return False, None, str(exc.reason)
+    except Exception as exc:  # surface any failure to the caller with a reason
+        return False, None, str(exc)
+
+
+def cmd_ping(args: argparse.Namespace) -> int:
+    """Step-0 self-check: is the backend reachable? Prints a decision-friendly JSON."""
+    ok, data, err = fetch_menu(args.base_url)
+    if not ok:
+        print(json.dumps({
+            "ok": False,
+            "base_url": args.base_url,
+            "status": "unreachable",
+            "error": err,
+            "hint": (
+                "If the café backend runs on another machine, set "
+                "RESTAURANT_API_BASE=http://<server-ip>:8000 and retry. "
+                "Also confirm `uvicorn app.main:app` is running on the server "
+                "and port 8000 is open."
+            ),
+        }, ensure_ascii=False, indent=2))
+        return 1
+    items = data if isinstance(data, list) else []
+    names = [str(it.get("name", "?")) for it in items if isinstance(it, dict)]
+    print(json.dumps({
+        "ok": True,
+        "base_url": args.base_url,
+        "status": "reachable",
+        "menu_count": len(items),
+        "sample": names[:5],
+    }, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_menu(args: argparse.Namespace) -> int:
+    """List available coffees so the caller knows exactly what to put in --message."""
+    ok, data, err = fetch_menu(args.base_url)
+    if not ok:
+        print(json.dumps({
+            "ok": False,
+            "base_url": args.base_url,
+            "status": "unreachable",
+            "error": err,
+            "hint": "Backend not reachable. Run --ping first to diagnose.",
+        }, ensure_ascii=False, indent=2), file=sys.stderr)
+        return 1
+    items = data if isinstance(data, list) else []
+    compact = [
+        {
+            "name": it.get("name"),
+            "price": it.get("price"),
+            "tags": it.get("tags"),
+            "category": it.get("category"),
+            "stock": it.get("stock"),
+        }
+        for it in items
+        if isinstance(it, dict)
+    ]
+    print(json.dumps({
+        "base_url": args.base_url,
+        "count": len(compact),
+        "items": compact,
+    }, ensure_ascii=False, indent=2))
+    return 0
 
 
 EVOMAP_HOME = Path(os.getenv("EVOLVER_HOME") or (Path.home() / ".evomap"))
@@ -245,8 +330,17 @@ def submit_order(args: argparse.Namespace, registration: dict[str, Any]) -> dict
 
 
 def main() -> int:
+    # Force UTF-8 on stdout/stderr so non-ASCII coffee names render correctly
+    # when AI tools capture the output (Windows otherwise uses a locale codec
+    # like GBK, which breaks UTF-8 parsers downstream).
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     parser = argparse.ArgumentParser(description="Order coffee through the A2A super order Skill.")
-    parser.add_argument("--base-url", default=os.getenv("RESTAURANT_API_BASE", DEFAULT_BASE_URL))
+    parser.add_argument("--base-url", default=None, help="Backend URL. Saved on first explicit use; later commands auto-read it. Precedence: --base-url > RESTAURANT_API_BASE env > saved config > http://127.0.0.1:8000.")
     parser.add_argument("--tool-name", default=os.getenv("RESTAURANT_TOOL_NAME", "codex"))
     parser.add_argument("--display-name", default=os.getenv("RESTAURANT_AGENT_NAME") or detect_username())
     parser.add_argument("--evomap-node-id", default=os.getenv("EVOMAP_NODE_ID") or os.getenv("A2A_NODE_ID"))
@@ -269,7 +363,33 @@ def main() -> int:
         action="store_true",
         help="Read-only check of local EvoMap install status (no side effects).",
     )
+    parser.add_argument(
+        "--ping",
+        action="store_true",
+        help="Check backend reachability via GET /menu (read-only, no side effects). Run this first.",
+    )
+    parser.add_argument(
+        "--menu",
+        action="store_true",
+        help="List available coffees via GET /menu (read-only). Use exact names in --message.",
+    )
     args = parser.parse_args()
+
+    # Resolve base_url: explicit --base-url > RESTAURANT_API_BASE env > persisted
+    # config > default. An explicit --base-url is persisted so later commands
+    # auto-use it — the backend address may change between deploys (IP/domain).
+    cached_config = read_json(CONFIG_PATH, {})
+    base_url = (
+        args.base_url
+        or os.getenv("RESTAURANT_API_BASE")
+        or (cached_config.get("base_url") if isinstance(cached_config, dict) else None)
+        or DEFAULT_BASE_URL
+    )
+    if args.base_url:
+        cached_config = cached_config if isinstance(cached_config, dict) else {}
+        cached_config["base_url"] = args.base_url.rstrip("/")
+        write_json(CONFIG_PATH, cached_config)
+    args.base_url = base_url.rstrip("/")
 
     if args.check_evomap:
         install = detect_evomap_install()
@@ -283,6 +403,11 @@ def main() -> int:
             "username": detect_username(),
         }, ensure_ascii=False, indent=2))
         return 0
+
+    if args.ping:
+        return cmd_ping(args)
+    if args.menu:
+        return cmd_menu(args)
 
     if args.payment_proof:
         print(

@@ -1,12 +1,12 @@
-# Docker 构建上下文排除清单（减少镜像体积、避免泄漏本地凭证）
-# 运行所需 = app/ (含 app/static/3d 构建产物) + scripts/ + requirements.txt
+# Docker build context exclusions.
+# Runtime image only needs app/ (including app/static/3d), scripts/, and requirements.txt.
 
 # VCS
 .git/
 .gitignore
 .gitattributes
 
-# Python 缓存 / 本地虚拟环境
+# Python caches and local virtual environments
 .venv/
 __pycache__/
 *.pyc
@@ -14,12 +14,12 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-# Node 源码与依赖（前端产物已在 app/static/3d，镜像免装 Node）
+# Frontend source/dependencies are excluded; built output is served from app/static/3d.
 frontend/
 package.json
 package-lock.json
 
-# AI 编辑器 / 工具配置（开发期，非运行所需）
+# AI editor and local tool config, not needed in runtime images
 .idea/
 .cursor/
 .codex/
@@ -34,8 +34,10 @@ package-lock.json
 .codegraph/
 .ccg/
 .agents/
+.context/
+.opencode/
 
-# 文档与测试（不打进运行镜像）
+# Docs, tests, and local verification artifacts
 docs/
 tests/
 *.md
@@ -44,20 +46,24 @@ output/
 .artifacts/
 .playwright-mcp/
 
-# 本地凭证（容器内通过环境变量 / secret 注入，绝不打包）
+# Local credentials: inject via environment variables or platform secrets
 .env
 .env.*
-!.env.example
 .local-consumer.env
 .mcp.json
 .mcp.json.backup
 
-# 本地运行产物
+# Local runtime artifacts
 *.log
 server.*.log
 coffee.db
+coffee_ai.db
+*.db
+*.db-shm
+*.db-wal
 
-# 构建上下文自身
+# Docker build files are not needed inside the image
+deploy/
 Dockerfile
 .dockerignore
 docker-compose.yml

@@ -9,7 +9,7 @@
   "root": {
     "claude_md": "CLAUDE.md",
     "existing_claude_md": ".claude/CLAUDE.md",
-    "project": "coffee-ai-boss",
+    "project": "crossroads-agent-cafe",
     "vision": "咖啡店 AI Boss 系统：LLM+RAG+Redis 对话点单（/chat 匿名，无登录门槛）+ 多 Agent 协作（店长/推荐/复盘/经验继承）+ A2A Skill 积分点单 + 3D 咖啡厅事件流可视化（含服务员团队编排）。2026-06-19 起可视化为'事件流 + 后端编排服务员团队'模型（4 固有 staff agent + orchestrate_staff_node）。2026-06-21 d408c58 起根路由 / 恢复登录门槛（未登录→302 /3d/login，已登录→2D 聊天页），但点单 API /chat + /skill/orders + 3D 场景所有路由仍匿名可用。",
     "languages": {
       "Python": "app/, scripts/, tests/, .agents/skills/a2a-super-order/",
@@ -26,7 +26,7 @@
     "table_count": 17,
     "root_route_gate": {
       "established_at": "2026-06-21T08:10:00+08:00 (d408c58, 反转 21:30 的匿名直出)",
-      "behavior": "GET / 未登录→302 /3d/login；已登录→2D 聊天页 app/static/index.html（index() main.py:1855）",
+      "behavior": "GET / 未登录→302 /3d/login；已登录→2D 聊天页 app/static/index.html（index() app/main.py）",
       "anonymous_ordering_routes": ["POST /chat", "POST /skill/orders", "GET /3d", "GET /3d/{path}", "/3d/scene", "/3d/machines", "/3d/dashboard"],
       "login_required_routes": ["GET / (根页面访问门槛)"],
       "login_optional_routes": ["/3d/login", "/3d/register", "POST /auth/register", "POST /auth/login"],
@@ -34,10 +34,10 @@
       "ws_presence_caveat": "/ws/visualization 连接本身匿名，但 _register_web_customer_presence 匿名访客被跳过（不显示为在线顾客人偶）；不阻断匿名点单，事件流/服务员编排照常"
     },
     "archived": {
-      "note": "2026-06-20 09:40 归档：像素 Colyseus 多人房间 + 2D 对话页（后者后回归活跃）。归档而非删除，可恢复。2D 页 app/static/index.html 已回归（27KB，含 .menu-card）。外部归档位置见 docs/archive-manifest.md。",
+      "note": "2026-06-20 09:40 归档：像素 Colyseus 多人房间 + 2D 对话页（后者后回归活跃）。归档而非删除，可恢复。2D 页 app/static/index.html 已回归（27KB，含 .menu-card）。外部归档位置见 docs/archive-manifest.md。2026-06-28 复删：_archive/ 目录再次从活跃仓库移除（首次移除后疑因 merge 带回；外部归档完整存在于 archive-manifest 记录路径，可恢复）。",
       "items": [
-        {"path": "_archive/colyseus-server/", "original": "colyseus-server/", "reason": "像素风方案被 3D 咖啡厅取代"},
-        {"path": "_archive/2d-legacy/", "original": "app/static/index.html", "reason": "2D 对话页一度被 3D 场景内嵌聊天取代；但 app/static/index.html 现已回归活跃（根 / 已登录落地页）"}
+        {"path": "docs/archive-manifest.md", "original": "colyseus-server/", "reason": "像素风方案被 3D 咖啡厅取代；源文件已移出活跃仓库"},
+        {"path": "docs/archive-manifest.md", "original": "app/static/index.html", "reason": "2D 对话页一度归档，现已回归活跃；历史副本位置见归档清单"}
       ],
       "lingering_code": "app/colyseus_bridge.py 仍在仓库（检测 colyseus-server/ 目录缺失即跳过启动，仅 warning；bridge_event_to_colyseus 仅 debug 日志），属可恢复的停用"
     },
@@ -66,7 +66,7 @@
         "POST /auth/logout", "GET /auth/me", "GET /user/{id}", "GET /orders/{id}",
         "GET /history/{id}", "DELETE /history/{id}", "GET /status", "GET /3d", "GET /3d/{path}"
       ],
-      "root_route": "GET / → 登录门槛 (index() main.py:1855, d408c58 恢复)：未登录 302 /3d/login；已登录返回 2D 聊天页 app/static/index.html（含 .menu-card 菜单卡片，fetch /menu）。点单 API /chat 仍匿名。",
+      "root_route": "GET / → 登录门槛 (index() app/main.py, d408c58 恢复)：未登录 302 /3d/login；已登录返回 2D 聊天页 app/static/index.html（含 .menu-card 菜单卡片，fetch /menu）。点单 API /chat 仍匿名。",
       "chat_auth": "POST /chat main.py 无 auth 依赖、匿名 req.user_id；当前由 3D 场景内嵌聊天 + 已登录 2D 聊天页消费",
       "ws_presence_auth": "/ws/visualization 连接匿名；_register_web_customer_presence 读签名 Cookie，匿名访客被跳过（不显示在线顾客人偶），不阻断点单",
       "multi_agent_collaboration": {
@@ -248,11 +248,11 @@
       "name": "colyseus-server (多人服务器) — ARCHIVED",
       "status": "archived",
       "archived_at": "2026-06-20T09:40:00+08:00",
-      "path": "_archive/colyseus-server/",
+      "path": "docs/archive-manifest.md",
       "original_path": "colyseus-server/",
-      "claude_md": "_archive/colyseus-server/CLAUDE.md",
+      "claude_md": null,
       "language": "TypeScript",
-      "entry": "_archive/colyseus-server/src/Server.ts",
+      "entry": "external archive: _archive/colyseus-server/src/Server.ts",
       "framework": "Colyseus 0.15",
       "room": "coffee_room",
       "archive_reason": "像素风多人房间方案被 3D 咖啡厅 (frontend/) 取代；可视化统一走后端 /ws/visualization 事件流。外部归档位置见 docs/archive-manifest.md",
@@ -282,17 +282,17 @@
     {"path": "scripts/start.sh", "purpose": "Linux 生产启动脚本（绑 0.0.0.0, 单 worker 保 WS presence, 含连通性检查 + init_db/migrate_order_sources）"}
   ],
   "docs": [
-    {"path": "docs/smart-search-evidence/20260619-coffee-pixel-style/SKILL-VISUALIZATION-ROADMAP.md", "summary": "Skill 接入可视化联动 Roadmap。诊断 5 个致命契约错配(B1-B5)，定 A 方案角色模型(顾客动态+4 固有 staff)，结论'后端编排'。5 Phase 全 ✅ 并经独立验证", "code_link": "app/services/staff_service.py, frontend/src/screens/OfficeScene.tsx onEvent/onSnapshot, visualization_service scene.snapshot agents"},
-    {"path": "docs/smart-search-evidence/20260619-coffee-pixel-style/EvoMap A2A Skill 脚本改造实施计划.md", "summary": "Skill 脚本侧 4 项 gap（hostname 误用/不查 ~/.evomap/未装无引导/不读标准凭证）+ 实施计划；后端无需改", "code_link": ".agents/skills/a2a-super-order/scripts/order.py detect_*/load_evomap_credentials/--check-evomap"},
-    {"path": "docs/smart-search-evidence/20260619-coffee-pixel-style/EvoMap A2A 积分扣款接入调研与实现计划.md", "summary": "把 /chat 本地余额扣款改为 EvoMap POST /a2a/service/order 扣 Credits；固定每单扣积分；两段式确认；node_secret 只存本地", "code_link": "app/services/evomap_payment_service.py, app/config.py EVOMAP_*"},
-    {"path": "docs/smart-search-evidence/20260619-coffee-pixel-style/点单SKILL生成.md", "summary": "唯一对外 Skill a2a-super-order；前两单免费，第三单起真实扣积分；无网页可点单", "code_link": "POST /skill/register, POST /skill/orders, skill_order_service.py"},
-    {"path": "docs/smart-search-evidence/20260619-coffee-pixel-style/agent-integration-api.md", "summary": "Agent 工具 REST 注册为餐厅角色 + WS 实时人物；9 种 action_type/8 种 target；MySQL 唯一 RDBMS", "code_link": "POST /agents/register, /agents/{id}/actions, app/domain_constants.py"},
-    {"path": "docs/smart-search-evidence/20260619-coffee-pixel-style/pixel-agents-integration.md", "summary": "像素 Agent 集成早期方案（2D，已被 3D 取代，Colyseus 通道已归档）", "code_link": "历史参考；归档见 _archive/colyseus-server/"},
-    {"path": "docs/smart-search-evidence/20260619-coffee-pixel-style/pixel-restaurant-reference-repos.md", "summary": "像素餐厅参考仓库调研（Claw3D 等）", "code_link": "frontend/src/office3d/ 移植自 Claw3D"},
-    {"path": "docs/smart-search-evidence/20260619-coffee-pixel-style/smart-search-pixel-restaurant-repos.md", "summary": "像素餐厅仓库智能搜索结果", "code_link": "参考"},
-    {"path": "docs/3D编辑器完整度对齐.md", "summary": "3D 咖啡厅编辑器与 Claw3D 完整度对齐（修'编辑后不生效'）：debounced autosave + moveSelectedItem/rotateSelectedItem/updateSelectedItem + SelectedObjectPanel.tsx + Machine 可编辑", "code_link": "frontend/src/screens/OfficeScene.tsx, frontend/src/ui/SelectedObjectPanel.tsx, app/services/office_layout_service.py, /api/office/layout"},
-    {"path": "docs/evomap-skill-payment-check-plan.md", "summary": "Skill 付费链路逐环节复核计划（本地→后端→EvoMap service-order→provider worker→DB→收益）。最近阻塞 listing_provider_unavailable", "code_link": "app/services/skill_order_service.py, app/services/evomap_payment_service.py"},
-    {"path": "docs/archive-manifest.md", "summary": "外部归档索引：记录已移出活跃仓库的 Colyseus 像素房间与 2D 对话页归档位置与恢复方式", "code_link": "外部归档 D:\\temp\\EVOMAP\\coffee-ai-boss-archive\\2026-06-20-repo-slimming\\"}
+    {"path": "docs/evidence/smart-search/20260619-coffee-pixel-style/SKILL-VISUALIZATION-ROADMAP.md", "summary": "Skill 接入可视化联动 Roadmap。诊断 5 个致命契约错配(B1-B5)，定 A 方案角色模型(顾客动态+4 固有 staff)，结论'后端编排'。5 Phase 全 ✅ 并经独立验证", "code_link": "app/services/staff_service.py, frontend/src/screens/OfficeScene.tsx onEvent/onSnapshot, visualization_service scene.snapshot agents"},
+    {"path": "docs/evidence/smart-search/20260619-coffee-pixel-style/EvoMap A2A Skill 脚本改造实施计划.md", "summary": "Skill 脚本侧 4 项 gap（hostname 误用/不查 ~/.evomap/未装无引导/不读标准凭证）+ 实施计划；后端无需改", "code_link": ".agents/skills/a2a-super-order/scripts/order.py detect_*/load_evomap_credentials/--check-evomap"},
+    {"path": "docs/evidence/smart-search/20260619-coffee-pixel-style/EvoMap A2A 积分扣款接入调研与实现计划.md", "summary": "把 /chat 本地余额扣款改为 EvoMap POST /a2a/service/order 扣 Credits；固定每单扣积分；两段式确认；node_secret 只存本地", "code_link": "app/services/evomap_payment_service.py, app/config.py EVOMAP_*"},
+    {"path": "docs/evidence/smart-search/20260619-coffee-pixel-style/点单SKILL生成.md", "summary": "唯一对外 Skill a2a-super-order；前两单免费，第三单起真实扣积分；无网页可点单", "code_link": "POST /skill/register, POST /skill/orders, skill_order_service.py"},
+    {"path": "docs/evidence/smart-search/20260619-coffee-pixel-style/agent-integration-api.md", "summary": "Agent 工具 REST 注册为餐厅角色 + WS 实时人物；9 种 action_type/8 种 target；MySQL 唯一 RDBMS", "code_link": "POST /agents/register, /agents/{id}/actions, app/domain_constants.py"},
+    {"path": "docs/evidence/smart-search/20260619-coffee-pixel-style/pixel-agents-integration.md", "summary": "像素 Agent 集成早期方案（2D，已被 3D 取代，Colyseus 通道已归档）", "code_link": "历史参考；外部归档见 docs/archive-manifest.md"},
+    {"path": "docs/evidence/smart-search/20260619-coffee-pixel-style/pixel-restaurant-reference-repos.md", "summary": "像素餐厅参考仓库调研（Claw3D 等）", "code_link": "frontend/src/office3d/ 移植自 Claw3D"},
+    {"path": "docs/evidence/smart-search/20260619-coffee-pixel-style/smart-search-pixel-restaurant-repos.md", "summary": "像素餐厅仓库智能搜索结果", "code_link": "参考"},
+    {"path": "docs/features/3d-editor-completeness-alignment.md", "summary": "3D 咖啡厅编辑器与 Claw3D 完整度对齐（修'编辑后不生效'）：debounced autosave + moveSelectedItem/rotateSelectedItem/updateSelectedItem + SelectedObjectPanel.tsx + Machine 可编辑", "code_link": "frontend/src/screens/OfficeScene.tsx, frontend/src/ui/SelectedObjectPanel.tsx, app/services/office_layout_service.py, /api/office/layout"},
+    {"path": "docs/audits/evomap-skill-payment-check-plan.md", "summary": "Skill 付费链路逐环节复核计划（本地→后端→EvoMap service-order→provider worker→DB→收益）。最近阻塞 listing_provider_unavailable", "code_link": "app/services/skill_order_service.py, app/services/evomap_payment_service.py"},
+    {"path": "docs/archive-manifest.md", "summary": "外部归档索引：记录已移出活跃仓库的 Colyseus 像素房间与 2D 对话页归档位置与恢复方式", "code_link": "外部归档路径见 docs/archive-manifest.md"}
   ],
   "coverage_report": {
     "estimated_source_files": 75,
@@ -300,7 +300,7 @@
     "coverage_percent": 99,
     "delta_this_run": "2026-06-21 09:55 第九次 init（增量校验+补漏，仅文档不改源码，对照 HEAD 031608f）：① 表数校正 16→17（models.py 实测 17 个 class X(Base)，新增第 17 表 office_layout + office_layout_service.py + /api/office/layout GET/PUT）。② /menu 路由补录（菜单卡片数据源）。③ 测试计数校正 11→12 pytest 文件（漏计 test_customer_enter_scene.py）。④ Mermaid 图 db/(16 表)→(17 表) + 补 .agents/skills 节点。⑤ app/CLAUDE.md FAQ 根路由校正（原写'匿名直出不校验登录'与 d408c58 恢复门槛矛盾，改为'根 / 需登录但点单 API 匿名'）。⑥ index.json 全量刷新（从第六次 init 21:30 过时状态更新到第九次：表数/多 Agent 协作/LLM 超时系统/chat 加速/office 编辑器持久化/17 表/12 测试/7 迁移脚本）。校验通过保持不动：startup _ensure_staff_seeded 不广播、/3d/sounds mount 已恢复、reviewer timeout_seconds 遗留 bug、多 Agent 协作、LLM 超时重构均准确。覆盖率 99% → 99%",
     "scanned_root": ["docker-compose.yml", "requirements.txt", ".gitignore", "_mock_hub.py (确认临时文件，标注忽略)"],
-    "scanned_app": ["app/main.py (index() main.py:1855 登录门槛 + /chat 匿名 + ws presence + /menu + /api/office/layout)", "app/config.py", "app/domain_constants.py", "app/colyseus_bridge.py", "app/db/models.py (17 表)", "app/db/database.py", "app/db/seed.py", "app/services/*.py (含 staff_service/agent_orchestrator/office_layout_service/evomap_evolution_service/agents/*)", "app/llm/client.py", "app/rag/*.py (2)", "app/memory/chat_history.py", "app/auth/*.py (2)"],
+    "scanned_app": ["app/main.py (index() 登录门槛 + /chat 匿名 + ws presence + /menu + /api/office/layout)", "app/config.py", "app/domain_constants.py", "app/colyseus_bridge.py", "app/db/models.py (17 表)", "app/db/database.py", "app/db/seed.py", "app/services/*.py (含 staff_service/agent_orchestrator/office_layout_service/evomap_evolution_service/agents/*)", "app/llm/client.py", "app/rag/*.py (2)", "app/memory/chat_history.py", "app/auth/*.py (2)"],
     "scanned_frontend": [
       "package.json", "vite.config.ts", "src/main.tsx", "src/App.tsx",
       "src/screens/OfficeScene.tsx (onEvent/onSnapshot + autosave + ChatPanel 接入)", "src/screens/Dashboard.tsx (中文化)",
@@ -319,23 +319,23 @@
     "scanned_tests": ["test_llm_configuration.py", "test_chat_confirm.py", "test_chat_fast_path.py", "test_chat_heuristic.py", "test_chat_history_fallback.py", "test_chat_order_view.py", "test_catalog_disambiguation.py", "test_product_wallet_unit.py", "test_product_wallet_integration.py", "test_skill_evomap_payment.py", "test_web_presence_snapshot.py", "test_customer_enter_scene.py", "verify_quick_menu.py (非 pytest)"],
     "scanned_scripts": ["init_db.py", "migrate_order_sources.py", "migrate_user_accounts.py", "migrate_product_catalog.py", "migrate_wallet_ledger.py", "migrate_order_lineitem.py", "migrate_agent_experience.py", "start.sh"],
     "scanned_docs": [
-      "docs/3D编辑器完整度对齐.md",
-      "docs/evomap-skill-payment-check-plan.md",
+      "docs/features/3d-editor-completeness-alignment.md",
+      "docs/audits/evomap-skill-payment-check-plan.md",
       "docs/archive-manifest.md",
-      "docs/smart-search-evidence/20260619-coffee-pixel-style/SKILL-VISUALIZATION-ROADMAP.md",
-      "docs/smart-search-evidence/20260619-coffee-pixel-style/EvoMap A2A Skill 脚本改造实施计划.md",
-      "docs/smart-search-evidence/20260619-coffee-pixel-style/EvoMap A2A 积分扣款接入调研与实现计划.md",
-      "docs/smart-search-evidence/20260619-coffee-pixel-style/agent-integration-api.md",
-      "docs/smart-search-evidence/20260619-coffee-pixel-style/点单SKILL生成.md",
-      "docs/smart-search-evidence/20260619-coffee-pixel-style/pixel-agents-integration.md",
-      "docs/smart-search-evidence/20260619-coffee-pixel-style/pixel-restaurant-reference-repos.md",
-      "docs/smart-search-evidence/20260619-coffee-pixel-style/smart-search-pixel-restaurant-repos.md"
+      "docs/evidence/smart-search/20260619-coffee-pixel-style/SKILL-VISUALIZATION-ROADMAP.md",
+      "docs/evidence/smart-search/20260619-coffee-pixel-style/EvoMap A2A Skill 脚本改造实施计划.md",
+      "docs/evidence/smart-search/20260619-coffee-pixel-style/EvoMap A2A 积分扣款接入调研与实现计划.md",
+      "docs/evidence/smart-search/20260619-coffee-pixel-style/agent-integration-api.md",
+      "docs/evidence/smart-search/20260619-coffee-pixel-style/点单SKILL生成.md",
+      "docs/evidence/smart-search/20260619-coffee-pixel-style/pixel-agents-integration.md",
+      "docs/evidence/smart-search/20260619-coffee-pixel-style/pixel-restaurant-reference-repos.md",
+      "docs/evidence/smart-search/20260619-coffee-pixel-style/smart-search-pixel-restaurant-repos.md"
     ]
   },
   "ignored": {
     "rule_source": ".gitignore + defaults",
     "top_dirs": [
-      "node_modules/", "frontend/node_modules/", "_archive/colyseus-server/node_modules/",
+      "node_modules/", "frontend/node_modules/",
       ".venv/", "__pycache__/", "tests/__pycache__/", "scripts/__pycache__/",
       ".artifacts/", ".codegraph/", ".codestable/",
       ".gemini/", ".kiro/", ".idea/", ".codex/", ".trae/", ".zhipu/", ".qingyan/", ".cursor/",
@@ -353,6 +353,6 @@
     "parse_intent/orchestrate_staff_node/_register_web_customer_presence 直接单测"
   ],
   "resume_checkpoints": {
-    "note": "下次运行优先补 gaps_next_run 中标记的活跃代码缺口；归档区 (_archive/) 不再作为扫描目标，仅在 content 变更时复核；_mock_hub.py 永久忽略。pytest 71 passed 数字需在有 venv+DB 环境复跑确认（第九次 init 环境无 venv/DB 未能复跑）。"
+    "note": "下次运行优先补 gaps_next_run 中标记的活跃代码缺口；归档区 _archive/ 已于 2026-06-28 从活跃仓库彻底移除（外部归档见 docs/archive-manifest.md）；_mock_hub.py 永久忽略。pytest 71 passed 数字需在有 venv+DB 环境复跑确认（第九次 init 环境无 venv/DB 未能复跑）。"
   }
 }
