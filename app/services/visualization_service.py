@@ -165,7 +165,13 @@ class VisualizationHub:
         agents: list[dict[str, Any]] | None = None,
     ) -> None:
         await websocket.accept()
-        await websocket.send_json(
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(
+            maxsize=max(1, settings.visualization_connection_queue_size)
+        )
+        writer_task = asyncio.create_task(self._writer_loop(websocket, queue))
+        self._connections[websocket] = {"queue": queue, "writer_task": writer_task}
+        self.send_one(
+            websocket,
             {
                 "type": "scene.snapshot",
                 "payload": {
@@ -173,13 +179,8 @@ class VisualizationHub:
                     "agents": agents or [],
                 },
                 "created_at": datetime.utcnow().isoformat(),
-            }
+            },
         )
-        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(
-            maxsize=max(1, settings.visualization_connection_queue_size)
-        )
-        writer_task = asyncio.create_task(self._writer_loop(websocket, queue))
-        self._connections[websocket] = {"queue": queue, "writer_task": writer_task}
 
     async def _writer_loop(
         self,
@@ -217,40 +218,69 @@ class VisualizationHub:
         message: dict[str, Any],
         exclude: WebSocket | None = None,
     ) -> None:
+        await self._send_many_to_all([message], exclude=exclude)
+
+    async def _send_many_to_all(
+        self,
+        messages: list[dict[str, Any]],
+        exclude: WebSocket | None = None,
+    ) -> None:
         disconnected: list[WebSocket] = []
-        for websocket, state in list(self._connections.items()):
+        for websocket in list(self._connections):
             if websocket is exclude:
                 continue
-            if not self.send_one(websocket, message):
+            if not self.send_many(websocket, messages):
                 disconnected.append(websocket)
         for websocket in disconnected:
             self.disconnect(websocket)
 
     def send_one(self, websocket: WebSocket, message: dict[str, Any]) -> bool:
+        return self.send_many(websocket, [message])
+
+    def send_many(self, websocket: WebSocket, messages: list[dict[str, Any]]) -> bool:
+        if not messages:
+            return True
         state = self._connections.get(websocket)
         if state is None:
             return False
         queue: asyncio.Queue[dict[str, Any]] = state["queue"]
-        if queue.full():
+        remaining = queue.maxsize - queue.qsize()
+        if remaining < len(messages):
             return False
-        queue.put_nowait(message)
+        for message in messages:
+            queue.put_nowait(message)
         return True
+
+    def _filter_new_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [message for message in messages if self._remember_message(message)]
 
     async def broadcast(self, message: dict[str, Any]) -> None:
         """Persist to recent events (snapshot replay buffer) + push to all clients."""
-        if not self._remember_message(message):
+        await self.broadcast_many([message])
+
+    async def broadcast_many(self, messages: list[dict[str, Any]]) -> None:
+        """Persist to recent events + push an ordered batch to all clients."""
+        new_messages = self._filter_new_messages(messages)
+        if not new_messages:
             return
-        self._recent_events.append(message)
+        self._recent_events.extend(new_messages)
         self._recent_events = self._recent_events[-100:]
-        await self._send_to_all(message)
+        await self._send_many_to_all(new_messages)
 
     async def broadcast_others(
         self, exclude: WebSocket, message: dict[str, Any]
     ) -> None:
         """Push to all clients except one, without persisting (transient presence)."""
-        if not self._remember_message(message):
+        await self.broadcast_many_others(exclude, [message])
+
+    async def broadcast_many_others(
+        self, exclude: WebSocket, messages: list[dict[str, Any]]
+    ) -> None:
+        """Push an ordered batch to all clients except one, without replay."""
+        new_messages = self._filter_new_messages(messages)
+        if not new_messages:
             return
-        await self._send_to_all(message, exclude=exclude)
+        await self._send_many_to_all(new_messages, exclude=exclude)
 
     async def broadcast_transient(self, message: dict[str, Any]) -> None:
         """Push to all clients without persisting (transient presence notifications).
@@ -258,19 +288,29 @@ class VisualizationHub:
         Used for come-online / go-offline signals so they don't pollute the snapshot
         replay buffer (replaying a stale leave_scene would wrongly remove avatars).
         """
-        if not self._remember_message(message):
+        await self.broadcast_many_transient([message])
+
+    async def broadcast_many_transient(self, messages: list[dict[str, Any]]) -> None:
+        new_messages = self._filter_new_messages(messages)
+        if not new_messages:
             return
-        await self._send_to_all(message)
+        await self._send_many_to_all(new_messages)
 
     def broadcast_from_sync(self, message: dict[str, Any]) -> None:
+        self.broadcast_many_from_sync([message])
+
+    def broadcast_many_from_sync(self, messages: list[dict[str, Any]]) -> None:
         try:
-            anyio.from_thread.run(self.broadcast, message)
+            anyio.from_thread.run(self.broadcast_many, messages)
         except RuntimeError:
             pass
 
     def broadcast_transient_from_sync(self, message: dict[str, Any]) -> None:
+        self.broadcast_many_transient_from_sync([message])
+
+    def broadcast_many_transient_from_sync(self, messages: list[dict[str, Any]]) -> None:
         try:
-            anyio.from_thread.run(self.broadcast_transient, message)
+            anyio.from_thread.run(self.broadcast_many_transient, messages)
         except RuntimeError:
             pass
 
@@ -327,26 +367,64 @@ class VisualizationEventBus:
         replay: bool = True,
         exclude: WebSocket | None = None,
     ) -> dict[str, Any]:
-        enriched = _with_bus_metadata(message)
+        return (await self.publish_many([message], replay=replay, exclude=exclude))[0]
+
+    async def publish_many(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        replay: bool = True,
+        exclude: WebSocket | None = None,
+    ) -> list[dict[str, Any]]:
+        enriched = [_with_bus_metadata(message) for message in messages]
+        if not enriched:
+            return []
         if replay:
-            await self.hub.broadcast(enriched)
+            await self.hub.broadcast_many(enriched)
         elif exclude is not None:
-            await self.hub.broadcast_others(exclude, enriched)
+            await self.hub.broadcast_many_others(exclude, enriched)
         else:
-            await self.hub.broadcast_transient(enriched)
-        self._publish_to_redis(enriched, replay=replay)
+            await self.hub.broadcast_many_transient(enriched)
+        self._publish_many_to_redis(enriched, replay=replay)
         return enriched
 
     def publish_from_sync(self, message: dict[str, Any], *, replay: bool = True) -> dict[str, Any]:
-        enriched = _with_bus_metadata(message)
+        return self.publish_many_from_sync([message], replay=replay)[0]
+
+    def publish_many_from_sync(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        replay: bool = True,
+    ) -> list[dict[str, Any]]:
+        enriched = [_with_bus_metadata(message) for message in messages]
+        if not enriched:
+            return []
         if replay:
-            self.hub.broadcast_from_sync(enriched)
+            self.hub.broadcast_many_from_sync(enriched)
         else:
-            self.hub.broadcast_transient_from_sync(enriched)
-        self._publish_to_redis(enriched, replay=replay)
+            self.hub.broadcast_many_transient_from_sync(enriched)
+        self._publish_many_to_redis(enriched, replay=replay)
         return enriched
 
     def _publish_to_redis(self, message: dict[str, Any], *, replay: bool) -> None:
+        self._publish_to_redis_envelope({"origin_id": self.origin_id, "replay": replay, "message": message})
+
+    def _publish_many_to_redis(self, messages: list[dict[str, Any]], *, replay: bool) -> None:
+        if not messages:
+            return
+        if len(messages) == 1:
+            self._publish_to_redis(messages[0], replay=replay)
+            return
+        self._publish_to_redis_envelope(
+            {
+                "origin_id": self.origin_id,
+                "replay": replay,
+                "messages": messages,
+            }
+        )
+
+    def _publish_to_redis_envelope(self, envelope: dict[str, Any]) -> None:
         if settings.use_fakeredis:
             return
         try:
@@ -354,44 +432,67 @@ class VisualizationEventBus:
                 self._publisher = get_redis_client(decode_responses=True)
             self._publisher.publish(
                 settings.visualization_redis_channel,
-                encode_json(
-                    {
-                        "origin_id": self.origin_id,
-                        "replay": replay,
-                        "message": message,
-                    }
-                ),
+                encode_json(envelope),
             )
         except Exception:
             self._publisher = None
             logger.warning("Failed to publish visualization event to Redis", exc_info=True)
 
     def _listen_loop(self) -> None:
-        try:
-            self._redis = get_redis_client(decode_responses=True)
-            pubsub = self._redis.pubsub(ignore_subscribe_messages=True)
-            pubsub.subscribe(settings.visualization_redis_channel)
-            for item in pubsub.listen():
-                if self._stop.is_set():
-                    break
-                if item.get("type") != "message":
-                    continue
-                self._handle_redis_message(str(item.get("data") or ""))
-        except Exception:
+        backoff = 1.0
+        while not self._stop.is_set():
+            redis_client = None
+            pubsub = None
+            try:
+                redis_client = get_redis_client(decode_responses=True)
+                self._redis = redis_client
+                pubsub = redis_client.pubsub(ignore_subscribe_messages=True)
+                pubsub.subscribe(settings.visualization_redis_channel)
+                backoff = 1.0
+                for item in pubsub.listen():
+                    if self._stop.is_set():
+                        break
+                    if item.get("type") != "message":
+                        continue
+                    self._handle_redis_message(str(item.get("data") or ""))
+            except Exception:
+                if not self._stop.is_set():
+                    logger.warning("Visualization Redis Pub/Sub listener stopped", exc_info=True)
+            finally:
+                if pubsub is not None:
+                    try:
+                        pubsub.close()
+                    except Exception:
+                        pass
+                if redis_client is not None:
+                    try:
+                        redis_client.close()
+                    except Exception:
+                        pass
+                if self._redis is redis_client:
+                    self._redis = None
             if not self._stop.is_set():
-                logger.warning("Visualization Redis Pub/Sub listener stopped", exc_info=True)
+                self._stop.wait(backoff)
+                backoff = min(backoff * 2, 30.0)
 
     def _handle_redis_message(self, raw: str) -> None:
         try:
             envelope = json.loads(raw)
-            message = envelope["message"]
+            if isinstance(envelope.get("messages"), list):
+                messages = envelope["messages"]
+            else:
+                messages = [envelope["message"]]
             replay = bool(envelope.get("replay", True))
         except Exception:
             return
         loop = self._loop
         if loop is None or loop.is_closed():
             return
-        coroutine = self.hub.broadcast(message) if replay else self.hub.broadcast_transient(message)
+        coroutine = (
+            self.hub.broadcast_many(messages)
+            if replay
+            else self.hub.broadcast_many_transient(messages)
+        )
         asyncio.run_coroutine_threadsafe(coroutine, loop)
 
 
@@ -421,10 +522,7 @@ def publish_visualization_events(
     events: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     messages = create_visualization_events(db, events)
-    return [
-        visualization_event_bus.publish_from_sync(message, replay=True)
-        for message in messages
-    ]
+    return visualization_event_bus.publish_many_from_sync(messages, replay=True)
 
 
 def broadcast_visualization_message(

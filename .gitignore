@@ -84,3 +84,8 @@ htmlcov/
 # Frontend local build caches; frontend/dist is covered by frontend/.gitignore
 .vite/
 build/
+
+# Local gltfjsx scratch outputs; tracked generated models remain explicit.
+frontend/src/office3d/generated/*Model.tsx
+frontend/src/office3d/generated/index.ts
+!frontend/src/office3d/generated/TableModel.tsx

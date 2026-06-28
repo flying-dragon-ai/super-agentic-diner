@@ -7,9 +7,13 @@
 import type { SnapshotAgent, VisEvent } from "./api";
 
 const wsUrl = () => {
-  const dev = (import.meta as unknown as { env: { DEV?: boolean } }).env?.DEV;
-  if (dev) return "ws://localhost:8000/ws/visualization";
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const env = (import.meta as unknown as {
+    env: { DEV?: boolean; VITE_VISUALIZATION_WS_URL?: string };
+  }).env;
+  const explicit = env?.VITE_VISUALIZATION_WS_URL?.trim();
+  if (explicit) return explicit;
+  if (env?.DEV) return `${proto}//${window.location.hostname || "localhost"}:8000/ws/visualization`;
   return `${proto}//${window.location.host}/ws/visualization`;
 };
 

@@ -19,5 +19,9 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": [
+    "src/office3d/generated/*Model.tsx",
+    "src/office3d/generated/index.ts"
+  ]
 }

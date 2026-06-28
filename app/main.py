@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -79,6 +80,7 @@ from app.services.visualization_service import (
     hash_agent_token,
     make_sprite_seed,
     publish_visualization_event,
+    publish_visualization_events,
     visualization_event_bus,
     visualization_hub,
 )
@@ -87,6 +89,17 @@ from app.auth import service as auth_service
 from app.colyseus_bridge import start_colyseus_server, stop_colyseus_server
 
 app = FastAPI(title="Crossroads Agent Café")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 logger = logging.getLogger(__name__)
 
@@ -550,6 +563,30 @@ def _try_publish_visualization_event(
         )
 
 
+def _try_publish_visualization_events(
+    db: Session,
+    events: list[dict[str, Any]],
+) -> None:
+    if not events:
+        return
+    try:
+        publish_visualization_events(db, events)
+    except Exception:
+        db.rollback()
+        for event in events:
+            broadcast_visualization_message(
+                {
+                    "event_id": None,
+                    "type": event["event_type"],
+                    "agent_id": event.get("agent_id"),
+                    "payload": event.get("payload") or {},
+                    "correlation_id": event.get("correlation_id"),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                },
+                replay=True,
+            )
+
+
 def _web_restaurant_payload(
     req: ChatRequest,
     *,
@@ -593,6 +630,70 @@ def _web_restaurant_payload(
         "stage": stage,
         "patience": patience,
         "satisfaction": satisfaction,
+    }
+
+
+def _web_restaurant_event_record(
+    event_type: str,
+    *,
+    req: ChatRequest,
+    consumer_url: str | None,
+    state: str,
+    coffees: list[dict[str, Any]] | None = None,
+    coffee_names: list[str] | None = None,
+    total: float | int | None = None,
+    payment_status: str | None = None,
+    order_ids: list[int] | None = None,
+    message: str | None = None,
+    reason: str | None = None,
+    stage: str | None = None,
+    patience: int | None = None,
+    satisfaction: int | None = None,
+    agent_id: int | None = None,
+) -> dict[str, Any]:
+    return {
+        "event_type": event_type,
+        "payload": _web_restaurant_payload(
+            req,
+            state=state,
+            consumer_url=consumer_url,
+            coffees=coffees,
+            coffee_names=coffee_names,
+            total=total,
+            payment_status=payment_status,
+            order_ids=order_ids,
+            message=message,
+            reason=reason,
+            stage=stage,
+            patience=patience,
+            satisfaction=satisfaction,
+        ),
+        "agent_id": agent_id,
+        "correlation_id": req.request_id,
+    }
+
+
+def _staff_action_event_record(
+    staff: dict[str, AgentProfile],
+    role: str,
+    action_type: str,
+    correlation_id: str,
+) -> dict[str, Any] | None:
+    staff_agent = staff.get(role)
+    if staff_agent is None:
+        return None
+    return {
+        "event_type": "agent.action",
+        "payload": {
+            "agent_id": staff_agent.agent_id,
+            "tool_name": staff_agent.tool_name,
+            "display_name": staff_agent.display_name,
+            "role_type": staff_agent.role_type,
+            "sprite_seed": staff_agent.sprite_seed,
+            "action_type": action_type,
+        },
+        "agent_id": staff_agent.agent_id,
+        "correlation_id": correlation_id,
     }
 
 
@@ -669,22 +770,23 @@ def _publish_web_completion_flow(
     except Exception:
         staff = {}
     correlation = req.request_id
-    _publish_web_restaurant_event(
-        db,
+    events: list[dict[str, Any]] = []
+    events.append(_web_restaurant_event_record(
         "restaurant.payment_completed",
         state="payment_completed",
         patience=82,
         satisfaction=88,
         **common,
-    )
-    staff_service.orchestrate_staff_node(db, staff, "payment_completed", correlation)
+    ))
+    staff_event = _staff_action_event_record(staff, "cashier", "take_order", correlation)
+    if staff_event:
+        events.append(staff_event)
     for stage, label, patience in (
         ("grinding", "grinding beans", 78),
         ("brewing", "brewing coffee", 72),
         ("plating", "plating order", 68),
     ):
-        _publish_web_restaurant_event(
-            db,
+        events.append(_web_restaurant_event_record(
             "restaurant.preparation_progress",
             state="making",
             stage=stage,
@@ -692,23 +794,50 @@ def _publish_web_completion_flow(
             patience=patience,
             satisfaction=90,
             **common,
-        )
-        staff_service.orchestrate_staff_node(db, staff, "preparation_progress", correlation)
-    _publish_web_restaurant_event(db, "restaurant.order_ready", state="ready", patience=70, satisfaction=92, **common)
-    staff_service.orchestrate_staff_node(db, staff, "order_ready", correlation)
-    _publish_web_restaurant_event(db, "restaurant.order_delivered", state="delivered", patience=74, satisfaction=94, **common)
-    staff_service.orchestrate_staff_node(db, staff, "order_delivered", correlation)
-    _publish_web_restaurant_event(
-        db,
+        ))
+        staff_event = _staff_action_event_record(staff, "barista", "prepare_coffee", correlation)
+        if staff_event:
+            events.append(staff_event)
+    events.append(_web_restaurant_event_record(
+        "restaurant.order_ready",
+        state="ready",
+        patience=70,
+        satisfaction=92,
+        **common,
+    ))
+    staff_event = _staff_action_event_record(staff, "barista", "enter_scene", correlation)
+    if staff_event:
+        events.append(staff_event)
+    events.append(_web_restaurant_event_record(
+        "restaurant.order_delivered",
+        state="delivered",
+        patience=74,
+        satisfaction=94,
+        **common,
+    ))
+    staff_event = _staff_action_event_record(staff, "waiter", "deliver_order", correlation)
+    if staff_event:
+        events.append(staff_event)
+    events.append(_web_restaurant_event_record(
         "restaurant.customer_reviewed",
         state="reviewed",
         message="顾客评价：出餐顺利",
         patience=76,
         satisfaction=96,
         **common,
-    )
-    _publish_web_restaurant_event(db, "restaurant.customer_left", state="left", patience=80, satisfaction=96, **common)
-    staff_service.orchestrate_staff_node(db, staff, "customer_left", correlation)
+    ))
+    events.append(_web_restaurant_event_record(
+        "restaurant.customer_left",
+        state="left",
+        patience=80,
+        satisfaction=96,
+        **common,
+    ))
+    for role in ("waiter", "cashier"):
+        staff_event = _staff_action_event_record(staff, role, "enter_scene", correlation)
+        if staff_event:
+            events.append(staff_event)
+    _try_publish_visualization_events(db, events)
     # 画像总结（购买完成触发）：异步 fire-and-forget，仅登录用户有效，
     # 失败 swallow 绝不阻断下单。放在完成流最末，确保订单已落库可被画像读取。
     try:

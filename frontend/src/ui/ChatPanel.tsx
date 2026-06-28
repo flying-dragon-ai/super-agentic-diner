@@ -174,15 +174,15 @@ export function ChatPanel() {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} style={FAB}>{"\u{1F4AC}"} \u70b9\u5355</button>
+      <button onClick={() => setOpen(true)} style={FAB}>{"\u{1F4AC} 点单"}</button>
     );
   }
 
   return (
     <div style={PANEL}>
       <div style={HEADER}>
-        <span>{"\u{1F4AC}"} AI \u5e97\u957f\u70b9\u5355\uff08\u533f\u540d #{userId}\uff09</span>
-        <button onClick={() => setOpen(false)} style={{ ...BTN, padding: "2px 8px" }}>\u2014</button>
+        <span>{`\u{1F4AC} AI 店长点单（匿名 #${userId}）`}</span>
+        <button onClick={() => setOpen(false)} style={{ ...BTN, padding: "2px 8px" }}>{"—"}</button>
       </div>
       <div ref={scrollRef} style={LIST}>
         {messages.length === 0 && (
