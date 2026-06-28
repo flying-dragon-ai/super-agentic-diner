@@ -3,13 +3,13 @@
 Crossroads Agent Café — 服务器部署压缩包打包器。
 
 排除开发期文件（.venv / .git / node_modules / 各 AI 工具配置 / 日志 / 设计文档），
-生成可直接 `docker compose -f deploy/docker-compose.1panel.yml up -d --build` 的精简包。
+生成可直接 `docker compose -f docker-compose.prod.yml up -d --build` 的精简包。
 
 用法：
     python scripts/pack_release.py [输出zip路径]
 默认输出：<项目根>/crossroads-agent-cafe-release.zip
 
-压缩包结构：顶层目录 crossroads-agent-cafe/，解压后即项目根（含 .env、Dockerfile、deploy/ 等）。
+压缩包结构：顶层目录 crossroads-agent-cafe/，解压后即项目根（含 .env.production、Dockerfile、docker-compose.prod.yml 等）。
 """
 from __future__ import annotations
 
@@ -35,12 +35,14 @@ EXCLUDE_DIRS = {
     "dist", ".pnpm-store", ".vite",
     # 设计文档（含大量截图，部署不需要；开发机保留）
     "docs",
+    # 部署不需要的源码 / 配置：前端源码（产物已在 app/static/3d）/ 测试 / Skill（在外部 AI 工具机上跑）/ 旧部署目录
+    "frontend", "tests", ".agents", "deploy", ".opencode",
 }
 
 # 排除的根级文件
 EXCLUDE_FILES = {
-    ".env",                # 本地开发 .env，用 .env.production 复制为 .env 替代
-    ".env.production",     # 打包时单独处理（复制为 .env）
+    ".env",                # 本地开发 .env（不进包）
+    ".env.production",     # 打包时单独处理（保留原名写入，见下文第 1 步），避免 os.walk 重复
     ".local-consumer.env",
     ".mcp.json", ".mcp.json.backup",
     "server.err.log", "server.out.log",
@@ -48,10 +50,13 @@ EXCLUDE_FILES = {
     "package.json", "package-lock.json",   # 根级 evolver 依赖（非项目所需）
     "crossroads-agent-cafe-release.zip",          # 避免自包含
     "opencode.jsonc",     # OpenCode 编辑器配置
+    "start.bat",          # Windows 启动脚本（Linux 部署不用）
+    "cafe-chairs-scale32.png", "cafe-chairs-tables.png",  # 开发期布局截图
+    "a2a-super-order-skill.zip",  # Skill 单独发布的 zip
 }
 
 # 排除的文件名模式
-EXCLUDE_PATTERNS = ["*.log", "*.pyc", "*.pyo", "smoke-*.png", "3d-scene-*.png", "*.pid"]
+EXCLUDE_PATTERNS = ["*.log", "*.pyc", "*.pyo", "smoke-*.png", "3d-scene-*.png", "*.pid", "*.db", "*.db-shm", "*.db-wal", "*.zip"]
 
 # 排除的相对子路径：前端源资产（音频/3D 模型）的产物已在 app/static/3d，无需携带源副本
 EXCLUDE_SUBPATHS = {"frontend/public"}
@@ -72,15 +77,15 @@ def main() -> int:
     count = 0
     src_bytes = 0
     with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
-        # 1) .env.production → 压缩包内 .env（容器直接读）
+        # 1) .env.production → 压缩包内 .env.production（docker-compose.prod.yml 的 env_file 指向它）
         env_prod = ROOT / ".env.production"
         if env_prod.exists():
-            zf.write(env_prod, f"{ARC_PREFIX}/.env")
+            zf.write(env_prod, f"{ARC_PREFIX}/.env.production")
             count += 1
             src_bytes += env_prod.stat().st_size
-            print(f"  + .env (from .env.production)")
+            print(f"  + .env.production")
         else:
-            print("[WARN] .env.production 不存在，压缩包将不含 .env！")
+            print("[WARN] .env.production 不存在，压缩包将不含 .env.production！")
 
         # 2) 遍历项目（原地裁剪 dirnames 阻止进入排除目录）
         for dirpath, dirnames, filenames in os.walk(ROOT):
