@@ -91,15 +91,6 @@ const INTENT_COLOR: Record<string, string> = {
   browse: "#9ca3af",
 };
 
-const CHURN_CATEGORY_TEXT: Record<string, string> = {
-  price: "价格敏感",
-  taste: "口味不符",
-  variety: "品种不足",
-  hesitation: "犹豫未决",
-  experience: "体验问题",
-  other: "其他原因",
-};
-
 function formatEvent(event: VisEvent) {
   if (event.type === "agent.action") {
     const actionType = typeof event.payload?.action_type === "string" ? event.payload.action_type : "";
@@ -230,7 +221,7 @@ export default function Dashboard() {
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {churnData?.churn_patterns && Object.entries(churnData.churn_patterns).sort((a, b) => b[1] - a[1]).map(([cat, count]) => (
               <div key={cat} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 8px", background: "rgba(248,113,113,0.06)", borderRadius: 6 }}>
-                <span style={{ color: "#f87171", fontSize: 12 }}>{CHURN_CATEGORY_TEXT[cat] ?? cat}</span>
+                <span style={{ color: "#f87171", fontSize: 12 }}>{cat}</span>
                 <span style={{ color: "#e8dfc0", fontSize: 13, fontWeight: 700 }}>{count}</span>
               </div>
             ))}
