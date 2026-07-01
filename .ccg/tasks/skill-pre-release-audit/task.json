@@ -1,0 +1,15 @@
+{
+  "id": "skill-pre-release-audit",
+  "title": "a2a-super-order Skill 发布前全量审查 + 修复（代码 bug + npm/EvoMap/git 三渠道就绪度）",
+  "status": "in_progress",
+  "strategy": "direct-fix",
+  "currentPhase": "fix-warnings",
+  "nextAction": "修复 W1-W8 代码 bug，完成后补 npm 打包配置（待用户给包名）",
+  "gate": "review-report-delivered",
+  "branch": "main",
+  "scope": "skill-pre-release-audit",
+  "channels": ["npm-npx", "evomap-marketplace", "git-clone"],
+  "execMode": "A-claude-solo",
+  "reviewSummary": "2 Critical (打包), 8 Warning (代码), 6 Info; 0 Critical 代码 bug",
+  "createdAt": "2026-06-21T03:24:08Z"
+}

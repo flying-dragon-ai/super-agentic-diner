@@ -1,0 +1,18 @@
+{
+  "id": "persist-office-layout-server",
+  "title": "3D 编辑器布局服务端持久化（项目重启/跨设备/全局共享）",
+  "status": "completed",
+  "strategy": "guided-develop",
+  "currentPhase": "6-verify",
+  "nextAction": "验证通过（API链路+前端集成+DB持久重启保留+build），待 /ccg:commit 提交",
+  "gate": null,
+  "branch": "main",
+  "scope": "persist-office-layout-server",
+  "createdAt": "2026-06-21T01:37:02Z",
+  "decisions": {
+    "auth": "anonymous PUT (no-threshold principle)",
+    "localStorage": "keep as cache fallback",
+    "layout": "global singleton (namespace=default)",
+    "migration": "auto-upload localStorage on first empty GET"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "id": "autonomous-agent-p1",
+  "title": "数字 agent 自主进 3D 咖啡厅买咖啡（P1：自主循环+模拟买咖啡）",
+  "status": "completed",
+  "strategy": "guided-develop",
+  "currentPhase": "6-verify",
+  "nextAction": "P1 验证通过（agent 创建+完整 4-action 循环）。下一步 P2 真下单 / P3 本地经验引导 / P4 玩耍动作",
+  "gate": null,
+  "branch": "main",
+  "scope": "autonomous-agent-p1",
+  "createdAt": "2026-06-21T04:47:36Z",
+  "decisions": {
+    "phase": "P1 (simulated buy-coffee, no real order) — DONE",
+    "decision_source": "preset behavior tree (P3 will add local experience guidance)",
+    "agent_identity": "evomap:autonomous_customer (id=136, role=customer, sprite 200001, user_id=1)",
+    "future": "P2 real order, P3 local experience guidance, P4 sit_on_couch + wander_lounge"
+  }
+}

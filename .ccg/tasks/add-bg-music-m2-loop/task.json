@@ -1,0 +1,12 @@
+{
+  "id": "add-bg-music-m2-loop",
+  "title": "新增背景音乐 m2.mp3，与 m1 循环轮播",
+  "status": "in_progress",
+  "strategy": "guided-develop",
+  "currentPhase": "6-verify",
+  "nextAction": "验证已通过；可选 /ccg:commit 提交 + 归档任务",
+  "gate": null,
+  "branch": "main",
+  "scope": "add-bg-music-m2-loop",
+  "createdAt": "2026-06-21T08:46:22+08:00"
+}
