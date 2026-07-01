@@ -1,4 +1,4 @@
-[根目录](../CLAUDE.md) > **frontend** (3D 前端)
+[根目录](../AGENTS.md) > **frontend** (3D 前端)
 
 # frontend/ — 3D 咖啡厅 + 监控大屏
 
