@@ -54,6 +54,7 @@ export function Palette({ onPick, activeType }: PaletteProps) {
         top: 64,
         bottom: 12,
         width: 168,
+        zIndex: 60,
         overflowY: "auto",
         background: "rgba(8,12,20,0.82)",
         border: "1px solid rgba(255,255,255,0.08)",
