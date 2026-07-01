@@ -12,7 +12,7 @@ const PANEL: React.CSSProperties = {
   left: 12,
   width: "min(360px, calc(100vw - 24px))",
   maxHeight: 360,
-  display: "flex",
+  display: "none",
   flexDirection: "column",
   background: "rgba(12,18,28,0.86)",
   border: "1px solid rgba(255,255,255,0.12)",

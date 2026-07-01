@@ -268,7 +268,7 @@ export function VisitorSocialPanel({ registerChatConsumer }: Props) {
         <button style={tabButtonStyle(tab === "bot")} onClick={() => setTab("bot")}>
           {"\u{1F916} AI\u52a9\u624b"}
         </button>
-        <button style={tabButtonStyle(tab === "visitors")} onClick={() => setTab("visitors")}>
+        <button style={{ ...tabButtonStyle(tab === "visitors"), display: "none" }} onClick={() => setTab("visitors")}>
           {"\u{1F465}"} ({onlineVisitors.length})
         </button>
         <button
