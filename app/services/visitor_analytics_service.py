@@ -229,26 +229,31 @@ def get_churn_analysis(db: Session) -> dict[str, Any]:
         .all()
     )
 
-    # 简单分类：按 churn_reason 关键词归类
-    _CATEGORY_KEYWORDS = {
-        "price": ["贵", "价格", "太贵", "便宜", "划算", "预算"],
-        "taste": ["口味", "苦", "甜", "不喜欢", "不合", "不好喝", "难喝"],
-        "variety": ["没有", "没找到", "不想", "品种", "选择"],
-        "hesitation": ["再看看", "考虑", "下次", "等等", "不确定"],
-        "experience": ["卡", "慢", "失败", "错误", "报错", "不方便"],
-    }
+    # 按流失原因原文聚合（不再强行归类到笼统的大类）。
+    # 无 LLM key 时 chat() 会返回 mock 店长欢迎语冒充 churn_reason，这种污染数据
+    # 必须过滤掉，否则大屏会被欢迎语刷屏。
+    from collections import Counter
 
-    category_counts: dict[str, int] = {}
+    _CONTAMINATED_MARKERS = (
+        "您好", "店长", "欢迎", "想喝点什么", "今天想喝", "风味或者忌口",
+    )
+
+    category_counts: Counter = Counter()
+    skipped_polluted = 0
     for v in recent_churns:
-        reason = (v.churn_reason or "").lower()
-        categorized = False
-        for cat, keywords in _CATEGORY_KEYWORDS.items():
-            if any(kw in reason for kw in keywords):
-                category_counts[cat] = category_counts.get(cat, 0) + 1
-                categorized = True
-                break
-        if not categorized:
-            category_counts["other"] = category_counts.get("other", 0) + 1
+        reason = (v.churn_reason or "").strip()
+        if not reason or reason == "分析中...":
+            continue
+        if any(marker in reason for marker in _CONTAMINATED_MARKERS):
+            skipped_polluted += 1
+            continue
+        category_counts[reason] += 1
+
+    if skipped_polluted:
+        logger.info(
+            "流失原因聚合：过滤了 %d 条污染数据（mock 店长欢迎语冒充 churn_reason）",
+            skipped_polluted,
+        )
 
     return {
         "today_churned": len(churned_today),
@@ -278,6 +283,12 @@ def _analyze_single_churn(db: Session, visitor: VisitorInsight) -> str:
     """用 LLM 分析单个访客的流失原因。"""
     try:
         from app.llm import client as llm
+
+        # 无 LLM key 时 chat() 会返回 mock 店长欢迎语，那不是流失原因，
+        # 写进数据库会污染大屏。这种环境下直接放弃分析，保持 churn_reason=None，
+        # 让聚合层跳过该行，等配了真实 key 再分析。
+        if not llm.has_real_key():
+            return ""
 
         prompt = _CHURN_ANALYSIS_PROMPT.format(
             intent=visitor.primary_intent,
