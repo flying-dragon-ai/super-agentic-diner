@@ -11,14 +11,27 @@ import type { FurnitureItem, RenderAgent } from "../core/types";
 export function DoorModel({
   item,
   agentsRef,
+  isSelected = false,
+  isHovered = false,
+  editMode = false,
+  onPointerDown,
+  onPointerOver,
+  onPointerOut,
 }: {
   item: FurnitureItem;
   agentsRef: RefObject<RenderAgent[]>;
+  isSelected?: boolean;
+  isHovered?: boolean;
+  editMode?: boolean;
+  onPointerDown?: (event: THREE.Event) => void;
+  onPointerOver?: (event: THREE.Event) => void;
+  onPointerOut?: (event: THREE.Event) => void;
 }) {
   const [wx, , wz] = toWorld(item.x, item.y);
   const width = (item.w ?? DOOR_LENGTH) * SCALE;
   const depth = Math.max((item.h ?? DOOR_THICKNESS) * SCALE, 0.04);
   const rotY = getItemRotationRadians(item);
+  const active = isSelected || (editMode && isHovered);
   const handleX = width - 0.09;
   const handleZ = Math.max(depth * 0.28, 0.035);
   const leafPivotRef = useRef<THREE.Group>(null);
@@ -51,24 +64,29 @@ export function DoorModel({
   });
 
   return (
-    <group position={[wx, item.elevation ?? 0, wz]}>
+    <group
+      position={[wx, item.elevation ?? 0, wz]}
+      onPointerDown={onPointerDown}
+      onPointerOver={onPointerOver}
+      onPointerOut={onPointerOut}
+    >
       <group position={[width / 2, 0, depth / 2]} rotation={[0, rotY, 0]}>
         <mesh position={[0, 1.01, 0]}>
           <boxGeometry args={[width + 0.05, 0.08, depth + 0.04]} />
-          <meshStandardMaterial color="#4a3421" roughness={0.88} />
+          <meshStandardMaterial color={active ? "#6b4b31" : "#4a3421"} roughness={0.88} />
         </mesh>
         <mesh position={[-width / 2 + 0.02, 0.5, 0]}>
           <boxGeometry args={[0.04, 1, depth + 0.03]} />
-          <meshStandardMaterial color="#4a3421" roughness={0.88} />
+          <meshStandardMaterial color={active ? "#6b4b31" : "#4a3421"} roughness={0.88} />
         </mesh>
         <mesh position={[width / 2 - 0.02, 0.5, 0]}>
           <boxGeometry args={[0.04, 1, depth + 0.03]} />
-          <meshStandardMaterial color="#4a3421" roughness={0.88} />
+          <meshStandardMaterial color={active ? "#6b4b31" : "#4a3421"} roughness={0.88} />
         </mesh>
         <group ref={leafPivotRef} position={[-width / 2 + 0.025, 0, 0]}>
           <mesh position={[width / 2 - 0.035, 0.5, 0]} receiveShadow>
             <boxGeometry args={[Math.max(width - 0.09, 0.08), 0.94, depth * 0.68]} />
-            <meshStandardMaterial color="#7c5330" roughness={0.74} />
+            <meshStandardMaterial color={active ? "#a06d42" : "#7c5330"} roughness={0.74} />
           </mesh>
           <mesh position={[handleX, 0.52, 0]}>
             <cylinderGeometry args={[0.008, 0.008, handleZ * 2.1, 10]} />

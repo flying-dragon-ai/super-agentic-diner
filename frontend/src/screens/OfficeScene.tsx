@@ -587,7 +587,19 @@ export default function OfficeScene() {
           <MenuBoardArt position={[0, 1.6, -6.3]} />
           {furniture.map((item) => {
             if (item.type === "door") {
-              return <DoorModel key={item._uid} item={item} agentsRef={agentsRef} />;
+              return (
+                <DoorModel
+                  key={item._uid}
+                  item={item}
+                  agentsRef={agentsRef}
+                  editMode={editMode}
+                  isSelected={selectedUid === item._uid}
+                  isHovered={hoverUid === item._uid}
+                  onPointerDown={() => handleFurniturePointerDown(item._uid)}
+                  onPointerOver={() => editMode && setHoverUid(item._uid)}
+                  onPointerOut={() => setHoverUid(null)}
+                />
+              );
             }
             const Machine = resolveMachine(item);
             if (Machine) {

@@ -10,21 +10,28 @@
 - Environment variables remain supported for CI and advanced users, and override the local config file.
 - Do not depend on MCP inline `env` values or committed API-key environment variables for CLI use.
 - On Windows with mise, the managed package name is `npm:@konbakuyomu/smart-search`; the executable remains `smart-search`. Diagnose mise managed installs with `mise ls "npm:@konbakuyomu/smart-search"` and `mise which smart-search` (the bare name `smart-search` is the bin, not a mise tool identifier).
-- In sandboxed runtimes (Codex CLI, containers, CI) where subprocesses cannot read the user's `~/.config`, set `SMART_SEARCH_CONFIG_DIR` to an absolute writable path. The CLI uses it for both config and logs.
+- On Windows, the default config file is `%LOCALAPPDATA%\smart-search\config.json`. Linux/macOS default to `~/.config/smart-search/config.json`.
+- `SMART_SEARCH_CONFIG_DIR` is an advanced override for CI, containers, sandboxes, or portable installs. The CLI uses it for config and relative logs and skips default-directory selection.
+- Earlier Windows source defaults used `~\.config\smart-search\config.json`, while some installs were already pinned to `%LOCALAPPDATA%\smart-search` through `SMART_SEARCH_CONFIG_DIR`. If the new Windows default file is missing but the old file exists, the active config source is `legacy_windows_home` so upgrades do not silently lose configuration. Diagnostics must expose the override value and whether it matches the current default.
 
 ## Commands
 
-- `smart-search search QUERY [--platform NAME] [--model ID] [--extra-sources N] [--validation fast|balanced|strict] [--fallback auto|off] [--providers auto|CSV] [--timeout SECONDS] [--format json|markdown|content] [--output PATH]`
+- `smart-search search QUERY [--platform NAME] [--model ID] [--extra-sources N] [--validation fast|balanced|strict] [--fallback auto|off] [--providers auto|CSV] [--stream|--no-stream] [--timeout SECONDS] [--format json|markdown|content] [--output PATH]`
 - `smart-search fetch URL [--format json|markdown|content] [--output PATH]`
 - `smart-search exa-search QUERY [--num-results N] [--search-type neural|keyword|auto] [--include-text] [--include-highlights] [--start-published-date YYYY-MM-DD] [--include-domains DOMAIN...] [--exclude-domains DOMAIN...] [--category NAME] [--format json|markdown|content] [--output PATH]`
 - `smart-search exa-similar URL [--num-results N] [--format json|markdown|content] [--output PATH]`
 - `smart-search zhipu-search QUERY [--count N] [--search-engine NAME] [--search-recency-filter VALUE] [--search-domain-filter DOMAIN] [--content-size medium|high] [--format json|markdown|content] [--output PATH]`
+- `smart-search anysearch-domains [DOMAIN] [--format json|markdown|content] [--output PATH]`
+- `smart-search anysearch-search QUERY [--domain DOMAIN] [--sub-domain SUB_DOMAIN] [--max-results N] [--format json|markdown|content] [--output PATH]`
+- `smart-search anysearch-extract URL [--max-length N] [--format json|markdown|content] [--output PATH]`
+- `smart-search anysearch-batch QUERY... [--max-results N] [--format json|markdown|content] [--output PATH]`
 - `smart-search context7-library NAME [QUERY] [--format json|markdown|content] [--output PATH]`
 - `smart-search context7-docs LIBRARY_ID QUERY [--format json|markdown|content] [--output PATH]`
 - `smart-search deep QUERY [--budget quick|standard|deep] [--evidence-dir PATH] [--format json|markdown|content] [--output PATH]`
 - `smart-search map URL [--instructions TEXT] [--max-depth N] [--max-breadth N] [--limit N] [--timeout SECONDS] [--format json|markdown|content] [--output PATH]`
 - `smart-search doctor [--format json|markdown|content] [--output PATH]`
-- `smart-search setup [--lang zh|en] [--advanced] [--non-interactive] [--skip-skills] [--install-skills CSV] [--skills-root PATH] [--xai-api-url URL] [--xai-api-key KEY] [--xai-model ID] [--xai-tools-explicit CSV] [--openai-compatible-api-url URL] [--openai-compatible-api-key KEY] [--openai-compatible-model ID] [--validation-level fast|balanced|strict] [--fallback-mode auto|off] [--minimum-profile standard|off] [--exa-key KEY] [--context7-key KEY] [--zhipu-key KEY] [--zhipu-api-url URL] [--zhipu-search-engine ENGINE] [--tavily-api-url URL] [--tavily-key KEY] [--firecrawl-api-url URL] [--firecrawl-key KEY] [--format json|markdown|content] [--output PATH]`
+- `smart-search diagnose openai-compatible [--timeout SECONDS] [--format json|markdown] [--output PATH]`
+- `smart-search setup [--lang zh|en] [--advanced] [--non-interactive] [--skip-skills] [--install-skills CSV] [--skills-root PATH] [--xai-api-url URL] [--xai-api-key KEY] [--xai-model ID] [--xai-tools-explicit CSV] [--openai-compatible-api-url URL] [--openai-compatible-api-key KEY] [--openai-compatible-model ID] [--openai-compatible-stream true|false] [--validation-level fast|balanced|strict] [--fallback-mode auto|off] [--minimum-profile standard|off] [--exa-key KEY] [--context7-key KEY] [--zhipu-key KEY] [--zhipu-api-url URL] [--zhipu-search-engine ENGINE] [--tavily-api-url URL] [--tavily-key KEY] [--firecrawl-api-url URL] [--firecrawl-key KEY] [--anysearch-api-url URL] [--anysearch-key KEY] [--anysearch-timeout SECONDS] [--format json|markdown|content] [--output PATH]`
 - `smart-search config path [--format json|markdown|content] [--output PATH]`
 - `smart-search config list [--format json|markdown|content] [--output PATH]`
 - `smart-search config set KEY VALUE [--format json|markdown|content] [--output PATH]`
@@ -48,10 +55,15 @@ Top-level aliases must normalize to the same service behavior as their full comm
 | `exa-search` | `exa`, `x` |
 | `exa-similar` | `xs` |
 | `zhipu-search` | `z`, `zp` |
+| `anysearch-domains` | `as-domains` |
+| `anysearch-search` | `as-search`, `as` |
+| `anysearch-extract` | `as-extract` |
+| `anysearch-batch` | `as-batch` |
 | `context7-library` | `c7`, `ctx7` |
 | `context7-docs` | `c7d`, `c7docs`, `ctx7-docs` |
 | `deep` | `dr` |
 | `doctor` | `d` |
+| `diagnose` | `diag` |
 | `setup` | `init` |
 | `config` | `cfg` |
 | `model` | `mdl` |
@@ -69,11 +81,15 @@ Nested aliases:
 | `model current` | `mdl cur`, `mdl c` |
 | `model set` | `mdl s` |
 
-## JSON Expectations
+## Output Format Expectations
 
 Successful search output includes `ok`, `query`, `primary_api_mode`, `content`, `sources`, `sources_count`, `primary_sources`, `primary_sources_count`, `extra_sources`, `extra_sources_count`, `source_warning`, `routing_decision`, `providers_used`, `provider_attempts`, `fallback_used`, `validation_level`, and `elapsed_ms`. Each source should include at least `url` when available.
 
-`--format content` prints only the `content` field when present. JSON output remains parseable and uses readable non-ASCII text when the terminal encoding supports it.
+`--format json` is the stable machine-readable contract for agents and scripts. JSON output remains parseable and uses readable non-ASCII text when the terminal encoding supports it.
+
+`--format markdown` is the human-readable report format. `doctor --format markdown` must render a detailed diagnostic report with overall status, active/default/legacy config paths, log path resolution, file-logging status, masked config values with sources, minimum profile, capability status, main-search provider checks, provider connectivity checks, model metadata, and full long error/message detail instead of falling back to raw JSON. `diagnose openai-compatible --format markdown` must render a short copy-pasteable troubleshooting report with masked config, quick chat check, real search-shape `stream=false` and `stream=true` checks, a plain-language summary, and a next command. Provider list commands such as `exa-search`, `exa-similar`, `zhipu-search`, `anysearch-*`, `context7-library`, and `map` render result lists or a clear no-results message.
+
+`--format content` prints only the `content` field for content-bearing commands such as `search`, `fetch`, and `context7-docs`. Commands without a `content` field, including `doctor`, `smoke`, `config`, and `model`, must print a compact non-empty text summary rather than an empty stdout.
 
 Source provenance fields:
 
@@ -100,6 +116,24 @@ Zhipu Web Search API setup:
 - `config set ZHIPU_SEARCH_ENGINE VALUE` must remain free-form so newly added official services do not require a CLI release.
 - `zhipu-search` corresponds to Zhipu Web Search API, not Zhipu Chat Completions `tools=[web_search]`, not Search Agent, and not the MCP Server.
 - `TAVILY_API_URL` only affects Tavily and does not proxy Zhipu.
+- `TAVILY_TIMEOUT_SECONDS` controls the Tavily `doctor` connectivity timeout. It defaults to `30` so slower pooled/community endpoints are not incorrectly marked unhealthy by the diagnostic check.
+
+OpenAI-compatible streaming:
+
+- `OPENAI_COMPATIBLE_STREAM` defaults to `false` and accepts `true`, `1`, or `yes` as true.
+- `search --stream` and `search --no-stream` override `OPENAI_COMPATIBLE_STREAM` for the current invocation.
+- Streaming applies only to OpenAI-compatible `search()` and provider-side `fetch()` calls. `describe_url()` and `rank_sources()` stay non-streaming. xAI Responses behavior is unchanged.
+
+AnySearch experimental output:
+
+- AnySearch uses JSON-RPC 2.0 `tools/call` at `ANYSEARCH_API_URL`, default `https://api.anysearch.com/mcp`.
+- `ANYSEARCH_API_KEY` is optional. If configured, requests include `Authorization: Bearer ...`; if missing, anonymous requests are allowed.
+- `ANYSEARCH_TIMEOUT_SECONDS` defaults to `30`.
+- HTTP 200 responses with `result.isError=true` must return `ok=false`, `error_type=provider_error`, and no successful source results.
+- Markdown URL/title/snippet candidates should be parsed into `results`, while raw text remains in `content` and `raw_content`.
+- Structured results without URLs must be preserved as raw/structured evidence, not dropped.
+- Dotted vertical domain shorthand such as `security.cve` must be normalized to `domain=security` plus `sub_domain=cve` before calling AnySearch.
+- `anysearch-batch` accepts at most 5 CLI query strings, sends them as JSON-RPC query objects (`{"query": "...", "max_results": N}`), and returns `error_type=parameter_error` without sending a request when the limit is exceeded.
 
 Exa search output includes `ok`, `query`, `search_type`, `results`, `total`, and `elapsed_ms` when successful.
 
@@ -115,7 +149,9 @@ Map output includes `ok`, `base_url`, `results`, `response_time`, `url`, and `el
 
 Deep planner output includes `ok`, `mode`, `query_mode`, `question`, `trigger_source`, `difficulty`, `intent_signals`, `decomposition`, `capability_plan`, `evidence_policy`, `preflight`, `steps`, `gap_check`, `final_answer_policy`, `usage_boundary`, `allowed_tools`, `evidence_dir`, and `elapsed_ms`. `smart-search deep` is offline by default: `preflight.executed_by_deep_command=false`, no provider calls are made, and live research only happens when an AI agent or user executes `steps[].command`.
 
-Diagnostic output masks keys, reports `config_file` / `config_sources` / `primary_api_mode` / `primary_api_mode_source` / `capability_status` / `minimum_profile_ok`, and includes `main_search_connection_tests` plus connection test objects for Exa, Tavily, Zhipu, Context7, and Firecrawl. `primary_connection_test` remains as a backward-compatible alias for the first configured main-search provider check. OpenAI-compatible provider health must be validated through `/chat/completions`; `/models` is supplementary metadata and must not be the health gate. Firecrawl currently reports whether `FIRECRAWL_API_KEY` is configured; it is not a live Firecrawl request.
+Diagnostic output masks keys, reports `config_file` / `config_dir` / `config_dir_source` / `default_config_file` / Windows legacy config metadata / `config_dir_override_value` / `config_dir_override_matches_default` / `log_dir_config_value` / `resolved_log_dir` / `file_logging_enabled` / `config_sources` / `primary_api_mode` / `primary_api_mode_source` / provider timeout values / `capability_status` / `minimum_profile_ok`, and includes `main_search_connection_tests` plus connection test objects for Exa, Tavily, Zhipu, Context7, and Firecrawl. `primary_connection_test` remains as a backward-compatible alias for the first configured main provider check. OpenAI-compatible provider health must be validated through `/chat/completions`; `/models` is supplementary metadata and must not be the health gate. Firecrawl currently reports whether `FIRECRAWL_API_KEY` is configured; it is not a live Firecrawl request.
+
+When a Windows user reports that different versions seem to use different config paths, diagnose in this order: `config_dir_source`, `config_dir_override_value`, `config_dir_override_matches_default`, then `legacy_windows_config_exists`. A source of `environment` with `config_dir_override_matches_default=true` means the active path is pinned by `SMART_SEARCH_CONFIG_DIR` but is functionally the same as the current default. Do not delete either config file or the user-level override until the upgraded CLI has been verified with `config path`, `doctor`, and smoke/regression checks.
 
 Smoke output includes `ok`, `mode`, `failed_cases`, `cases`, `provider_attempts`, and `elapsed_ms`. Live smoke may include `degraded_cases` when a provider fails but a same-capability fallback remains available.
 
@@ -147,10 +183,12 @@ Each `steps[]` item must include `id`, `subquestion_id`, `tool`, `purpose`, `com
 Capability boundaries:
 
 - `search`: broad discovery and synthesis through `main_search`; use returned `routing_decision`, `provider_attempts`, `fallback_used`, and `source_warning` as orchestration signals, not as claim proof.
-- `exa-search`: low-noise source discovery for official docs, APIs, papers, product pages, known domains, trusted pages, and recency-filtered source search.
+- `zhipu-search`: Chinese, domestic, current, policy/regulatory, announcement, and China-local source discovery.
+- `context7-library` and `context7-docs`: library, SDK, API, framework, and documentation intent. Prefer Context7 before Exa for docs/API questions.
+- `exa-search`: low-noise source discovery for official domains, papers, product pages, known domains, and trusted pages. It is not the default second hop for every high-risk or verification task.
 - `exa-similar`: adjacent-source discovery when a known reliable URL is available.
-- `zhipu-search`: Chinese, domestic, current, or domain-filtered source discovery.
-- `context7-library` and `context7-docs`: library, SDK, API, framework, and documentation intent only.
+- `search --extra-sources N`: Tavily/Firecrawl horizontal candidate collection for breadth. Treat those candidates as discovery until fetched.
+- `anysearch-domains` and `anysearch-search`: experimental vertical search. Inspect domains first, then search a selected domain; do not insert it into the default fallback chain.
 - `fetch`: page-content evidence. Key claims require fetched page text under `fetch_before_claim`.
 - `map`: site structure exploration before many fetches from one site; not claim evidence by itself.
 
@@ -159,7 +197,7 @@ Default Deep Research orchestration:
 1. Run `smart-search doctor --format json` as preflight when configuration is uncertain.
 2. Call `smart-search deep "question" --format json` to generate `intent_signals`, `decomposition`, and `capability_plan` instead of selecting a fixed topic recipe.
 3. Use planned `smart-search search ... --validation balanced --extra-sources 1..3` steps for broad discovery.
-4. Add planned `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, `context7-docs`, or `map` only when the capability boundary matches the intent.
+4. Add planned `zhipu-search` for Chinese/current/domestic topics, `context7-library` plus `context7-docs` for docs/API/library topics, `exa-search` for official/trusted-domain or paper discovery, `exa-similar` for URL-neighbor discovery, or `map` only when the capability boundary matches the intent.
 5. Use `fetch` for key URLs before making claim-level statements.
 6. Run `gap_check`: fetch missing evidence for key claims or downgrade them to unverified candidates.
 
@@ -178,22 +216,41 @@ Setup and config output should include `ok` and `config_file`. Saved API keys mu
 Interactive setup behavior:
 
 - Default `smart-search setup` shows a Smart Search ASCII banner, asks for `zh`
-  or `en`, offers project-local `smart-search-cli` skill installation, then
+  or `en`, offers user-level `smart-search-cli` skill installation, then
   shows a grouped provider wizard.
 - The grouped wizard should use an arrow-key / Space / Enter selector when the
   packaged TUI dependencies are available, with a text fallback for non-TTY
   and tests.
 - Skill installation installs the bundled `smart-search-cli` skill into
   selected AI-tool skill directories and must not run `trellis init`, create
-  hooks, create agents, create commands, or modify other skills. Most targets
-  are project-local; Hermes Agent installs to the current user's
-  `~/.hermes/skills/` by convention.
+  hooks, create agents, create commands, or modify other skills. Targets are
+  user-level/global directories under the current user's home directory, for
+  example Codex `~/.codex/skills/`, Claude Code `~/.claude/skills/`, Cursor
+  `~/.cursor/skills/`, GitHub Copilot `~/.copilot/skills/`, and Hermes Agent
+  `~/.hermes/skills/`.
 - Skill targets are `codex`, `claude`, `cursor`, `opencode`, `copilot`,
   `gemini`, `kiro`, `qoder`, `codebuddy`, `droid`, `pi`, `kilo`,
   `antigravity`, `windsurf`, and `hermes`. `--skip-skills` disables skill
   installation. `--install-skills codex,claude,cursor,hermes` selects targets
-  explicitly, and `--skills-root PATH` overrides the project root used for
-  project-local targets.
+  explicitly, and `--skills-root PATH` is an advanced override for the
+  user-level install root used in portable installs or tests. Normal users
+  should omit it.
+- `smart-search skills status --targets codex,claude,cursor,hermes --format json`
+  compares bundled skill files with installed user-level skill directories.
+  Status values are `missing`, `up_to_date`, `stale`, `extra_files`, and
+  `error`. It reports target paths, bundled file count, installed file count,
+  hashes, hash match flags, missing files, stale files, and extra files. It
+  must not write or delete files.
+- `smart-search skills update --targets codex,claude,cursor,hermes --format json`
+  overwrites the managed bundled `smart-search-cli` files for selected
+  targets. `smart-search skills update --all --format json` selects every
+  target id. This daily sync path must not change provider keys, run setup
+  prompts, create Trellis files, create hooks, create agents, create commands,
+  or delete leftover files. Extra installed files are only reported by
+  `skills status`.
+- `smart-search setup --non-interactive --install-skills codex` remains the
+  first-time setup compatibility path. Prefer `skills status` and
+  `skills update` for routine global skill synchronization after CLI upgrades.
 - Required groups are `main_search`, `docs_search`, and `web_fetch`; `web_search` is optional reinforcement.
 - `--lang zh|en` skips the language question.
 - `--advanced` shows low-level config keys one by one for compatibility with older setup behavior and does not show the skill prompt unless `--install-skills` is explicit.
@@ -209,6 +266,11 @@ Interactive setup behavior:
 Provider endpoint setup:
 
 - `TAVILY_API_URL` defaults to `https://api.tavily.com`.
+- `TAVILY_TIMEOUT_SECONDS` defaults to `30` and applies to Tavily `doctor`
+  connectivity checks.
+- `ANYSEARCH_API_URL` defaults to `https://api.anysearch.com/mcp`.
+- `ANYSEARCH_TIMEOUT_SECONDS` defaults to `30` and applies to experimental
+  AnySearch JSON-RPC calls.
 - Tavily Hikari / pooled endpoints must use the REST facade base
   `https://<host>/api/tavily`; `/mcp` is not a REST provider base.
 - Setup normalizes a Hikari root host or `/mcp` URL to
@@ -219,18 +281,29 @@ Provider endpoint setup:
 
 Search timeout output uses `ok=false`, `error_type=network_error`, includes the timeout seconds in `error`, keeps `query`, `content`, `sources`, `sources_count`, `primary_sources`, `primary_sources_count`, `extra_sources`, and `extra_sources_count`, and exits with code `4`.
 
+Agent timeout handling contract:
+
+- A `search` result with `ok=false`, `error_type=network_error`, and an `error` message containing `timed out` is retryable at the orchestration layer.
+- Agents should retry up to 3 total attempts with `smart-search search ... --timeout 180 --extra-sources 1 --format json --output PATH`, waiting about 5 seconds between attempts and stopping as soon as the saved JSON has `"ok": true`.
+- Agents must use the CLI `--timeout` option, not a shell-level `timeout` wrapper, so timeout failures remain structured JSON with exit code `4`.
+- `SMART_SEARCH_RETRY_*` settings are not the contract for this path; the visible CLI result is the contract.
+- After repeated timeout failures, agents should switch to source-first fallback: `exa-search` for broad source discovery, `exa-search --include-domains` for likely official domains, then `fetch` key URLs before claim-level conclusions.
+- Final answers assembled through that fallback should explicitly label the evidence mode, for example `source_mode: "fallback"` or equivalent prose.
+
 ## Provider Routing
 
 - `search` builds `main_search` from peer providers only: `XAI_API_KEY` registers official xAI Responses, while `OPENAI_COMPATIBLE_API_URL` + `OPENAI_COMPATIBLE_API_KEY` registers OpenAI-compatible Chat Completions.
 - Official xAI calls use the Responses API `/responses` route through `XAI_*`. Compatible relays/gateways use Chat Completions `/chat/completions` through `OPENAI_COMPATIBLE_*`.
+- `OPENAI_COMPATIBLE_STREAM` and `search --stream/--no-stream` affect only the OpenAI-compatible Chat Completions transport for search/fetch. They do not change xAI Responses or provider-internal ranking/URL description tasks.
 - Legacy `SMART_SEARCH_API_URL`, `SMART_SEARCH_API_KEY`, `SMART_SEARCH_API_MODE`, `SMART_SEARCH_MODEL`, and `SMART_SEARCH_XAI_TOOLS` are unsupported config keys. `config set` / `config unset` must return a parameter error for them.
 - `XAI_TOOLS` applies only to xAI Responses mode and supports only `web_search` and `x_search`.
 - Chat Completions mode must not send xAI `web_search` / `x_search` tools or legacy `search_parameters`; xAI Chat Completions Live Search is deprecated.
 - Standard minimum profile requires `main_search`, `docs_search`, and fetch capability. Missing required capabilities produce a configuration error.
+- Optional experimental `vertical_search` may report AnySearch when `ANYSEARCH_API_KEY` is configured, but it is not part of the `web_search` fallback and is not required by the `standard` minimum profile.
 - Same-capability fallback is allowed; cross-capability fallback is not. Context7 is not used for unrelated broad web queries, and page extraction providers are not used as docs search providers.
 - `main_search`: xAI Responses first for Grok/xAI, then OpenAI-compatible answer fallback when that peer provider is separately configured and `--fallback auto` is active.
 - `web_search`: Zhipu first when routed in, then Tavily / Firecrawl source search when configured.
-- `docs_search`: Exa first, then Context7.
+- `docs_search`: Context7 first for library/API/docs intent, then Exa for official-domain, paper, product-page, trusted-site, or low-noise supplemental discovery.
 - Fetch capability: Tavily first, then Firecrawl.
 - `search` calls Tavily and/or Firecrawl only when `--extra-sources` is greater than 0.
 - If both Tavily and Firecrawl are configured, `search --extra-sources N` gives about 60% of extra source slots to Tavily and the remainder to Firecrawl.
@@ -239,6 +312,7 @@ Search timeout output uses `ok=false`, `error_type=network_error`, includes the 
 - `map` uses Tavily only.
 - `exa-search` and `exa-similar` use Exa only.
 - `zhipu-search` uses Zhipu only.
+- `anysearch-domains`, `anysearch-search`, `anysearch-extract`, and `anysearch-batch` use AnySearch only and do not participate in default fallback chains.
 - `context7-library` and `context7-docs` use Context7 only.
 - Runtime config priority is environment variables first, then local config file, then defaults.
 - `setup` and `config` read/write the local Smart Search config file and do not call providers.
@@ -288,6 +362,7 @@ Run `smart-search regression` before considering CLI or skill changes complete.
 - Stable releases are pushed as `vX.Y.Z` Git tags and publish npm `X.Y.Z` with dist-tag `latest`.
 - Test releases are pushed from `main` and publish `<package.json version>-beta.N` with dist-tag `next`. The beta counter resets per base version, so `0.1.9-beta.1` and `0.1.10-beta.1` are separate sequences.
 - Stable bump commits must use `chore(release): bump version to X.Y.Z`; the branch push is skipped by the npm workflow so the matching `vX.Y.Z` tag is the only publisher for npm `latest`.
+- Stable GitHub release notes should be stored as `.github/releases/vX.Y.Z.md` before tagging. The publish workflow appends npm package, dist-tag, and workflow-run metadata to that body automatically.
 - Historical test builds can be backfilled through GitHub Actions `workflow_dispatch` by supplying an explicit `target_ref`, exact `version`, and a non-`latest` npm tag such as `backfill`.
 - npm versions are immutable. Old `*-dev.*` packages cannot be renamed in place; publish replacement `*-beta.N` packages and optionally deprecate the old names when npm owner credentials are available.
 
