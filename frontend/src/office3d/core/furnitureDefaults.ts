@@ -178,3 +178,24 @@ export const resolveFurnitureLayout = (
 
 export const materializeDefaults = (): FurnitureItem[] =>
   DEFAULT_FURNITURE.map((item, index) => ({ ...item, _uid: `office_${index}` }));
+
+// Remove duplicate items that share the same type AND overlap within a small
+// pixel radius. This prevents stale localStorage / server layouts from
+// accumulating extra copies of the same item (e.g. multiple computers piled on
+// the bar counter). Keeps the first occurrence, discards the rest.
+const DEDUP_RADIUS = 12; // px — items of the same type within this distance are duplicates
+
+export const deduplicateFurniture = (items: FurnitureItem[]): FurnitureItem[] => {
+  const seen: { type: string; x: number; y: number }[] = [];
+  return items.filter((item) => {
+    const key = { type: item.type, x: item.x, y: item.y };
+    const isDup = seen.some(
+      (s) =>
+        s.type === key.type &&
+        Math.abs(s.x - key.x) <= DEDUP_RADIUS &&
+        Math.abs(s.y - key.y) <= DEDUP_RADIUS,
+    );
+    if (!isDup) seen.push(key);
+    return !isDup;
+  });
+};

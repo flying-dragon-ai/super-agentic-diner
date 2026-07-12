@@ -145,10 +145,10 @@ function EvoMapLink({
 
 function EvoMapWallPlaque() {
   const [cx, , cz] = toWorld(CANVAS_W / 2, CANVAS_H / 2);
-  const northZ = cz - (CANVAS_H * SCALE) / 2 + 0.067;
+  const northZ = cz - (CANVAS_H * SCALE) / 2;
 
   return (
-    <group position={[cx + 5.35, 1.42, northZ]}>
+    <group position={[cx, 1.42, northZ + 0.08]}>
       <mesh>
         <planeGeometry args={[2.35, 0.72]} />
         <meshStandardMaterial

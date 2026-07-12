@@ -39,6 +39,7 @@ import {
   SNAP_GRID,
 } from "../office3d/core/constants";
 import {
+  deduplicateFurniture,
   ensureEvoMapSceneMaterials,
   isDefaultFurnitureLayout,
   materializeDefaults,
@@ -203,10 +204,16 @@ export default function OfficeScene() {
       if (cancelled) return;
       if (server) {
         const serverLayout =
-          server.items.length > 0 ? ensureEvoMapSceneMaterials(server.items) : [];
+          server.items.length > 0
+            ? deduplicateFurniture(ensureEvoMapSceneMaterials(server.items))
+            : [];
         const local = loadFurniture();
         const localLayout =
-          local ? (local.length > 0 ? ensureEvoMapSceneMaterials(local) : []) : null;
+          local
+            ? local.length > 0
+              ? deduplicateFurniture(ensureEvoMapSceneMaterials(local))
+              : []
+            : null;
         const localSavedAt = loadFurnitureSavedAt();
         const localIsNewer =
           Boolean(localLayout && localSavedAt && server.updatedAt) &&
@@ -727,6 +734,27 @@ export default function OfficeScene() {
         >
           {editMode ? "✏️ 编辑中" : "✏️ 编辑"}
         </button>
+        <a
+          href="/about"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            marginLeft: 6,
+            padding: "6px 12px",
+            fontFamily: "monospace",
+            fontSize: 12,
+            cursor: "pointer",
+            textDecoration: "none",
+            display: "inline-flex",
+            alignItems: "center",
+            border: "1px solid rgba(34,211,238,0.35)",
+            background: "rgba(34,211,238,0.1)",
+            color: "#22d3ee",
+            borderRadius: 6,
+          }}
+        >
+          📖 说明书
+        </a>
         {editMode && layoutSaveStatus !== "idle" && (
           <span
             style={{

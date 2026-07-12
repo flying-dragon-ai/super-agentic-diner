@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import { LoginPage, RegisterPage } from "./auth/AuthPages";
+import { ProfileModal, SpecialtyBadge } from "./auth/ProfileModal";
 import OfficeScene from "./screens/OfficeScene";
 import Dashboard from "./screens/Dashboard";
 import MachineShowcase from "./screens/MachineShowcase";
@@ -11,6 +12,7 @@ function TopBar() {
   const { account, logout, loading } = useAuth();
   const nav = useNavigate();
   const [muted, setMuted] = useState(isMuted());
+  const [showProfile, setShowProfile] = useState(false);
   useEffect(() => subscribeMute(setMuted), []);
   return (
     <div
@@ -42,6 +44,7 @@ function TopBar() {
     >
       <Link to="/scene" style={navLink}>Crossroads Agent Café</Link>
       <Link to="/dashboard" style={navLink}>大屏</Link>
+      <a href="/consult" target="_blank" rel="noopener" style={navLink}>咨询</a>
       <button
         onClick={() => toggleMute()}
         style={muteBtn}
@@ -51,14 +54,18 @@ function TopBar() {
       </button>
       {loading ? null : account ? (
         <>
-          <span style={{ color: "#cdd9ee", fontSize: 12, marginRight: 2, pointerEvents: "auto", whiteSpace: "nowrap" }}>
+          <SpecialtyBadge account={account} />
+          <span style={{ color: "#cdd9ee", fontSize: 12, marginRight: 2, pointerEvents: "auto", whiteSpace: "nowrap", cursor: "pointer" }}
+            onClick={() => setShowProfile(true)} title="点击编辑资料">
             {account.nickname || account.username}
           </span>
+          <button onClick={() => setShowProfile(true)} style={btnSm}>资料</button>
           <button onClick={async () => { await logout(); nav("/login"); }} style={btnSm}>登出</button>
         </>
       ) : (
         <button onClick={() => nav("/login")} style={btnSm}>登录</button>
       )}
+      {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
     </div>
   );
 }

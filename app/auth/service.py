@@ -68,7 +68,15 @@ def validate_password(password: str) -> str:
     return pw
 
 
-def register_account(db: Session, username: str, password: str, nickname: str | None) -> UserAccount:
+def register_account(
+    db: Session,
+    username: str,
+    password: str,
+    nickname: str | None,
+    gender: str | None = None,
+    specialty: str | None = None,
+    profession: str | None = None,
+) -> UserAccount:
     name = validate_username(username)
     pw = validate_password(password)
     existing = db.query(UserAccount).filter(UserAccount.username == name).first()
@@ -77,10 +85,15 @@ def register_account(db: Session, username: str, password: str, nickname: str | 
     user = User(nickname=(nickname or name)[:64] or None, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
     db.add(user)
     db.flush()
+    # username "001" gets default specialty "首席战略咨询"
+    default_specialty = "首席战略咨询" if name == "001" else specialty
     account = UserAccount(
         username=name,
         password_hash=hash_password(pw),
         nickname=(nickname or name)[:64] or None,
+        gender=(gender[:16] if gender else None),
+        specialty=(default_specialty[:128] if default_specialty else None),
+        profession=(profession[:128] if profession else None),
         user_id=user.user_id,
         status=IDENTITY_STATUS_ACTIVE,
         created_at=datetime.utcnow(),
@@ -114,10 +127,40 @@ def get_account_by_id(db: Session, account_id: int) -> UserAccount | None:
     return db.query(UserAccount).filter(UserAccount.account_id == account_id).first()
 
 
+def update_profile(
+    db: Session,
+    account: UserAccount,
+    *,
+    nickname: str | None = None,
+    gender: str | None = None,
+    specialty: str | None = None,
+    profession: str | None = None,
+) -> UserAccount:
+    """Update editable profile fields. None = leave unchanged, empty string = clear."""
+    if nickname is not None:
+        account.nickname = nickname.strip()[:64] or None
+    if gender is not None:
+        g = gender.strip().lower()
+        if g and g not in ("male", "female", "other"):
+            raise ValueError("gender 需为 male / female / other")
+        account.gender = g or None
+    if specialty is not None:
+        account.specialty = specialty.strip()[:128] or None
+    if profession is not None:
+        account.profession = profession.strip()[:128] or None
+    account.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(account)
+    return account
+
+
 def public_account(account: UserAccount) -> dict:
     return {
         "user_id": account.user_id,
         "account_id": account.account_id,
         "username": account.username,
         "nickname": account.nickname,
+        "gender": getattr(account, "gender", None),
+        "specialty": getattr(account, "specialty", None),
+        "profession": getattr(account, "profession", None),
     }

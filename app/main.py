@@ -4,6 +4,7 @@ import logging
 import threading
 import uuid
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Any, Optional
 
 import anyio
@@ -36,6 +37,7 @@ from app.domain_constants import (
     ORDER_SOURCE_SKILL,
     ORDER_SOURCE_WEB_DIALOG,
     PAYMENT_STATUS_PAID,
+    PAYMENT_STATUS_FREE,
     PAYMENT_STATUS_PAYMENT_FAILED,
     PAYMENT_STATUS_PAYMENT_PENDING,
 )
@@ -2153,6 +2155,16 @@ def _register_web_customer_presence(websocket: WebSocket) -> dict[str, Any] | No
         agent = staff_service.ensure_web_customer_agent(db, account.user_id)
         # Reflect the real login name (nickname/username), not the placeholder.
         agent.display_name = (account.nickname or account.username or agent.display_name)[:128]
+        # Carry profile info (specialty/profession/gender) into agent metadata
+        try:
+            meta = decode_json(agent.metadata_json, {}) if agent.metadata_json else {}
+        except Exception:
+            meta = {}
+        meta["source"] = meta.get("source", "web")
+        meta["specialty"] = getattr(account, "specialty", None)
+        meta["profession"] = getattr(account, "profession", None)
+        meta["gender"] = getattr(account, "gender", None)
+        agent.metadata_json = encode_json(meta)
         agent.last_seen_at = datetime.utcnow()
         db.commit()
         db.refresh(agent)
@@ -2444,6 +2456,354 @@ def list_orders(user_id: int, db: Session = Depends(get_db)):
     ]
 
 
+# ---------------------------------------------------------------------------
+# Agent Services Marketplace + Economic Value Dashboard
+# ---------------------------------------------------------------------------
+
+_AGENT_SERVICE_DEFS = [
+    {
+        "sku": "SVC-CODE-REVIEW",
+        "name": "代码审查服务",
+        "category": "agent_service",
+        "description": "Agent 对你的 Pull Request 进行深度代码审查，覆盖安全漏洞、性能瓶颈、代码规范、架构合理性四个维度，输出结构化审查报告。适用于团队 CI/CD 流水线集成。",
+        "base_price": Decimal("50.00"),
+        "tags": "B端,代码审查,CI/CD,安全,质量保障",
+        "stock": 9999,
+        "icon": "🔍",
+        "target": "B端",
+        "unit": "次/PR",
+        "time_saved_hours": 2.0,
+    },
+    {
+        "sku": "SVC-DOC-WRITING",
+        "name": "技术文档撰写",
+        "category": "agent_service",
+        "description": "Agent 根据代码仓库自动生成 API 文档、架构设计文档、变更日志。支持 Markdown / OpenAPI / AsciiDoc 格式输出，可直接推送到文档站点。",
+        "base_price": Decimal("80.00"),
+        "tags": "B端,文档,API,自动化,技术写作",
+        "stock": 9999,
+        "icon": "📝",
+        "target": "B端",
+        "unit": "篇/仓库",
+        "time_saved_hours": 4.0,
+    },
+    {
+        "sku": "SVC-DATA-ANALYSIS",
+        "name": "数据洞察分析",
+        "category": "agent_service",
+        "description": "Agent 接入你的业务数据源，自动生成数据洞察报告：趋势分析、异常检测、用户分群、增长建议。支持 CSV / JSON / SQL 数据库输入。",
+        "base_price": Decimal("120.00"),
+        "tags": "B端,数据分析,BI,洞察,报表",
+        "stock": 9999,
+        "icon": "📊",
+        "target": "B端",
+        "unit": "份/数据集",
+        "time_saved_hours": 8.0,
+    },
+    {
+        "sku": "SVC-TRANSLATION",
+        "name": "多语言翻译",
+        "category": "agent_service",
+        "description": "Agent 提供高质量多语言翻译服务，支持技术文档、产品文案、用户反馈等场景。中英日韩四语互译，保留专业术语和上下文语义。",
+        "base_price": Decimal("30.00"),
+        "tags": "C端,翻译,多语言,本地化",
+        "stock": 9999,
+        "icon": "🌐",
+        "target": "C端",
+        "unit": "千字",
+        "time_saved_hours": 1.5,
+    },
+    {
+        "sku": "SVC-API-INTEGRATION",
+        "name": "API 集成方案",
+        "category": "agent_service",
+        "description": "Agent 分析你的系统集成需求，输出完整的 API 对接方案：接口选型、鉴权方案、错误处理、限流策略、代码示例。适用于企业级系统对接。",
+        "base_price": Decimal("200.00"),
+        "tags": "B端,API,集成,架构,企业级",
+        "stock": 9999,
+        "icon": "🔌",
+        "target": "B端",
+        "unit": "套/项目",
+        "time_saved_hours": 16.0,
+    },
+    {
+        "sku": "SVC-AUTO-SCRIPT",
+        "name": "自动化脚本生成",
+        "category": "agent_service",
+        "description": "Agent 根据你的重复性工作描述，自动生成 Python / Shell / TypeScript 自动化脚本。包含错误处理、日志记录、定时调度，开箱即用。",
+        "base_price": Decimal("100.00"),
+        "tags": "C端,自动化,脚本,效率,Python",
+        "stock": 9999,
+        "icon": "⚙️",
+        "target": "C端",
+        "unit": "个/需求",
+        "time_saved_hours": 6.0,
+    },
+    {
+        "sku": "SVC-BUG-FIX",
+        "name": "智能 Bug 定位",
+        "category": "agent_service",
+        "description": "Agent 分析 Bug 报告 + 错误日志 + 相关代码，精准定位根因并给出修复方案。支持 Java / Python / TypeScript / Go 等主流语言。",
+        "base_price": Decimal("60.00"),
+        "tags": "B端,C端,Bug,调试,修复",
+        "stock": 9999,
+        "icon": "🐛",
+        "target": "B+C",
+        "unit": "次/Bug",
+        "time_saved_hours": 3.0,
+    },
+    {
+        "sku": "SVC-TEST-GEN",
+        "name": "测试用例生成",
+        "category": "agent_service",
+        "description": "Agent 根据你的代码自动生成单元测试、集成测试用例。覆盖边界条件、异常路径、性能基准。支持 pytest / Jest / JUnit 框架。",
+        "base_price": Decimal("70.00"),
+        "tags": "B端,测试,质量,自动化,CI",
+        "stock": 9999,
+        "icon": "🧪",
+        "target": "B端",
+        "unit": "套/模块",
+        "time_saved_hours": 5.0,
+    },
+]
+
+
+def _ensure_agent_services(db: Session) -> None:
+    """Idempotent: insert agent_service products if they don't exist yet."""
+    existing_skus = {
+        row.sku for row in db.query(Product).filter(Product.category == "agent_service").all()
+    }
+    changed = False
+    import json as _json
+    for svc in _AGENT_SERVICE_DEFS:
+        if svc["sku"] in existing_skus:
+            continue
+        product = Product(
+            sku=svc["sku"],
+            name=svc["name"],
+            category="agent_service",
+            description=svc["description"],
+            base_price=svc["base_price"],
+            tags=svc["tags"],
+            stock=svc["stock"],
+        )
+        db.add(product)
+        changed = True
+    if changed:
+        db.commit()
+
+
+@app.get("/api/services")
+def list_agent_services(db: Session = Depends(get_db)):
+    """List all agent services available in the marketplace."""
+    _ensure_agent_services(db)
+    rows = (
+        db.query(Product)
+        .filter(Product.category == "agent_service")
+        .order_by(Product.base_price.asc())
+        .all()
+    )
+    # Build a quick lookup from the definition list for icon / target / unit.
+    meta = {s["sku"]: s for s in _AGENT_SERVICE_DEFS}
+    services = []
+    for row in rows:
+        m = meta.get(row.sku, {})
+        services.append({
+            "product_id": row.product_id,
+            "sku": row.sku,
+            "name": row.name,
+            "description": row.description,
+            "base_price": float(row.base_price),
+            "tags": row.tags or "",
+            "icon": m.get("icon", "🤖"),
+            "target": m.get("target", "B+C"),
+            "unit": m.get("unit", "次"),
+            "time_saved_hours": m.get("time_saved_hours", 1.0),
+            "stock": row.stock,
+        })
+    return {"services": services, "total": len(services)}
+
+
+@app.get("/api/economy/metrics")
+def economy_metrics(db: Session = Depends(get_db)):
+    """Real economic metrics computed from persisted orders & transactions."""
+    from app.db.models import BalanceTransaction, EvomapConsumer as _Consumer
+
+    # Total orders (all sources).
+    total_orders = db.query(func.count(Order.order_id)).scalar() or 0
+
+    # Orders by source.
+    skill_orders = (
+        db.query(func.count(Order.order_id))
+        .filter(Order.source_type == ORDER_SOURCE_SKILL)
+        .scalar() or 0
+    )
+    web_orders = (
+        db.query(func.count(Order.order_id))
+        .filter(Order.source_type == ORDER_SOURCE_WEB_DIALOG)
+        .scalar() or 0
+    )
+
+    # Total revenue (CNY face value of all paid/free orders).
+    total_revenue = float(
+        db.query(func.coalesce(func.sum(Order.amount), 0))
+        .filter(Order.payment_status.in_([PAYMENT_STATUS_PAID, PAYMENT_STATUS_FREE]))
+        .scalar() or 0
+    )
+
+    # Credits consumed (mirror of EvoMap spending).
+    from app.domain_constants import WALLET_CURRENCY_CREDITS
+    credits_consumed = float(
+        db.query(func.coalesce(func.sum(func.abs(BalanceTransaction.amount)), 0))
+        .filter(BalanceTransaction.currency == WALLET_CURRENCY_CREDITS)
+        .filter(BalanceTransaction.type == "consume")
+        .scalar() or 0
+    )
+
+    # Free orders count.
+    free_orders = (
+        db.query(func.count(Order.order_id))
+        .filter(Order.payment_status == PAYMENT_STATUS_FREE)
+        .scalar() or 0
+    )
+    paid_orders = (
+        db.query(func.count(Order.order_id))
+        .filter(Order.payment_status == PAYMENT_STATUS_PAID)
+        .scalar() or 0
+    )
+
+    # Active agents.
+    active_agents = (
+        db.query(func.count(AgentProfile.agent_id))
+        .filter(AgentProfile.status == IDENTITY_STATUS_ACTIVE)
+        .scalar() or 0
+    )
+
+    # Unique consumers.
+    unique_consumers = db.query(func.count(_Consumer.consumer_id)).scalar() or 0
+
+    # Agent services available.
+    _ensure_agent_services(db)
+    service_count = (
+        db.query(func.count(Product.product_id))
+        .filter(Product.category == "agent_service")
+        .scalar() or 0
+    )
+
+    # Estimate time saved (sum of service time_saved * assumed uptake).
+    # Conservative: assume 20% of paid orders are service-type.
+    estimated_hours_saved = round(paid_orders * 2.5 + skill_orders * 1.0, 1)
+
+    # Estimated CNY value created (time_saved * ¥80/hr developer rate).
+    estimated_value_cny = round(estimated_hours_saved * 80, 0)
+
+    return {
+        "total_orders": total_orders,
+        "skill_orders": skill_orders,
+        "web_orders": web_orders,
+        "total_revenue": total_revenue,
+        "credits_consumed": credits_consumed,
+        "free_orders": free_orders,
+        "paid_orders": paid_orders,
+        "active_agents": active_agents,
+        "unique_consumers": unique_consumers,
+        "service_count": service_count,
+        "estimated_hours_saved": estimated_hours_saved,
+        "estimated_value_cny": estimated_value_cny,
+        "conversion_rate": round(paid_orders / max(total_orders, 1) * 100, 1),
+    }
+
+
+@app.get("/api/economy/transactions")
+def economy_transactions(db: Session = Depends(get_db), limit: int = 20):
+    """Recent transaction stream for the economy dashboard."""
+    rows = (
+        db.query(Order)
+        .order_by(Order.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    items = []
+    for o in rows:
+        items.append({
+            "order_id": o.order_id,
+            "coffee_name": o.coffee_name or "—",
+            "amount": float(o.amount) if o.amount else 0,
+            "source_type": o.source_type,
+            "payment_status": o.payment_status,
+            "created_at": o.created_at.strftime("%Y-%m-%d %H:%M:%S") if o.created_at else "",
+            "consumer_id": o.consumer_id,
+            "agent_id": o.agent_id,
+        })
+    return {"transactions": items, "total": len(items)}
+
+
+# ===== 商业咨询：用户与管理层 AI 私聊 =====
+
+
+class ConsultRequest(BaseModel):
+    """咨询请求体"""
+    message: str
+
+
+@app.post("/api/consult")
+def consult_api(req: ConsultRequest, request: Request, db: Session = Depends(get_db)):
+    """用户向管理层发送商业咨询问题，返回 AI 回复。
+
+    需要登录。对话历史存储在独立 Redis 命名空间（consult:），
+    与咖啡点单聊天历史完全隔离。
+    """
+    from app.auth.router import current_account
+    from app.services import consult_service
+
+    account = current_account(request, db)
+    if not account:
+        raise HTTPException(status_code=401, detail="请先登录后再咨询")
+    result = consult_service.consult(db, account, req.message)
+    return result
+
+
+@app.get("/api/consult/history")
+def consult_history_api(request: Request, db: Session = Depends(get_db)):
+    """获取当前用户的咨询对话历史。"""
+    from app.auth.router import current_account
+    from app.services import consult_service
+
+    account = current_account(request, db)
+    if not account:
+        raise HTTPException(status_code=401, detail="请先登录")
+    history = consult_service.get_consult_history(account)
+    return {"messages": history, "total": len(history)}
+
+
+@app.delete("/api/consult/history")
+def consult_clear_api(request: Request, db: Session = Depends(get_db)):
+    """清空当前用户的咨询对话历史。"""
+    from app.auth.router import current_account
+    from app.services import consult_service
+
+    account = current_account(request, db)
+    if not account:
+        raise HTTPException(status_code=401, detail="请先登录")
+    cleared = consult_service.clear_consult_history(account)
+    return {"cleared": cleared}
+
+
+@app.get("/consult")
+def consult_page():
+    """Serve the business consultation chat page (standalone HTML)."""
+    path = _STATIC_DIR / "consult.html"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="consult page not found")
+    return FileResponse(
+        path,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
 @app.get("/status")
 def status():
     """Return system status: database backend + memory backend + LLM config."""
@@ -2492,13 +2852,71 @@ def three_d_app_spa(full_path: str):
 
 @app.get("/")
 def index(request: Request, db: Session = Depends(get_db)):
-    """Root: 未登录 → 302 跳 /3d/login；已登录 → 2D 聊天页。"""
+    """Root: 未登录 → 302 跳 /welcome（独立HTML，不依赖前端构建）；已登录 → 3D 场景。"""
     from app.auth.router import current_account
 
     account = current_account(request, db)
     if not account:
-        return RedirectResponse(url="/3d/login", status_code=302)
-    chat_index = _STATIC_DIR / "index.html"
-    if chat_index.is_file():
-        return FileResponse(chat_index)
-    raise HTTPException(status_code=404, detail="index page not found")
+        return RedirectResponse(url="/welcome", status_code=302)
+    # 已登录 → 直接进入 3D 场景
+    return RedirectResponse(url="/3d", status_code=302)
+
+
+@app.get("/welcome")
+def welcome_page():
+    """Standalone registration + login landing page (no frontend build needed)."""
+    path = _STATIC_DIR / "welcome.html"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="welcome page not found")
+    return FileResponse(
+        path,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.get("/about")
+def about_page():
+    """Serve the Crossroads Agent Café product brochure (standalone HTML)."""
+    about_path = _STATIC_DIR / "about.html"
+    if not about_path.is_file():
+        raise HTTPException(status_code=404, detail="about page not found")
+    return FileResponse(
+        about_path,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.get("/services")
+def services_page():
+    """Serve the Agent Services Marketplace page."""
+    path = _STATIC_DIR / "services.html"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="services page not found")
+    return FileResponse(
+        path,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.get("/economy")
+def economy_page():
+    """Serve the Economic Value Dashboard page."""
+    path = _STATIC_DIR / "economy.html"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="economy page not found")
+    return FileResponse(
+        path,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
