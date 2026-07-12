@@ -22,6 +22,16 @@ class RegisterRequest(BaseModel):
     username: str
     password: str
     nickname: Optional[str] = None
+    gender: Optional[str] = None
+    specialty: Optional[str] = None
+    profession: Optional[str] = None
+
+
+class UpdateProfileRequest(BaseModel):
+    nickname: Optional[str] = None
+    gender: Optional[str] = None
+    specialty: Optional[str] = None
+    profession: Optional[str] = None
 
 
 class LoginRequest(BaseModel):
@@ -58,7 +68,10 @@ def current_account(request: Request, db: Session = Depends(get_db)):
 @router.post("/register")
 def register(req: RegisterRequest, response: Response, db: Session = Depends(get_db)):
     try:
-        account = auth_service.register_account(db, req.username, req.password, req.nickname)
+        account = auth_service.register_account(
+            db, req.username, req.password, req.nickname,
+            gender=req.gender, specialty=req.specialty, profession=req.profession,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     _set_session_cookie(response, auth_service.make_session_token(account.account_id))
@@ -87,3 +100,21 @@ def me(request: Request, db: Session = Depends(get_db)):
     if not account:
         raise HTTPException(status_code=401, detail="未登录")
     return auth_service.public_account(account)
+
+
+@router.put("/profile")
+def update_profile(req: UpdateProfileRequest, request: Request, db: Session = Depends(get_db)):
+    account = current_account(request, db)
+    if not account:
+        raise HTTPException(status_code=401, detail="未登录")
+    try:
+        updated = auth_service.update_profile(
+            db, account,
+            nickname=req.nickname,
+            gender=req.gender,
+            specialty=req.specialty,
+            profession=req.profession,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return auth_service.public_account(updated)

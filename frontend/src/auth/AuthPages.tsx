@@ -10,16 +10,28 @@ const wrap: React.CSSProperties = {
   background: "radial-gradient(circle at 50% 30%, #182234, #0b0f14)", fontFamily: "system-ui, sans-serif",
 };
 const card: React.CSSProperties = {
-  width: 340, padding: 24, borderRadius: 12, background: "rgba(12,18,28,0.92)",
+  width: 380, padding: 24, borderRadius: 12, background: "rgba(12,18,28,0.92)",
   border: "1px solid rgba(120,160,220,0.18)", color: "#e8dfc0",
 };
 const input: React.CSSProperties = {
-  width: "100%", boxSizing: "border-box", marginBottom: 12, padding: "10px 12px", borderRadius: 8,
+  width: "100%", boxSizing: "border-box", marginBottom: 10, padding: "10px 12px", borderRadius: 8,
   border: "1px solid rgba(120,160,220,0.25)", background: "#0c1118", color: "#e8dfc0", fontSize: 14,
+};
+const select: React.CSSProperties = {
+  ...input, appearance: "none", cursor: "pointer",
+};
+const label: React.CSSProperties = {
+  fontSize: 12, color: "rgba(180,200,230,0.7)", marginBottom: 4, display: "block",
 };
 const btn: React.CSSProperties = {
   width: "100%", padding: "11px 0", borderRadius: 8, border: "none", cursor: "pointer",
-  background: "#2a6ba8", color: "#fff", fontWeight: 600, fontSize: 15,
+  background: "#2a6ba8", color: "#fff", fontWeight: 600, fontSize: 15, marginTop: 6,
+};
+const sectionDivider: React.CSSProperties = {
+  borderTop: "1px solid rgba(120,160,220,0.12)", marginTop: 12, paddingTop: 12, marginBottom: 6,
+};
+const sectionLabel: React.CSSProperties = {
+  fontSize: 12, color: "rgba(180,200,230,0.5)", marginBottom: 8,
 };
 
 export function LoginPage() {
@@ -61,6 +73,9 @@ export function RegisterPage() {
   const [username, setU] = useState("");
   const [nickname, setN] = useState("");
   const [password, setP] = useState("");
+  const [gender, setG] = useState("");
+  const [specialty, setS] = useState("");
+  const [profession, setProf] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -68,8 +83,17 @@ export function RegisterPage() {
     e.preventDefault();
     setBusy(true);
     setErr("");
-    try { await register(username, password, nickname || undefined); window.location.href = "/"; }
-    catch (e2) { setErr(String((e2 as Error).message)); }
+    try {
+      await register(
+        username, password, nickname || undefined,
+        {
+          gender: gender || undefined,
+          specialty: specialty || undefined,
+          profession: profession || undefined,
+        },
+      );
+      window.location.href = "/";
+    } catch (e2) { setErr(String((e2 as Error).message)); }
     finally { setBusy(false); }
   };
 
@@ -77,9 +101,38 @@ export function RegisterPage() {
     <div style={wrap}>
       <form style={card} onSubmit={submit}>
         <h2 style={{ marginTop: 0 }}>注册 · Crossroads Agent Café</h2>
-        <input style={input} placeholder="用户名" value={username} onChange={(e) => setU(e.target.value)} autoFocus />
+        <input style={input} placeholder="用户名（3-32位字母数字）" value={username} onChange={(e) => setU(e.target.value)} autoFocus />
         <input style={input} placeholder="昵称（可选）" value={nickname} onChange={(e) => setN(e.target.value)} />
-        <input style={input} type="password" placeholder="密码" value={password} onChange={(e) => setP(e.target.value)} />
+        <input style={input} type="password" placeholder="密码（6-64位）" value={password} onChange={(e) => setP(e.target.value)} />
+
+        <div style={sectionDivider}>
+          <div style={sectionLabel}>个人资料（可选，进入场景后展示）</div>
+        </div>
+
+        <label style={label}>性别</label>
+        <select style={select} value={gender} onChange={(e) => setG(e.target.value)}>
+          <option value="">不透露</option>
+          <option value="male">男</option>
+          <option value="female">女</option>
+          <option value="other">其他</option>
+        </select>
+
+        <label style={label}>特长 / 签名技能</label>
+        <input
+          style={input}
+          placeholder="如：战略咨询、全栈开发、数据分析"
+          value={specialty}
+          onChange={(e) => setS(e.target.value)}
+        />
+
+        <label style={label}>专业 / 职业领域</label>
+        <input
+          style={input}
+          placeholder="如：资深架构师、产品经理、AI 研究员"
+          value={profession}
+          onChange={(e) => setProf(e.target.value)}
+        />
+
         {err ? <div style={{ color: "#f87171", fontSize: 13, marginBottom: 10 }}>{err}</div> : null}
         <button style={btn} disabled={busy || !username || !password}>{busy ? "注册中…" : "注册并登录"}</button>
         <div style={{ marginTop: 14, fontSize: 13, opacity: 0.7 }}>
