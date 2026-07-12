@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import case, update
 from sqlalchemy.orm import Session
 
 from app.db.models import Product
@@ -95,23 +95,39 @@ def decrement_stock(
     """
     if quantity <= 0:
         raise CatalogError("quantity must be positive")
-    product = db.execute(
-        select(Product)
-        .where(Product.product_id == product_id)
-        .with_for_update()
-    ).scalar_one_or_none()
-    if product is None:
-        raise CatalogError(f"product {product_id} not found")
-    if product.status == PRODUCT_STATUS_DISABLED:
-        raise CatalogError(f"product {product.name} is disabled")
-    if product.stock is None or product.stock < quantity:
-        raise OutOfStockError(
-            f"{product.name} 库存不足：剩余 {product.stock or 0}，需要 {quantity}"
+    remaining = Product.stock - quantity
+    result = db.execute(
+        update(Product)
+        .where(
+            Product.product_id == product_id,
+            Product.status == PRODUCT_STATUS_AVAILABLE,
+            Product.stock.isnot(None),
+            Product.stock >= quantity,
         )
-    product.stock = product.stock - quantity
-    if product.stock == 0:
-        product.status = PRODUCT_STATUS_SOLD_OUT
+        .values(
+            stock=remaining,
+            status=case(
+                (remaining == 0, PRODUCT_STATUS_SOLD_OUT),
+                else_=Product.status,
+            ),
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        db.expire_all()
+        product = db.get(Product, product_id)
+        if product is None:
+            raise CatalogError(f"product {product_id} not found")
+        if product.status == PRODUCT_STATUS_DISABLED:
+            raise CatalogError(f"product {product.name} is disabled")
+        raise OutOfStockError(
+            f"{product.name} 库存不足或不可售：剩余 {product.stock or 0}，需要 {quantity}"
+        )
     db.flush()
+    db.expire_all()
+    product = db.get(Product, product_id)
+    if product is None:  # Defensive: the row existed for the successful UPDATE.
+        raise CatalogError(f"product {product_id} not found after stock update")
     return product
 
 
@@ -119,15 +135,19 @@ def restore_stock(db: Session, product_id: int, quantity: int) -> None:
     """Restore stock after a refund; flip sold_out back to available."""
     if quantity <= 0:
         return
-    product = db.execute(
-        select(Product)
+    db.execute(
+        update(Product)
         .where(Product.product_id == product_id)
-        .with_for_update()
-    ).scalar_one_or_none()
-    if product is None:
-        return
-    current = product.stock or 0
-    product.stock = current + quantity
-    if product.status == PRODUCT_STATUS_SOLD_OUT:
-        product.status = PRODUCT_STATUS_AVAILABLE
+        .values(
+            stock=case(
+                (Product.stock.is_(None), quantity),
+                else_=Product.stock + quantity,
+            ),
+            status=case(
+                (Product.status == PRODUCT_STATUS_SOLD_OUT, PRODUCT_STATUS_AVAILABLE),
+                else_=Product.status,
+            ),
+        )
+        .execution_options(synchronize_session=False)
+    )
     db.flush()

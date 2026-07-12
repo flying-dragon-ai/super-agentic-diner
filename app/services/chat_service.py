@@ -1,6 +1,5 @@
 """RAG-backed chat service for menu recommendations and product lookup."""
 import re
-import time
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -52,21 +51,14 @@ def resolve_image_path(name: str) -> str:
     return f"/images/{_DEFAULT_IMAGE}"
 
 
-# ===== Product 表 TTL 缓存（菜单极少变化，避免每请求全表扫描）=====
-_PRODUCT_CACHE: dict = {"data": None, "ts": 0.0}
-_PRODUCT_CACHE_TTL = 60  # 秒
-
-
 def get_all_products(db: Session) -> list[Product]:
-    """获取全部 Product（按 base_price 排序），60 秒内走缓存。
+    """获取当前 Session 中的全部 Product（按 base_price 排序）。
 
-    Product(产品) 表变更极少（仅下单扣库存），60s 缓存延迟可接受。
+    SQLAlchemy ORM 实例绑定 Session，不能跨请求/跨数据库缓存；那会返回已
+    detached 的旧库存，并让并发测试或多租户连接看到其他 Session 的菜单。
+    菜单规模很小，直接查询比缓存 ORM 对象更安全且能立即反映库存状态。
     """
-    now = time.time()
-    if _PRODUCT_CACHE["data"] is None or now - _PRODUCT_CACHE["ts"] > _PRODUCT_CACHE_TTL:
-        _PRODUCT_CACHE["data"] = db.query(Product).order_by(Product.base_price).all()
-        _PRODUCT_CACHE["ts"] = now
-    return _PRODUCT_CACHE["data"]
+    return db.query(Product).order_by(Product.base_price).all()
 
 
 def product_to_card(p: Product) -> dict:

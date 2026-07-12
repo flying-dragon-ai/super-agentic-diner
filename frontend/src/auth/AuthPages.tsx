@@ -46,7 +46,7 @@ export function LoginPage() {
     e.preventDefault();
     setBusy(true);
     setErr("");
-    try { await login(username, password); window.location.href = "/"; }
+    try { await login(username, password); nav("/scene", { replace: true }); }
     catch (e2) { setErr(String((e2 as Error).message)); }
     finally { setBusy(false); }
   };
@@ -92,7 +92,7 @@ export function RegisterPage() {
           profession: profession || undefined,
         },
       );
-      window.location.href = "/";
+      nav("/scene", { replace: true });
     } catch (e2) { setErr(String((e2 as Error).message)); }
     finally { setBusy(false); }
   };
@@ -103,7 +103,7 @@ export function RegisterPage() {
         <h2 style={{ marginTop: 0 }}>注册 · Crossroads Agent Café</h2>
         <input style={input} placeholder="用户名（3-32位字母数字）" value={username} onChange={(e) => setU(e.target.value)} autoFocus />
         <input style={input} placeholder="昵称（可选）" value={nickname} onChange={(e) => setN(e.target.value)} />
-        <input style={input} type="password" placeholder="密码（6-64位）" value={password} onChange={(e) => setP(e.target.value)} />
+        <input style={input} type="password" minLength={8} maxLength={64} placeholder="密码（8-64位）" value={password} onChange={(e) => setP(e.target.value)} />
 
         <div style={sectionDivider}>
           <div style={sectionLabel}>个人资料（可选，进入场景后展示）</div>

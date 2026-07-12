@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import _test_env  # noqa: F401 - activate hermetic defaults before app imports
+
 import unittest
 
 from app.main import _is_clearly_non_order

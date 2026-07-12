@@ -1,6 +1,6 @@
 # Crossroads Agent Café
 
-基于 **FastAPI + MySQL 8 + Redis 7 + LLM** 的轻量级 AI 点单助手 demo。
+基于 **FastAPI + SQLAlchemy（SQLite/MySQL）+ fakeredis/Redis + LLM** 的轻量级 AI 点单助手 demo。
 不使用向量数据库，知识检索采用「关键词 RAG」（分词 + 同义词扩展 + 否定词过滤）。
 
 ## 项目结构
@@ -50,14 +50,22 @@ cp .env.example .env
 # 编辑 .env，填入你的 LLM_API_KEY
 ```
 
-### 4. 建表 + 灌种子数据
-```bash
-python scripts/init_db.py
-```
-
-已有 MySQL 库升级字段、索引、外键和状态约束：
+### 4. 初始化 / 升级 Schema
 ```bash
 python scripts/migrate_order_sources.py
+```
+
+`scripts/migrate_order_sources.py` 是 SQLite/MySQL 共用的规范迁移入口，可幂等重复运行。`scripts/init_db.py` 默认也只调用该迁移，不会创建固定账号、充值或演示订单。
+
+仅在本地演示环境需要样例数据时显式执行：
+```bash
+python scripts/init_db.py --seed-demo
+```
+
+生产环境禁止启用 demo seed，并应设置 `REGISTRATION_BONUS_CNY=0`。如需管理员账号，使用一次性显式命令；密码通过交互、标准输入或受保护文件读取，不接受命令行明文密码：
+
+```bash
+python scripts/bootstrap_admin.py --username cafe-admin
 ```
 
 ### 5. 启动服务
@@ -65,6 +73,15 @@ python scripts/migrate_order_sources.py
 uvicorn app.main:app --reload
 ```
 打开 `http://localhost:8000/docs` 查看接口。
+
+健康探针：
+
+```bash
+curl http://localhost:8000/health/live
+curl http://localhost:8000/health/ready
+```
+
+`/health/live` 仅检查进程存活；`/health/ready` 会检查当前数据库、Redis/fakeredis 与 3D 发布资源，任一项不可用时返回 `503`，部署流量门禁应使用 readiness。
 
 ## 接口示例
 

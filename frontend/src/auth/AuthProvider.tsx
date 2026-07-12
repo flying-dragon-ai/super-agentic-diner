@@ -10,6 +10,7 @@ export type Account = {
   gender?: string | null;
   specialty?: string | null;
   profession?: string | null;
+  role?: "user" | "admin";
 };
 
 type AuthState = {

@@ -774,7 +774,7 @@ function renderQuickMenu(options) {
   if (!menu) return;
   const base = quickPresets[scene] || quickPresets.welcome;
   const actions = tuneActionsForContext(base, quickState.lastUserText, quickState.lastBotText);
-  menu.innerHTML = '';
+  menu.replaceChildren();
   actions.forEach(action => {
     const button = document.createElement('button');
     button.type = 'button';
@@ -803,12 +803,83 @@ function addMsg(text, role) {
 let _menuCache = null;
 let _menuFilter = 'all'; // all, hot, cold, special, coffee
 
+function asDisplayText(value, fallback = '') {
+  if (value === null || value === undefined) return fallback;
+  const text = String(value);
+  return text || fallback;
+}
+
+function formatMenuPrice(value) {
+  const price = Number(value);
+  return Number.isFinite(price) ? price.toFixed(2) : '—';
+}
+
+function safeMenuImageUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  try {
+    const url = new URL(value, window.location.origin);
+    if (
+      url.origin !== window.location.origin ||
+      !url.pathname.startsWith('/images/') ||
+      !url.pathname.toLowerCase().endsWith('.png')
+    ) return '';
+    return url.pathname + url.search;
+  } catch (_) {
+    return '';
+  }
+}
+
+function createMenuCard(item) {
+  const product = item && typeof item === 'object' ? item : {};
+  const name = asDisplayText(product.name, '未命名饮品');
+  const card = document.createElement('div');
+  card.className = 'menu-card';
+
+  const imageUrl = safeMenuImageUrl(product.image);
+  if (imageUrl) {
+    const image = document.createElement('img');
+    image.src = imageUrl;
+    image.alt = name;
+    image.loading = 'lazy';
+    image.addEventListener('error', () => image.remove(), { once: true });
+    card.appendChild(image);
+  }
+
+  const body = document.createElement('div');
+  body.className = 'menu-card-body';
+  const nameElement = document.createElement('div');
+  nameElement.className = 'menu-card-name';
+  nameElement.textContent = name;
+  body.appendChild(nameElement);
+
+  const priceElement = document.createElement('div');
+  priceElement.className = 'menu-card-price';
+  priceElement.textContent = formatMenuPrice(product.price);
+  body.appendChild(priceElement);
+
+  const tagsElement = document.createElement('div');
+  tagsElement.className = 'menu-card-tags';
+  tagsElement.textContent = asDisplayText(product.tags).split(',').slice(0, 3).join(' ');
+  body.appendChild(tagsElement);
+
+  const orderButton = document.createElement('button');
+  orderButton.type = 'button';
+  orderButton.className = 'menu-card-btn';
+  orderButton.textContent = '点这杯';
+  orderButton.setAttribute('aria-label', `点一杯${name}`);
+  orderButton.addEventListener('click', () => orderCoffee(name));
+  body.appendChild(orderButton);
+  card.appendChild(body);
+  return card;
+}
+
 async function fetchMenu() {
   if (_menuCache) return _menuCache;
   try {
     const r = await fetch('/menu', {credentials: 'include'});
     if (!r.ok) return [];
-    _menuCache = await r.json();
+    const data = await r.json();
+    _menuCache = Array.isArray(data) ? data : [];
     return _menuCache;
   } catch(e) { return []; }
 }
@@ -839,14 +910,23 @@ function renderMenuTabs(container, totalCount, items) {
     {key:'coffee', label:'🌱 经典'},
     {key:'special', label:'✨ 特调'},
   ];
-  let html = '';
+  const fragment = document.createDocumentFragment();
   for (const t of tabs) {
     const c = counts[t.key] || 0;
     if (c === 0 && t.key !== 'all') continue;
-    const cls = _menuFilter === t.key ? 'menu-tab active' : 'menu-tab';
-    html += `<button class="${cls}" data-filter="${t.key}" onclick="switchMenuTab('${t.key}')">${t.label}<span class="tab-badge">${c}</span></button>`;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = _menuFilter === t.key ? 'menu-tab active' : 'menu-tab';
+    button.dataset.filter = t.key;
+    button.appendChild(document.createTextNode(t.label));
+    const badge = document.createElement('span');
+    badge.className = 'tab-badge';
+    badge.textContent = String(c);
+    button.appendChild(badge);
+    button.addEventListener('click', () => switchMenuTab(t.key));
+    fragment.appendChild(button);
   }
-  container.innerHTML = html;
+  container.replaceChildren(fragment);
 }
 
 // 切换分类标签后重新渲染卡片
@@ -865,23 +945,14 @@ function rebuildMenuCards(wrapper, menuItems) {
   if (oldCards) oldCards.remove();
   const cards = document.createElement('div');
   cards.className = 'menu-cards';
-  if (menuItems.length === 0) {
-    cards.innerHTML = '<div style="padding:20px;text-align:center;color:#a0918a;font-size:13px;">该分类暂无饮品</div>';
+  const items = Array.isArray(menuItems) ? menuItems : [];
+  if (items.length === 0) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'padding:20px;text-align:center;color:#a0918a;font-size:13px;';
+    empty.textContent = '该分类暂无饮品';
+    cards.appendChild(empty);
   } else {
-    menuItems.forEach(item => {
-      const card = document.createElement('div');
-      card.className = 'menu-card';
-      const tagsShort = (item.tags || '').split(',').slice(0, 3).join(' ');
-      card.innerHTML =
-        `<img src="${item.image}" alt="${item.name}" loading="lazy" onerror="this.style.display='none'">` +
-        `<div class="menu-card-body">` +
-          `<div class="menu-card-name">${item.name}</div>` +
-          `<div class="menu-card-price">${item.price.toFixed(2)}</div>` +
-          `<div class="menu-card-tags">${tagsShort}</div>` +
-          `<button class="menu-card-btn" onclick="orderCoffee('${item.name}')">点这杯</button>` +
-        `</div>`;
-      cards.appendChild(card);
-    });
+    items.forEach(item => cards.appendChild(createMenuCard(item)));
   }
   wrapper.appendChild(cards);
 }
@@ -892,6 +963,7 @@ function rebuildMenuCards(wrapper, menuItems) {
 function renderMenuCards(menuItems, options) {
   var opts = options || {};
   var isFullMenu = !!opts.fullMenu;
+  var items = Array.isArray(menuItems) ? menuItems : [];
   var wrapper = document.createElement('div');
   wrapper.className = 'msg bot';
   wrapper.style.cssText = 'max-width:100%;padding:4px 0;background:transparent;border:none;';
@@ -903,20 +975,7 @@ function renderMenuCards(menuItems, options) {
     wrapper.appendChild(title2);
     var cards2 = document.createElement('div');
     cards2.className = 'menu-cards';
-    menuItems.forEach(function(item) {
-      var card = document.createElement('div');
-      card.className = 'menu-card';
-      var tagsShort = (item.tags || '').split(',').slice(0, 3).join(' ');
-      card.innerHTML =
-        '<img src="' + item.image + '" alt="' + item.name + '" loading="lazy" onerror="this.style.display=\'none\'">' +
-        '<div class="menu-card-body">' +
-          '<div class="menu-card-name">' + item.name + '</div>' +
-          '<div class="menu-card-price">' + item.price.toFixed(2) + '</div>' +
-          '<div class="menu-card-tags">' + tagsShort + '</div>' +
-          '<button class="menu-card-btn" onclick="orderCoffee(\'' + item.name + '\')">点这杯</button>' +
-        '</div>';
-      cards2.appendChild(card);
-    });
+    items.forEach(function(item) { cards2.appendChild(createMenuCard(item)); });
     wrapper.appendChild(cards2);
     $('messages').appendChild(wrapper);
     $('messages').scrollTop = $('messages').scrollHeight;
@@ -932,9 +991,9 @@ function renderMenuCards(menuItems, options) {
   tabsBar.className = 'menu-tabs';
   wrapper.appendChild(tabsBar);
   wrapper.id = '_menuCardsContainer';
-  renderMenuTabs(tabsBar, menuItems.length, menuItems);
+  renderMenuTabs(tabsBar, items.length, items);
   // 初始渲染全部
-  const filtered = filterMenuByCategory(menuItems, _menuFilter);
+  const filtered = filterMenuByCategory(items, _menuFilter);
   rebuildMenuCards(wrapper, filtered);
   $('messages').appendChild(wrapper);
   $('messages').scrollTop = $('messages').scrollHeight;
@@ -996,8 +1055,9 @@ async function send() {
     _lampsThinking = false;
     _clearAllLamps();
     const menuRequest = isMenuRequest(text);
+    const reply = typeof data.reply === 'string' ? data.reply : '';
     // 优先使用后端返回的结构化产品数据渲染卡片（推荐/菜单场景均覆盖）
-    if (data.products && data.products.length > 0) {
+    if (Array.isArray(data.products) && data.products.length > 0) {
       typing.textContent = '为您找到以下推荐，点击可直接下单：';
       renderMenuCards(data.products, {fullMenu: false});
     } else if (menuRequest) {
@@ -1007,9 +1067,9 @@ async function send() {
       if (menu && menu.length) renderMenuCards(menu, {fullMenu: true});
     } else {
       // 待确认订单：截掉「确认下单请回复…」提示语，改为按钮
-      if (data.reply.includes('确认下单请回复')) {
-        const displayText = data.reply.split('确认下单请回复')[0].replace(/\n+$/, '').trimEnd();
-        typing.innerHTML = '';
+      if (reply.includes('确认下单请回复')) {
+        const displayText = reply.split('确认下单请回复')[0].replace(/\n+$/, '').trimEnd();
+        typing.replaceChildren();
         const textDiv = document.createElement('div');
         textDiv.textContent = displayText;
         typing.appendChild(textDiv);
@@ -1025,11 +1085,11 @@ async function send() {
         actions.appendChild(orderBtn);
         typing.appendChild(actions);
       } else {
-        typing.textContent = data.reply;
+        typing.textContent = reply;
       }
     }
     // 快捷菜单场景推断仍用真实 reply（确保快捷按钮推荐不受显示替换影响）
-    renderQuickMenu({userText: text, botText: data.reply});
+    renderQuickMenu({userText: text, botText: reply});
     if (data.order_id) {
       addMsg('✅ 已生成订单 #' + data.order_id, 'sys');
     }
@@ -1049,7 +1109,7 @@ async function send() {
 
 async function clearChat() {
   // 先重置本地 UI 和菜单，确保即使后端不可用菜单也回到欢迎态
-  $('messages').innerHTML = '';
+  $('messages').replaceChildren();
   quickState.lastUserText = '';
   quickState.lastBotText = '';
   quickState.selectedKey = '';
@@ -1083,17 +1143,33 @@ async function refreshUser() {
 async function refreshOrders() {
   try {
     const r = await fetch('/orders/' + USER_ID);
-    const orders = await r.json();
+    const data = await r.json();
+    const orders = Array.isArray(data) ? data : [];
     const list = $('orderList');
+    list.replaceChildren();
     if (!orders.length) {
-      list.innerHTML = '<div id="emptyTip">还没有订单，聊起来吧~</div>';
+      const emptyTip = document.createElement('div');
+      emptyTip.id = 'emptyTip';
+      emptyTip.textContent = '还没有订单，聊起来吧~';
+      list.appendChild(emptyTip);
       return;
     }
-    list.innerHTML = orders.map(o =>
-      '<div class="order-item"><div class="name">☕ ' + o.coffee_name +
-      '</div><div class="meta">¥' + Number(o.amount).toFixed(2) +
-      ' · ' + o.created_at + ' · #' + o.order_id + '</div></div>'
-    ).join('');
+    const fragment = document.createDocumentFragment();
+    orders.forEach(order => {
+      const o = order && typeof order === 'object' ? order : {};
+      const item = document.createElement('div');
+      item.className = 'order-item';
+      const name = document.createElement('div');
+      name.className = 'name';
+      name.textContent = '☕ ' + asDisplayText(o.coffee_name, '未知饮品');
+      item.appendChild(name);
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = `¥${formatMenuPrice(o.amount)} · ${asDisplayText(o.created_at, '—')} · #${asDisplayText(o.order_id, '—')}`;
+      item.appendChild(meta);
+      fragment.appendChild(item);
+    });
+    list.appendChild(fragment);
   } catch(e) {}
 }
 
@@ -1204,11 +1280,18 @@ function _connectAgentWS() {
 function showLoginPrompt() {
   const chatBox = $('chat');
   if (!chatBox) return;
-  chatBox.innerHTML =
-    '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#3d2f24;gap:16px">' +
-      '<div style="font-size:18px">请先登录后再使用 AI 店长服务</div>' +
-      '<a href="/3d/login" style="background:#c08552;color:#fff;padding:10px 28px;border-radius:10px;text-decoration:none;font-weight:600">去登录</a>' +
-    '</div>';
+  const prompt = document.createElement('div');
+  prompt.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#3d2f24;gap:16px';
+  const message = document.createElement('div');
+  message.style.fontSize = '18px';
+  message.textContent = '请先登录后再使用 AI 店长服务';
+  prompt.appendChild(message);
+  const loginLink = document.createElement('a');
+  loginLink.href = '/3d/login';
+  loginLink.style.cssText = 'background:#c08552;color:#fff;padding:10px 28px;border-radius:10px;text-decoration:none;font-weight:600';
+  loginLink.textContent = '去登录';
+  prompt.appendChild(loginLink);
+  chatBox.replaceChildren(prompt);
 }
 
 // 通过 /auth/me 获取当前登录用户，成功后初始化聊天页

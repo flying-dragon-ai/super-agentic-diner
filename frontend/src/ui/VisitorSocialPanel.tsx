@@ -1,10 +1,13 @@
-// Visitor social panel: three-tab design — visitor chat, AI assistant, online list.
+// Visitor social panel: visitor chat + the scene's single AI assistant entry.
 // Tab 1: real-time visitor-to-visitor text chat (WebSocket + REST hybrid).
-// Tab 2: AI bot interaction (uses /chat API, same as the main ChatPanel).
+// Tab 2: AI bot interaction (uses /chat API).
 // Tab 3: online visitor roster with invite-link.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../auth/AuthProvider";
 import {
   getAnonUserId,
+  hasApiErrorCode,
   getOnlineVisitors,
   getVisitorChatHistory,
   sendVisitorChat,
@@ -15,11 +18,17 @@ import {
 } from "../net/api";
 
 type Props = {
-  registerChatConsumer?: (handler: (msg: VisitorChatMessage) => void) => void;
+  registerChatConsumer?: (handler: (msg: VisitorChatMessage) => void) => void | (() => void);
 };
 
 // AI bot message type (reply can include product cards).
-type BotMsg = { role: "user" | "bot"; text: string; products?: ChatProduct[] };
+type BotMsg = {
+  role: "user" | "bot";
+  text: string;
+  products?: ChatProduct[];
+  loginRequired?: boolean;
+  checkoutId?: string;
+};
 
 const ANON_NAME_KEY = "coffee_visitor_display_name";
 
@@ -40,7 +49,97 @@ function getDisplayName(): string {
   return name;
 }
 
+function createClientMessageId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `visitor-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+const messageIdentity = (message: VisitorChatMessage): string | null =>
+  message.message_id !== undefined && message.message_id !== null
+    ? String(message.message_id)
+    : message.client_message_id ?? null;
+
+function legacyDeliveryDistance(
+  left: VisitorChatMessage,
+  right: VisitorChatMessage,
+): number | null {
+  if (
+    left.user_id !== right.user_id ||
+    left.display_name !== right.display_name ||
+    left.message !== right.message
+  ) return null;
+  const hasOptimisticDelivery = Boolean(
+    left.client_message_id ||
+    right.client_message_id ||
+    left.delivery_status ||
+    right.delivery_status,
+  );
+  if (left.created_at && right.created_at) {
+    const delta = Math.abs(Date.parse(left.created_at) - Date.parse(right.created_at));
+    if (!Number.isFinite(delta)) return null;
+    if (hasOptimisticDelivery && delta <= 30_000) return delta;
+    if (!hasOptimisticDelivery && delta === 0) return 0;
+  }
+  return null;
+}
+
+function upsertVisitorMessage(
+  previous: VisitorChatMessage[],
+  incoming: VisitorChatMessage,
+): VisitorChatMessage[] {
+  const incomingIdentity = messageIdentity(incoming);
+  let index = incomingIdentity
+    ? previous.findIndex((message) =>
+        (message.message_id !== undefined && String(message.message_id) === incomingIdentity) ||
+        message.client_message_id === incomingIdentity)
+    : -1;
+
+  if (index < 0 && incoming.client_message_id) {
+    index = previous.findIndex((message) => message.client_message_id === incoming.client_message_id);
+  }
+  // Legacy backend compatibility: old visitor.chat events have no message_id.
+  // Reconcile them with the recent optimistic delivery instead of appending a
+  // duplicate. Repeated user messages remain distinct because each optimistic
+  // send has its own client_message_id and only a recent matching delivery wins.
+  if (index < 0 && !incoming.client_message_id) {
+    let closestDistance = Number.POSITIVE_INFINITY;
+    previous.forEach((message, candidateIndex) => {
+      const distance = legacyDeliveryDistance(message, incoming);
+      if (distance !== null && distance <= closestDistance) {
+        closestDistance = distance;
+        index = candidateIndex;
+      }
+    });
+  }
+
+  if (index >= 0) {
+    const next = [...previous];
+    next[index] = {
+      ...previous[index],
+      ...incoming,
+      client_message_id:
+        incoming.client_message_id ?? previous[index].client_message_id,
+      delivery_status: incoming.delivery_status ?? "sent",
+    };
+    return next.slice(-100);
+  }
+  return [...previous.slice(-99), incoming];
+}
+
+const chatResponseNeedsLogin = (response: {
+  code?: string;
+  requires_login?: boolean;
+  login_required?: boolean;
+}) =>
+  response.code === "login_required" ||
+  response.requires_login === true ||
+  response.login_required === true;
+
 export function VisitorSocialPanel({ registerChatConsumer }: Props) {
+  const { account } = useAuth();
+  const navigate = useNavigate();
   // --- Visitor chat state ---
   const [messages, setMessages] = useState<VisitorChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -50,14 +149,17 @@ export function VisitorSocialPanel({ registerChatConsumer }: Props) {
   const [botMessages, setBotMessages] = useState<BotMsg[]>([]);
   const [botInput, setBotInput] = useState("");
   const [botBusy, setBotBusy] = useState(false);
+  const botBusyRef = useRef(false);
   const botScrollRef = useRef<HTMLDivElement>(null);
 
   // --- Shared state ---
   const [onlineVisitors, setOnlineVisitors] = useState<OnlineVisitor[]>([]);
   const [expanded, setExpanded] = useState(true);
   const [tab, setTab] = useState<"chat" | "bot" | "visitors">("chat");
-  const [displayName] = useState(getDisplayName);
-  const userId = useRef(getAnonUserId());
+  const [anonymousDisplayName] = useState(getDisplayName);
+  const anonymousUserId = useRef(getAnonUserId());
+  const activeUserId = account?.user_id ?? anonymousUserId.current;
+  const activeDisplayName = account?.nickname || account?.username || anonymousDisplayName;
   const scrollRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -68,7 +170,7 @@ export function VisitorSocialPanel({ registerChatConsumer }: Props) {
       try {
         const data = await getVisitorChatHistory(50);
         if (!cancelled && data.messages) {
-          setMessages(data.messages);
+          setMessages(data.messages.reduce(upsertVisitorMessage, [] as VisitorChatMessage[]));
         }
       } catch {
         // Backend might not be ready; silently ignore.
@@ -97,9 +199,10 @@ export function VisitorSocialPanel({ registerChatConsumer }: Props) {
   // Register consumer for real-time visitor.chat WebSocket events.
   useEffect(() => {
     if (!registerChatConsumer) return;
-    registerChatConsumer((msg: VisitorChatMessage) => {
-      setMessages((prev) => [...prev.slice(-99), msg]);
+    const unregister = registerChatConsumer((msg: VisitorChatMessage) => {
+      setMessages((prev) => upsertVisitorMessage(prev, { ...msg, delivery_status: "sent" }));
     });
+    return typeof unregister === "function" ? unregister : undefined;
   }, [registerChatConsumer]);
 
   // Auto-scroll to bottom on new messages.
@@ -119,38 +222,92 @@ export function VisitorSocialPanel({ registerChatConsumer }: Props) {
     const trimmed = input.trim();
     if (!trimmed || sending) return;
     setSending(true);
+    const clientMessageId = createClientMessageId();
     const msg: VisitorChatMessage = {
-      user_id: userId.current,
-      display_name: displayName,
+      client_message_id: clientMessageId,
+      user_id: activeUserId,
+      display_name: activeDisplayName,
       message: trimmed,
+      created_at: new Date().toISOString(),
+      delivery_status: "sending",
     };
-    setMessages((prev) => [...prev.slice(-99), msg]);
+    setMessages((prev) => upsertVisitorMessage(prev, msg));
     setInput("");
     try {
-      await sendVisitorChat(userId.current, displayName, trimmed);
+      const response = await sendVisitorChat(
+        activeUserId,
+        activeDisplayName,
+        trimmed,
+        clientMessageId,
+      );
+      const canonicalMessage = response.message;
+      if (canonicalMessage) {
+        setMessages((prev) => upsertVisitorMessage(prev, {
+          ...canonicalMessage,
+          client_message_id: canonicalMessage.client_message_id ?? clientMessageId,
+          delivery_status: "sent",
+        }));
+      } else {
+        setMessages((prev) => prev.map((message) =>
+          message.client_message_id === clientMessageId
+            ? {
+                ...message,
+                message_id: response.message_id ?? message.message_id,
+                client_message_id: response.client_message_id ?? clientMessageId,
+                created_at: response.created_at ?? message.created_at,
+                delivery_status: "sent",
+              }
+            : message));
+      }
     } catch {
-      // optimistic — keep it
+      setMessages((prev) => prev.map((message) =>
+        message.client_message_id === clientMessageId
+          ? { ...message, delivery_status: "failed" }
+          : message));
     } finally {
       setSending(false);
     }
-  }, [input, sending, displayName]);
+  }, [input, sending, activeUserId, activeDisplayName]);
 
   // --- AI bot handlers ---
+  const sendBotPrompt = useCallback(async (text: string) => {
+    if (!text || botBusyRef.current) return;
+    botBusyRef.current = true;
+    setBotMessages((m) => [...m, { role: "user", text }]);
+    setBotBusy(true);
+    try {
+      const res = await sendChat(activeUserId, text);
+      if (chatResponseNeedsLogin(res)) {
+        setBotMessages((m) => [...m, {
+          role: "bot",
+          text: res.reply || "需要登录后才能确认并结算订单。",
+          loginRequired: true,
+          checkoutId: res.checkout_id,
+        }]);
+      } else {
+        setBotMessages((m) => [...m, { role: "bot", text: res.reply, products: res.products }]);
+      }
+    } catch (e) {
+      const loginRequired = hasApiErrorCode(e, "login_required");
+      setBotMessages((m) => [...m, {
+        role: "bot",
+        text: loginRequired
+          ? "需要登录后才能确认并结算订单。登录后可返回场景继续。"
+          : `\u51fa\u9519\u4e86\uff1a${(e as Error).message}`,
+        loginRequired,
+      }]);
+    } finally {
+      botBusyRef.current = false;
+      setBotBusy(false);
+    }
+  }, [activeUserId]);
+
   const handleBotSend = useCallback(async () => {
     const text = botInput.trim();
     if (!text || botBusy) return;
     setBotInput("");
-    setBotMessages((m) => [...m, { role: "user", text }]);
-    setBotBusy(true);
-    try {
-      const res = await sendChat(userId.current, text);
-      setBotMessages((m) => [...m, { role: "bot", text: res.reply, products: res.products }]);
-    } catch (e) {
-      setBotMessages((m) => [...m, { role: "bot", text: `\u51fa\u9519\u4e86\uff1a${(e as Error).message}` }]);
-    } finally {
-      setBotBusy(false);
-    }
-  }, [botInput, botBusy]);
+    await sendBotPrompt(text);
+  }, [botInput, botBusy, sendBotPrompt]);
 
   const handleBotKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -186,7 +343,7 @@ export function VisitorSocialPanel({ registerChatConsumer }: Props) {
         onClick={() => setExpanded(true)}
         style={{
           position: "absolute",
-          bottom: 384,
+          bottom: 12,
           left: 12,
           zIndex: 30,
           padding: "8px 16px",
@@ -206,11 +363,11 @@ export function VisitorSocialPanel({ registerChatConsumer }: Props) {
 
   const panelStyle: React.CSSProperties = {
     position: "absolute",
-    bottom: 384,
+    bottom: 12,
     left: 12,
     zIndex: 30,
     width: "min(320px, calc(100vw - 24px))",
-    maxHeight: "min(320px, calc(100vh - 410px))",
+    maxHeight: "min(420px, calc(100vh - 96px))",
     display: "flex",
     flexDirection: "column",
     background: "rgba(8,12,20,0.88)",
@@ -301,11 +458,14 @@ export function VisitorSocialPanel({ registerChatConsumer }: Props) {
               </div>
             )}
             {messages.map((msg, i) => {
-              const isSelf = msg.user_id === userId.current;
+              const isSelf = msg.user_id === activeUserId;
+              const key = messageIdentity(msg) ?? `${msg.user_id}:${msg.created_at ?? "legacy"}:${i}`;
               return (
-                <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: isSelf ? "flex-end" : "flex-start", marginBottom: 6 }}>
+                <div key={key} style={{ display: "flex", flexDirection: "column", alignItems: isSelf ? "flex-end" : "flex-start", marginBottom: 6 }}>
                   <span style={{ fontSize: 10, color: "#7a8aa0", marginBottom: 2 }}>
                     {isSelf ? "\u6211" : msg.display_name}{msg.created_at ? " \u00b7 " + new Date(msg.created_at).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : ""}
+                    {msg.delivery_status === "sending" ? " · 发送中" : ""}
+                    {msg.delivery_status === "failed" ? " · 发送失败" : ""}
                   </span>
                   <span
                     style={{
@@ -329,7 +489,7 @@ export function VisitorSocialPanel({ registerChatConsumer }: Props) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={`${displayName}...`}
+              placeholder={`${activeDisplayName}...`}
               maxLength={500}
               style={inputBase}
             />
@@ -360,20 +520,7 @@ export function VisitorSocialPanel({ registerChatConsumer }: Props) {
                   {BOT_QUICK.map((q) => (
                     <button
                       key={q.label}
-                      onClick={() => {
-                        setBotMessages((m) => [...m, { role: "user", text: q.prompt }]);
-                        setBotBusy(true);
-                        void (async () => {
-                          try {
-                            const res = await sendChat(userId.current, q.prompt);
-                            setBotMessages((m) => [...m, { role: "bot", text: res.reply, products: res.products }]);
-                          } catch (e) {
-                            setBotMessages((m) => [...m, { role: "bot", text: `\u51fa\u9519\uff1a${(e as Error).message}` }]);
-                          } finally {
-                            setBotBusy(false);
-                          }
-                        })();
-                      }}
+                      onClick={() => void sendBotPrompt(q.prompt)}
                       disabled={botBusy}
                       style={{
                         padding: "4px 10px",
@@ -421,6 +568,29 @@ export function VisitorSocialPanel({ registerChatConsumer }: Props) {
                 >
                   {m.text}
                 </span>
+                {m.loginRequired && (
+                  <button
+                    type="button"
+                    onClick={() => navigate(
+                      m.checkoutId
+                        ? `/login?checkout_id=${encodeURIComponent(m.checkoutId)}`
+                        : "/login",
+                    )}
+                    style={{
+                      marginTop: 5,
+                      padding: "5px 10px",
+                      fontSize: 11,
+                      fontFamily: "monospace",
+                      cursor: "pointer",
+                      border: "1px solid rgba(96,165,250,0.4)",
+                      background: "rgba(96,165,250,0.14)",
+                      color: "#bfdbfe",
+                      borderRadius: 4,
+                    }}
+                  >
+                    登录后继续
+                  </button>
+                )}
                 {/* Product cards */}
                 {m.products && m.products.length > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4, width: "100%" }}>
@@ -519,7 +689,7 @@ export function VisitorSocialPanel({ registerChatConsumer }: Props) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12, color: "#cfe0ff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {v.display_name}
-                  {v.user_id === userId.current && <span style={{ color: "#f0c060", marginLeft: 4 }}>{"\uff08\u6211\uff09"}</span>}
+                  {v.user_id === activeUserId && <span style={{ color: "#f0c060", marginLeft: 4 }}>{"\uff08\u6211\uff09"}</span>}
                 </div>
                 <div style={{ fontSize: 10, color: "#5a6a80" }}>
                   {"\u5728\u7ebf \u00b7 "}{v.joined_at ? new Date(v.joined_at).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : ""}

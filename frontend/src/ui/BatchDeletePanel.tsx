@@ -8,7 +8,10 @@ import { PALETTE } from "./Palette";
 export type BatchDeletePanelProps = {
   furniture: FurnitureItem[];
   onDeleteByType: (type: string) => void;
+  onDeleteDecorative: () => void;
+  onDeleteAll: () => void;
   onClose: () => void;
+  top?: number;
 };
 
 // Category grouping for the type list.
@@ -65,6 +68,14 @@ const CATEGORY_ICON: Record<string, string> = {
   其他: "📦",
 };
 
+export const getFurniturePaletteType = (item: FurnitureItem): string =>
+  item.type === "couch_v" || (item.type === "couch" && item.vertical)
+    ? "couch_v"
+    : item.type;
+
+export const isDecorativeFurniture = (item: FurnitureItem): boolean =>
+  TYPE_CATEGORY[getFurniturePaletteType(item)] === "装饰";
+
 const panelStyle: CSSProperties = {
   position: "absolute",
   top: 64,
@@ -91,11 +102,18 @@ const rowStyle: CSSProperties = {
   borderBottom: "1px solid rgba(255,255,255,0.04)",
 };
 
-export function BatchDeletePanel({ furniture, onDeleteByType, onClose }: BatchDeletePanelProps) {
+export function BatchDeletePanel({
+  furniture,
+  onDeleteByType,
+  onDeleteDecorative,
+  onDeleteAll,
+  onClose,
+  top = 112,
+}: BatchDeletePanelProps) {
   // Count items per type.
   const counts = new Map<string, number>();
   for (const item of furniture) {
-    const key = item.type === "couch" && item.vertical ? "couch_v" : item.type;
+    const key = getFurniturePaletteType(item);
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
 
@@ -115,9 +133,14 @@ export function BatchDeletePanel({ furniture, onDeleteByType, onClose }: BatchDe
   );
 
   const totalItems = furniture.length;
+  const decorativeCount = furniture.filter(isDecorativeFurniture).length;
+
+  const confirmDelete = (message: string, action: () => void) => {
+    if (window.confirm(message)) action();
+  };
 
   return (
-    <div style={panelStyle}>
+    <div style={{ ...panelStyle, top }} role="dialog" aria-label="批量删除场景物件">
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
         <span style={{ color: "#fca5a5", fontSize: 10, letterSpacing: 2 }}>批量删除 · 共 {totalItems} 件</span>
@@ -153,7 +176,10 @@ export function BatchDeletePanel({ furniture, onDeleteByType, onClose }: BatchDe
                 </span>
                 <span style={{ opacity: 0.5, minWidth: 24, textAlign: "right" }}>×{count}</span>
                 <button
-                  onClick={() => onDeleteByType(type)}
+                  onClick={() => confirmDelete(
+                    `确认删除全部 ${count} 个「${label}」？此操作会立即保存。`,
+                    () => onDeleteByType(type),
+                  )}
                   title={`删除全部 ${count} 个「${label}」`}
                   style={{
                     cursor: "pointer",
@@ -172,6 +198,51 @@ export function BatchDeletePanel({ furniture, onDeleteByType, onClose }: BatchDe
           </div>
         );
       })}
+
+      <div style={{ display: "grid", gap: 6, marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+        <button
+          type="button"
+          disabled={decorativeCount === 0}
+          onClick={() => confirmDelete(
+            `确认删除全部 ${decorativeCount} 件装饰物？桌椅、设备和结构会保留。`,
+            onDeleteDecorative,
+          )}
+          style={{
+            cursor: decorativeCount === 0 ? "not-allowed" : "pointer",
+            padding: "7px 8px",
+            fontSize: 11,
+            fontFamily: "monospace",
+            background: "rgba(245,158,11,0.12)",
+            color: "#fcd34d",
+            border: "1px solid rgba(245,158,11,0.28)",
+            borderRadius: 4,
+            opacity: decorativeCount === 0 ? 0.45 : 1,
+          }}
+        >
+          清空装饰（{decorativeCount}）
+        </button>
+        <button
+          type="button"
+          disabled={totalItems === 0}
+          onClick={() => confirmDelete(
+            `确认清空场景中的全部 ${totalItems} 件物品？此操作不可撤销，但可使用“恢复默认”。`,
+            onDeleteAll,
+          )}
+          style={{
+            cursor: totalItems === 0 ? "not-allowed" : "pointer",
+            padding: "7px 8px",
+            fontSize: 11,
+            fontFamily: "monospace",
+            background: "rgba(239,68,68,0.18)",
+            color: "#fca5a5",
+            border: "1px solid rgba(239,68,68,0.35)",
+            borderRadius: 4,
+            opacity: totalItems === 0 ? 0.45 : 1,
+          }}
+        >
+          清空全部（{totalItems}）
+        </button>
+      </div>
     </div>
   );
 }

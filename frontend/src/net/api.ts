@@ -5,9 +5,48 @@ const env = (import.meta as unknown as {
 }).env;
 const base = env?.VITE_API_BASE_URL ?? (env?.DEV ? "http://localhost:8000" : "");
 
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly detail?: unknown;
+
+  constructor(message: string, status: number, code?: string, detail?: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+    this.detail = detail;
+  }
+}
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
+
+async function responseError(res: Response, path: string): Promise<ApiError> {
+  const payload = await res.json().catch(() => null);
+  const body = asRecord(payload);
+  const detail = body?.detail;
+  const detailBody = asRecord(detail);
+  const code =
+    (typeof body?.code === "string" ? body.code : undefined) ??
+    (typeof detailBody?.code === "string" ? detailBody.code : undefined) ??
+    (typeof detail === "string" && /^[a-z0-9_]+$/i.test(detail) ? detail : undefined);
+  const message =
+    (typeof detailBody?.message === "string" ? detailBody.message : undefined) ??
+    (typeof detail === "string" ? detail : undefined) ??
+    (typeof body?.message === "string" ? body.message : undefined) ??
+    `${path} -> ${res.status}`;
+  return new ApiError(message, res.status, code, detail ?? payload);
+}
+
+export function hasApiErrorCode(error: unknown, code: string): boolean {
+  if (error instanceof ApiError && error.code === code) return true;
+  return error instanceof Error && error.message.toLowerCase().includes(code.toLowerCase());
+}
+
 export async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${base}${path}`, { credentials: "include" });
-  if (!res.ok) throw new Error(`${path} -> ${res.status}`);
+  if (!res.ok) throw await responseError(res, path);
   return (await res.json()) as T;
 }
 
@@ -19,8 +58,7 @@ export async function postJson<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const detail = await res.json().catch(() => ({}));
-    throw new Error(detail?.detail || `${path} -> ${res.status}`);
+    throw await responseError(res, path);
   }
   return (await res.json()) as T;
 }
@@ -33,8 +71,7 @@ export async function putJson<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const detail = await res.json().catch(() => ({}));
-    throw new Error(detail?.detail || `${path} -> ${res.status}`);
+    throw await responseError(res, path);
   }
   return (await res.json()) as T;
 }
@@ -94,6 +131,10 @@ export type ChatResponse = {
   reply: string;
   order_id?: number;
   products?: ChatProduct[];
+  code?: string;
+  requires_login?: boolean;
+  login_required?: boolean;
+  checkout_id?: string;
 };
 export const sendChat = (userId: number, message: string) =>
   postJson<ChatResponse>("/chat", { user_id: userId, message });
@@ -104,10 +145,14 @@ export type OfficeLayoutResponse = {
   items: unknown[];
   namespace: string;
   updated_at?: string | null;
+  version?: number | null;
 };
 export const getOfficeLayout = () => getJson<OfficeLayoutResponse>("/api/office/layout");
-export const saveOfficeLayout = (items: unknown[]) =>
-  putJson<{ ok: boolean; namespace: string }>("/api/office/layout", { items });
+export const saveOfficeLayout = (items: unknown[], version?: number | null) =>
+  putJson<{ ok: boolean; namespace: string; version: number }>("/api/office/layout", {
+    items,
+    ...(version !== undefined ? { version } : {}),
+  });
 
 export { base };
 
@@ -157,9 +202,20 @@ export type OnlineVisitor = {
 };
 
 export type VisitorChatMessage = {
+  message_id?: string | number;
+  client_message_id?: string;
   user_id: number | null;
   display_name: string;
   message: string;
+  created_at?: string;
+  delivery_status?: "sending" | "sent" | "failed";
+};
+
+export type VisitorChatSendResponse = {
+  ok: boolean;
+  message?: VisitorChatMessage;
+  message_id?: string | number;
+  client_message_id?: string;
   created_at?: string;
 };
 
@@ -189,17 +245,23 @@ export type VisitorChatHistoryResponse = {
 };
 
 export const getOnlineVisitors = () =>
-  getJson<OnlineVisitorsResponse>("/admin/online-visitors");
+  getJson<OnlineVisitorsResponse>("/api/online-visitors");
 
 export const getVisitorChatHistory = (limit = 50) =>
-  getJson<VisitorChatHistoryResponse>(`/admin/visitor-chat?limit=${limit}`);
+  getJson<VisitorChatHistoryResponse>(`/api/visitor-chat/history?limit=${limit}`);
 
-export const sendVisitorChat = (userId: number, displayName: string, message: string) =>
-  postJson<{ ok: boolean }>('/api/visitor-chat', {
+export const sendVisitorChat = (
+  userId: number,
+  displayName: string,
+  message: string,
+  clientMessageId?: string,
+) =>
+  postJson<VisitorChatSendResponse>('/api/visitor-chat', {
     user_id: userId,
     display_name: displayName,
     message,
+    ...(clientMessageId ? { client_message_id: clientMessageId } : {}),
   });
 
 export const getTodayTopics = () =>
-  getJson<TodayTopicsResponse>("/admin/today-topics");
+  getJson<TodayTopicsResponse>("/api/today-topics");

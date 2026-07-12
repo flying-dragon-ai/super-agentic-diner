@@ -8,11 +8,17 @@ Tests the full flow:
 5. Verify order history and ledger records
 6. Verify wallet transaction history
 
-Run:  .\.venv\Scripts\python.exe -m pytest tests/test_token_transaction_flow.py -v
-Or:   .\.venv\Scripts\python.exe tests\test_token_transaction_flow.py
+This suite is intentionally disabled during normal test discovery.  Run it
+only against a disposable server instance on a non-default port, for example::
+
+    $env:RUN_LIVE_TESTS = "1"
+    $env:LIVE_TEST_BASE_URL = "http://127.0.0.1:8022"
+    $env:LIVE_TEST_INSTANCE_ID = "token-flow-local"
+    python -m pytest tests/test_token_transaction_flow.py -v
 """
 from __future__ import annotations
 
+import _test_env
 import json
 import sys
 import time
@@ -25,13 +31,15 @@ from urllib.error import HTTPError
 # Ensure project root is on sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-BASE_URL = "http://127.0.0.1:8000"
+LIVE_CONFIG = _test_env.live_test_config()
+BASE_URL = LIVE_CONFIG.base_url or ""
 TIMEOUT = 10
 
 
 def _api(method: str, path: str, body: dict | None = None, headers: dict | None = None) -> tuple[int, dict]:
     """Call the API and return (status_code, response_json)."""
-    url = f"{BASE_URL}{path}"
+    config = _test_env.require_live_test_config()
+    url = f"{config.base_url}{path}"
     data = json.dumps(body).encode("utf-8") if body else None
     req = Request(url, data=data, method=method, headers={
         "Content-Type": "application/json",
@@ -59,6 +67,7 @@ def _gen_node_id() -> str:
     return f"test-token-tx-{UNIQUE}-{uuid.uuid4().hex[:6]}"
 
 
+@unittest.skipUnless(LIVE_CONFIG.enabled, LIVE_CONFIG.reason)
 class TokenTransactionFlowTests(unittest.TestCase):
     """E2E tests against the live server for the token/credit transaction pipeline."""
 

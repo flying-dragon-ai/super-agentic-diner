@@ -11,6 +11,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import Order, OrderItem, OrderItemOption, Product, User
@@ -125,6 +126,8 @@ def place_orders(
             seen_request_ids.add(req_id)
             existed = db.query(Order).filter(Order.request_id == req_id).first()
             if existed:
+                if existed.user_id != user_id:
+                    raise OrderError("request_id 已被其他用户使用")
                 existing_orders.append(existed)
     if existing_orders:
         return existing_orders
@@ -202,7 +205,19 @@ def place_orders(
         note=f"订单 #{header.order_id} 消费",
     )
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        if header_request_id:
+            concurrent = (
+                db.query(Order).filter(Order.request_id == header_request_id).first()
+            )
+            if concurrent is not None and concurrent.user_id == user_id:
+                return [concurrent]
+            if concurrent is not None:
+                raise OrderError("request_id 已被其他用户使用") from exc
+        raise OrderError("订单幂等键发生并发冲突，请重试") from exc
     db.refresh(header)
     return [header]
 
@@ -269,4 +284,3 @@ __all__ = [
     "place_orders",
     "refund_order",
 ]
-

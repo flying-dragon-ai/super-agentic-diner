@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import sys
+import _test_env
+from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright
-
-BASE_URL = "http://127.0.0.1:8003/"
 
 
 def dump(labels):
@@ -38,6 +37,10 @@ def run_case(page, name, setup, expected_any_of, avoid=()):
 
 
 def main() -> None:
+    config = _test_env.require_live_test_config()
+    base_url = f"{config.base_url}/"
+    parsed = urlsplit(config.base_url)
+    live_origin = f"{parsed.scheme}://{parsed.netloc}"
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         context = browser.new_context()
@@ -53,8 +56,15 @@ def main() -> None:
                 route.continue_()
 
         page.route("**/chat", handle)
-        page.route("**/*", lambda route, request: route.continue_() if "127.0.0.1:8003" not in request.url else route.fallback())
-        page.goto(BASE_URL, wait_until="domcontentloaded")
+        page.route(
+            "**/*",
+            lambda route, request: (
+                route.continue_()
+                if live_origin not in request.url
+                else route.fallback()
+            ),
+        )
+        page.goto(base_url, wait_until="domcontentloaded")
         page.wait_for_selector("#quickMenu button")
 
         welcome_labels = quick_labels(page)
@@ -81,7 +91,8 @@ def main() -> None:
 
         def send_for_confirm(page):
             request_body = page.evaluate(
-                "() => JSON.stringify({user_id: 1, message: '我想喝椰子味的，不要太苦。', consumer_url: 'http://127.0.0.1:8003/'})"
+                "baseUrl => JSON.stringify({user_id: 1, message: '我想喝椰子味的，不要太苦。', consumer_url: baseUrl})",
+                base_url,
             )
             chat_responses[request_body] = reco_reply
             page.fill("#msgInput", "我想喝椰子味的，不要太苦。")
@@ -103,7 +114,8 @@ def main() -> None:
 
         def send_paid(page):
             request_body = page.evaluate(
-                "() => JSON.stringify({user_id: 1, message: '确认下单。', consumer_url: 'http://127.0.0.1:8003/'})"
+                "baseUrl => JSON.stringify({user_id: 1, message: '确认下单。', consumer_url: baseUrl})",
+                base_url,
             )
             chat_responses[request_body] = paid_reply
             page.fill("#msgInput", "确认下单。")

@@ -12,6 +12,8 @@ so the chat / ordering path never crashes on Redis being unreachable.
 """
 from __future__ import annotations
 
+import _test_env  # noqa: F401 - activate hermetic defaults before app imports
+
 import unittest
 from unittest.mock import patch
 

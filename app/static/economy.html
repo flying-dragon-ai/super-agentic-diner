@@ -336,23 +336,69 @@
 </div>
 
 <script>
-const fmt = n => typeof n === 'number' ? n.toLocaleString('zh-CN') : '—';
+function toFiniteNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+const fmt = value => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toLocaleString('zh-CN') : '—';
+};
+
+function createTextElement(tagName, className, text) {
+  const element = document.createElement(tagName);
+  if (className) element.className = className;
+  element.textContent = String(text ?? '');
+  return element;
+}
+
+function renderDistribution(containerId, totalValue, rows) {
+  const container = document.getElementById(containerId);
+  const total = Math.max(toFiniteNumber(totalValue), 1);
+  const fragment = document.createDocumentFragment();
+
+  rows.forEach(row => {
+    const count = Math.max(toFiniteNumber(row.count), 0);
+    const percent = Math.min(100, Math.max(0, count / total * 100));
+    const bar = document.createElement('div');
+    bar.className = 'source-bar';
+
+    const label = document.createElement('div');
+    label.className = 'source-bar-label';
+    label.appendChild(createTextElement('span', 'name', row.label));
+    label.appendChild(createTextElement('span', 'count', `${fmt(count)} 单 (${Math.round(percent)}%)`));
+    bar.appendChild(label);
+
+    const track = document.createElement('div');
+    track.className = 'source-bar-track';
+    const fill = document.createElement('div');
+    fill.className = `source-bar-fill ${row.fillClass}`;
+    fill.style.width = `${percent}%`;
+    track.appendChild(fill);
+    bar.appendChild(track);
+    fragment.appendChild(bar);
+  });
+
+  container.replaceChildren(fragment);
+}
 
 async function loadMetrics() {
   try {
     const res = await fetch('/api/economy/metrics');
     const d = await res.json();
+    const hoursSaved = toFiniteNumber(d.estimated_hours_saved);
 
     document.getElementById('m-total-orders').textContent = fmt(d.total_orders);
     document.getElementById('m-orders-sub').textContent =
-      `Skill: ${d.skill_orders} · Web: ${d.web_orders}`;
+      `Skill: ${fmt(d.skill_orders)} · Web: ${fmt(d.web_orders)}`;
     document.getElementById('m-credits').textContent = fmt(d.credits_consumed);
-    document.getElementById('m-hours').textContent = fmt(d.estimated_hours_saved) + 'h';
+    document.getElementById('m-hours').textContent = fmt(hoursSaved) + 'h';
     document.getElementById('m-hours-sub').textContent =
-      `≈ ${d.estimated_hours_saved > 40 ? Math.round(d.estimated_hours_saved/40) + ' 人天' : '< 1 人周'}`;
+      `≈ ${hoursSaved > 40 ? Math.round(hoursSaved / 40) + ' 人天' : '< 1 人周'}`;
     document.getElementById('m-value').textContent = '¥' + fmt(d.estimated_value_cny);
 
-    document.getElementById('roi-conversion').textContent = d.conversion_rate + '%';
+    document.getElementById('roi-conversion').textContent = fmt(d.conversion_rate) + '%';
     document.getElementById('roi-agents').textContent = fmt(d.active_agents);
     document.getElementById('roi-consumers').textContent = fmt(d.unique_consumers);
 
@@ -364,53 +410,32 @@ async function loadMetrics() {
 }
 
 function renderSourceDist(d) {
-  const total = Math.max(d.total_orders, 1);
-  const el = document.getElementById('source-distribution');
-  el.innerHTML = `
-    <div class="source-bar">
-      <div class="source-bar-label">
-        <span class="name">A2A Skill 订单</span>
-        <span class="count">${d.skill_orders} 单 (${Math.round(d.skill_orders/total*100)}%)</span>
-      </div>
-      <div class="source-bar-track">
-        <div class="source-bar-fill fill-skill" style="width: ${d.skill_orders/total*100}%"></div>
-      </div>
-    </div>
-    <div class="source-bar">
-      <div class="source-bar-label">
-        <span class="name">Web 对话订单</span>
-        <span class="count">${d.web_orders} 单 (${Math.round(d.web_orders/total*100)}%)</span>
-      </div>
-      <div class="source-bar-track">
-        <div class="source-bar-fill fill-web" style="width: ${d.web_orders/total*100}%"></div>
-      </div>
-    </div>
-  `;
+  renderDistribution('source-distribution', d.total_orders, [
+    { label: 'A2A Skill 订单', count: d.skill_orders, fillClass: 'fill-skill' },
+    { label: 'Web 对话订单', count: d.web_orders, fillClass: 'fill-web' },
+  ]);
 }
 
 function renderPaymentDist(d) {
-  const total = Math.max(d.total_orders, 1);
-  const el = document.getElementById('payment-distribution');
-  el.innerHTML = `
-    <div class="source-bar">
-      <div class="source-bar-label">
-        <span class="name">免费体验单</span>
-        <span class="count">${d.free_orders} 单 (${Math.round(d.free_orders/total*100)}%)</span>
-      </div>
-      <div class="source-bar-track">
-        <div class="source-bar-fill fill-free" style="width: ${d.free_orders/total*100}%"></div>
-      </div>
-    </div>
-    <div class="source-bar">
-      <div class="source-bar-label">
-        <span class="name">付费成交单</span>
-        <span class="count">${d.paid_orders} 单 (${Math.round(d.paid_orders/total*100)}%)</span>
-      </div>
-      <div class="source-bar-track">
-        <div class="source-bar-fill fill-paid" style="width: ${d.paid_orders/total*100}%"></div>
-      </div>
-    </div>
-  `;
+  renderDistribution('payment-distribution', d.total_orders, [
+    { label: '免费体验单', count: d.free_orders, fillClass: 'fill-free' },
+    { label: '付费成交单', count: d.paid_orders, fillClass: 'fill-paid' },
+  ]);
+}
+
+function appendTransactionCell(row, text) {
+  const cell = document.createElement('td');
+  cell.textContent = String(text ?? '');
+  row.appendChild(cell);
+  return cell;
+}
+
+function renderEmptyTransactions(tbody) {
+  const row = document.createElement('tr');
+  const cell = createTextElement('td', 'loading', '暂无交易记录');
+  cell.colSpan = 6;
+  row.appendChild(cell);
+  tbody.replaceChildren(row);
 }
 
 async function loadTransactions() {
@@ -418,25 +443,49 @@ async function loadTransactions() {
     const res = await fetch('/api/economy/transactions?limit=15');
     const d = await res.json();
     const tbody = document.getElementById('tx-tbody');
-    if (!d.transactions || !d.transactions.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="loading">暂无交易记录</td></tr>';
+    const transactions = Array.isArray(d.transactions) ? d.transactions : [];
+    if (!transactions.length) {
+      renderEmptyTransactions(tbody);
       return;
     }
-    tbody.innerHTML = d.transactions.map(t => `
-      <tr>
-        <td>#${t.order_id}</td>
-        <td>${t.coffee_name}</td>
-        <td><span class="tx-source ${t.source_type}">${t.source_type === 'skill' ? 'A2A Skill' : 'Web 对话'}</span></td>
-        <td>¥${t.amount.toFixed(2)}</td>
-        <td><span class="tx-status ${t.payment_status}">${
-          t.payment_status === 'paid' ? '已付费' :
-          t.payment_status === 'free' ? '免费' :
-          t.payment_status === 'payment_required' ? '待付款' :
-          t.payment_status
-        }</span></td>
-        <td style="color:var(--text-muted)">${t.created_at}</td>
-      </tr>
-    `).join('');
+    const fragment = document.createDocumentFragment();
+    transactions.forEach(transaction => {
+      const t = transaction && typeof transaction === 'object' ? transaction : {};
+      const row = document.createElement('tr');
+      appendTransactionCell(row, `#${String(t.order_id ?? '—')}`);
+      appendTransactionCell(row, t.coffee_name || '未知商品');
+
+      const sourceCell = document.createElement('td');
+      const sourceType = String(t.source_type || '');
+      const sourceMeta = {
+        skill: { className: 'skill', label: 'A2A Skill' },
+        web_dialog: { className: 'web_dialog', label: 'Web 对话' },
+      }[sourceType] || { className: '', label: sourceType || '未知来源' };
+      const sourceBadge = createTextElement('span', 'tx-source', sourceMeta.label);
+      if (sourceMeta.className) sourceBadge.classList.add(sourceMeta.className);
+      sourceCell.appendChild(sourceBadge);
+      row.appendChild(sourceCell);
+
+      const amount = Number(t.amount);
+      appendTransactionCell(row, Number.isFinite(amount) ? `¥${amount.toFixed(2)}` : '¥—');
+
+      const statusCell = document.createElement('td');
+      const paymentStatus = String(t.payment_status || '');
+      const statusMeta = {
+        paid: { className: 'paid', label: '已付费' },
+        free: { className: 'free', label: '免费' },
+        payment_required: { className: 'payment_required', label: '待付款' },
+      }[paymentStatus] || { className: '', label: paymentStatus || '未知状态' };
+      const statusBadge = createTextElement('span', 'tx-status', statusMeta.label);
+      if (statusMeta.className) statusBadge.classList.add(statusMeta.className);
+      statusCell.appendChild(statusBadge);
+      row.appendChild(statusCell);
+
+      const createdAtCell = appendTransactionCell(row, t.created_at || '—');
+      createdAtCell.style.color = 'var(--text-muted)';
+      fragment.appendChild(row);
+    });
+    tbody.replaceChildren(fragment);
   } catch(e) {
     console.error('transactions load failed', e);
   }

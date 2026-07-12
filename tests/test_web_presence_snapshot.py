@@ -8,6 +8,7 @@ from __future__ import annotations
 也覆盖 ensure_web_customer_agent 的重复行收敛（并发 WS 连接的 race 防护）。
 """
 
+import _test_env  # noqa: F401 - activate hermetic defaults before app imports
 import unittest
 import uuid
 from datetime import datetime, timedelta

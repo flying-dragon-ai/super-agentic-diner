@@ -1,3 +1,6 @@
 allowBuilds:
-  esbuild: set this to true or false
-  sharp: set this to true or false
+  # Vite requires esbuild's platform binary; the GLTF tooling uses sharp.
+  # Keep the allow-list explicit so pnpm never prompts or silently approves
+  # unrelated dependency build scripts in CI/production builds.
+  esbuild: true
+  sharp: true

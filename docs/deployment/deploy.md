@@ -41,14 +41,25 @@ cp .env.example .env
 vim .env   # 填入实际值
 ```
 
-**必填**（启动脚本会校验，缺失直接报错退出）：
-- `MYSQL_HOST/PORT/USER/PASSWORD/DATABASE` —— 指向你的 MySQL
-- `REDIS_HOST/PORT` —— 指向你的 Redis
+**生产模式必填 / 必须显式确认**：
+
+```ini
+ENVIRONMENT=production
+DB_MODE=mysql
+USE_FAKEREDIS=false
+AUTH_COOKIE_SECURE=true
+REGISTRATION_BONUS_CNY=0
+```
+
+- `MYSQL_HOST/PORT/USER/PASSWORD/DATABASE` —— 指向你的 MySQL。
+- `REDIS_HOST/PORT`（以及启用密码时的 `REDIS_PASSWORD`）—— 指向你的 Redis。
+- `REGISTRATION_BONUS_CNY=0` —— 生产默认不发注册赠金；不要通过 `ALLOW_REGISTRATION_BONUS_IN_PRODUCTION` 绕过，除非已经有明确、单独审核的业务决策。
 
 **业务必填**：
 - `LLM_API_KEY` + `LLM_BASE_URL` + `LLM_MODEL` —— OpenAI 兼容 LLM
 - `EVOMAP_NODE_ID` + `EVOMAP_NODE_SECRET` + `EVOMAP_SERVICE_LISTING_ID` —— A2A 积分支付
-- `AUTH_SECRET_KEY` —— 改成一串随机长字符串（生产必改；点单不依赖，但 WS 在线 presence 与 `/auth/*` 用）
+- `AUTH_SECRET_KEY` —— 改成至少 32 个字符的随机长字符串（生产弱密钥会拒绝启动）。
+- `CORS_ALLOWED_ORIGINS` —— 同源部署可留空；如前后端跨域，只填写明确的 HTTPS origin，生产不能使用 `*`。
 
 **校验连通性**（可选，启动脚本也会做）：
 ```bash
@@ -66,14 +77,16 @@ bash scripts/start.sh
 
 脚本自动完成 5 步：
 1. 检测/创建 `.venv`
-2. 校验 `.env` 必备键
+2. 加载 `.env` 并显示实际 `DB_MODE` / `USE_FAKEREDIS`
 3. `pip install -r requirements.txt`
-4. 测试 MySQL/Redis 连通性
-5. `init_db.py`（建表+种子）+ `migrate_order_sources.py`（订单来源迁移）
+4. 按实际配置测试 MySQL/Redis；SQLite/fakeredis 模式不探测外部服务
+5. 运行规范、幂等的 `scripts/migrate_order_sources.py`
 
 最后前台启动 uvicorn（`0.0.0.0:8000`，单 worker）。**Ctrl+C 停止**。
 
-> 首次验证可先用脚本前台跑，确认 `curl http://localhost:8000/` 返回 3D 页面后，再改用 systemd 托管（下一步）。
+启动链路不会隐式灌入 demo 数据，也不会创建固定管理员。`scripts/init_db.py` 默认同样是 schema-only；`--seed-demo` 仅允许本地演示环境显式使用。
+
+> 首次验证可先用脚本前台跑。`curl http://localhost:8000/health/live` 应返回 `200`；`curl http://localhost:8000/health/ready` 只有在数据库、Redis/fakeredis 与 3D 发布资源都可用时才返回 `200`，否则返回 `503`。确认 readiness 后再改用 systemd 托管（下一步）。
 
 ---
 
@@ -92,9 +105,24 @@ sudo systemctl enable --now crossroads-agent-cafe
 # 查看状态与日志
 sudo systemctl status crossroads-agent-cafe
 sudo journalctl -u crossroads-agent-cafe -f
+
+# 探针：live 只看进程；ready 才表示可以接流量
+curl -fsS http://127.0.0.1:8000/health/live
+curl -fsS http://127.0.0.1:8000/health/ready
 ```
 
 若 `User=coffee` 与你的实际用户不符，编辑 `/etc/systemd/system/crossroads-agent-cafe.service` 改 `User/Group/WorkingDirectory/EnvironmentFile` 路径后 `daemon-reload`。
+
+service 的 `ExecStartPre` 会在每次启动前运行唯一的规范迁移 `scripts/migrate_order_sources.py`；迁移失败时服务不会开始接流量。
+
+首次需要管理员时，单独执行一次安全 bootstrap（交互输入密码；不会附带 demo 充值或注册赠金）：
+
+```bash
+cd /opt/crossroads-agent-cafe
+sudo -u coffee .venv/bin/python scripts/bootstrap_admin.py --username cafe-admin
+```
+
+已有普通账号只有在显式增加 `--promote-existing` 时才会被提升为管理员。
 
 **改 `.env` 或拉新代码后**：`sudo systemctl restart crossroads-agent-cafe`
 
@@ -170,13 +198,21 @@ docker run -d --name crossroads-agent-cafe \
   crossroads-agent-cafe:latest
 ```
 
-**首次启动后**在容器内执行一次 schema 初始化与迁移（脚本幂等，可安全重复执行）：
+镜像启动命令会先运行唯一的规范迁移，再启动 uvicorn；无需再串行执行 `init_db.py` 和第二个迁移脚本。启动后检查：
+
 ```bash
-docker exec crossroads-agent-cafe python scripts/init_db.py
-docker exec crossroads-agent-cafe python scripts/migrate_order_sources.py
+curl -fsS http://127.0.0.1:8000/health/live
+curl -fsS http://127.0.0.1:8000/health/ready
+docker inspect --format '{{json .State.Health}}' crossroads-agent-cafe
 ```
 
-注意：容器内不含 MySQL/Redis，需 `.env` 指向可达的 db 地址（容器网络或宿主机 `host.docker.internal`）。
+如需管理员账号，显式执行：
+
+```bash
+docker exec -it crossroads-agent-cafe python scripts/bootstrap_admin.py --username cafe-admin
+```
+
+注意：容器内不含 MySQL/Redis，需 `.env` 指向可达的 db 地址（容器网络或宿主机 `host.docker.internal`），并确保生产 `.env` 设置 `ENVIRONMENT=production`、`AUTH_COOKIE_SECURE=true`、`REGISTRATION_BONUS_CNY=0`。
 
 ---
 
@@ -186,6 +222,7 @@ docker exec crossroads-agent-cafe python scripts/migrate_order_sources.py
 |---|---|
 | `bash scripts/start.sh: \r` 报错 | CRLF 行结束符。执行 `sed -i 's/\r$//' scripts/start.sh`（`.gitattributes` 应已预防） |
 | MySQL 连接失败 | 检查 `.env` 的 `MYSQL_*`；确认 MySQL 允许该服务器 IP 连接（非仅 localhost）；字符集需 `utf8mb4` |
+| `/health/live` 为 200、`/health/ready` 为 503 | 进程仍在，但数据库、Redis/fakeredis 或 `app/static/3d` 发布资源至少一项未通过；看响应中的 `checks` 和服务日志，不要让反代/负载均衡继续送流量 |
 | 3D 场景开但事件/人偶不刷新 | nginx 未配 `/ws/` 的 `Upgrade/Connection` 头（见第 5 节） |
 | 前端改动没生效 | 本地 `npm run build` 后是否提交了 `app/static/3d`？服务器是否 `git pull + restart`？ |
 | 想要多 worker 提吞吐 | 设置 `USE_FAKEREDIS=false` 并确认 Redis 可达后，可用 `WORKERS=N bash scripts/start.sh`。`/ws/visualization` 通过 Redis Pub/Sub 同步事件，`scene.snapshot` 通过 Redis presence + 数据库事件回放恢复状态。fakeredis 是进程内模拟，不能用于多 worker。 |

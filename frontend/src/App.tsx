@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import { LoginPage, RegisterPage } from "./auth/AuthPages";
@@ -43,7 +43,7 @@ function TopBar() {
       }}
     >
       <Link to="/scene" style={navLink}>Crossroads Agent Café</Link>
-      <Link to="/dashboard" style={navLink}>大屏</Link>
+      {account?.role === "admin" ? <Link to="/dashboard" style={navLink}>大屏</Link> : null}
       <a href="/consult" target="_blank" rel="noopener" style={navLink}>咨询</a>
       <button
         onClick={() => toggleMute()}
@@ -74,6 +74,14 @@ const navLink: React.CSSProperties = { color: "#8ab4ff", fontSize: 12, textDecor
 const btnSm: React.CSSProperties = { background: "rgba(42,107,168,0.7)", color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontSize: 12, pointerEvents: "auto" };
 const muteBtn: React.CSSProperties = { background: "rgba(0,0,0,0.4)", color: "#fff", border: "none", borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontSize: 14, lineHeight: 1, pointerEvents: "auto" };
 
+function AdminRoute({ children }: { children: ReactNode }) {
+  const { account, loading } = useAuth();
+  if (loading) return null;
+  if (!account) return <Navigate to="/login" replace />;
+  if (account.role !== "admin") return <Navigate to="/scene" replace />;
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -85,7 +93,7 @@ export default function App() {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/scene" element={<OfficeScene />} />
           <Route path="/machines" element={<MachineShowcase />} />
-          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/dashboard" element={<AdminRoute><Dashboard /></AdminRoute>} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

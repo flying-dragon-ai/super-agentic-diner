@@ -122,12 +122,12 @@
     display: flex; align-items: center; gap: 4px;
     font-size: 13px; color: var(--green);
   }
-  .buy-btn {
+  .visit-btn {
     padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600;
     background: var(--accent); color: #0a0e17; border: none; cursor: pointer;
     transition: transform 0.15s; text-decoration: none;
   }
-  .buy-btn:hover { transform: scale(1.05); }
+  .visit-btn:hover { transform: scale(1.05); }
 
   .value-section {
     background: var(--card); border: 1px solid var(--accent-dim);
@@ -261,9 +261,9 @@
   <div class="section-header">
     <h2>🛒 可购买服务</h2>
     <div class="filter-bar">
-      <button class="filter-btn active" onclick="filterServices('all')">全部</button>
-      <button class="filter-btn" onclick="filterServices('B端')">B 端</button>
-      <button class="filter-btn" onclick="filterServices('C端')">C 端</button>
+      <button class="filter-btn active" onclick="filterServices('all', this)">全部</button>
+      <button class="filter-btn" onclick="filterServices('B端', this)">B 端</button>
+      <button class="filter-btn" onclick="filterServices('C端', this)">C 端</button>
     </div>
   </div>
   <div class="services-grid" id="services-grid">
@@ -323,16 +323,81 @@ curl -X POST http://localhost:8000/skill/orders \
 <script>
 let allServices = [];
 
+function createTextElement(tagName, className, text) {
+  const element = document.createElement(tagName);
+  if (className) element.className = className;
+  element.textContent = String(text ?? '');
+  return element;
+}
+
+function formatServiceNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number)
+    ? number.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
+    : '—';
+}
+
+function showServiceGridMessage(text) {
+  const grid = document.getElementById('services-grid');
+  grid.replaceChildren(createTextElement('div', 'loading', text));
+}
+
+function createServiceCard(service) {
+  const s = service && typeof service === 'object' ? service : {};
+  const card = document.createElement('div');
+  card.className = 'service-card';
+
+  const cardTop = document.createElement('div');
+  cardTop.className = 'card-top';
+  const name = String(s.name || '未命名服务');
+  const target = String(s.target || 'B+C');
+  const targetClass = {
+    'B端': 'target-b',
+    'C端': 'target-c',
+    'B+C': 'target-bc',
+  }[target] || 'target-bc';
+  cardTop.appendChild(createTextElement('div', 'service-icon', s.icon || '🤖'));
+  cardTop.appendChild(createTextElement('div', 'service-name', name));
+  cardTop.appendChild(createTextElement('span', `target-badge ${targetClass}`, target));
+  card.appendChild(cardTop);
+
+  card.appendChild(createTextElement('div', 'service-desc', s.description || '暂无说明'));
+
+  const tags = document.createElement('div');
+  tags.className = 'service-tags';
+  String(s.tags || '').split(',').map(tag => tag.trim()).filter(Boolean).slice(0, 4)
+    .forEach(tag => tags.appendChild(createTextElement('span', 'service-tag', tag)));
+  card.appendChild(tags);
+
+  const footer = document.createElement('div');
+  footer.className = 'service-footer';
+  const priceBlock = document.createElement('div');
+  priceBlock.className = 'price-block';
+  priceBlock.appendChild(createTextElement('span', 'price-credits', `${formatServiceNumber(s.base_price)} Credits`));
+  priceBlock.appendChild(createTextElement('span', 'price-unit', `/${String(s.unit || '次')}`));
+  footer.appendChild(priceBlock);
+  footer.appendChild(createTextElement('div', 'time-saved', `⏱ 省 ${formatServiceNumber(s.time_saved_hours)}h`));
+
+  const visitLink = document.createElement('a');
+  visitLink.href = '/3d';
+  visitLink.className = 'visit-btn';
+  visitLink.textContent = '进入咖啡厅';
+  visitLink.setAttribute('aria-label', `进入咖啡厅了解${name}`);
+  footer.appendChild(visitLink);
+  card.appendChild(footer);
+  return card;
+}
+
 async function loadServices() {
   try {
     const res = await fetch('/api/services');
+    if (!res.ok) throw new Error(`服务加载失败 (${res.status})`);
     const data = await res.json();
-    allServices = data.services || [];
+    allServices = Array.isArray(data.services) ? data.services : [];
     renderServices('all');
     updateStats();
   } catch(e) {
-    document.getElementById('services-grid').innerHTML =
-      '<div class="loading">服务加载失败，请确认后端已启动</div>';
+    showServiceGridMessage('服务加载失败，请确认后端已启动');
   }
 }
 
@@ -340,41 +405,20 @@ function renderServices(filter) {
   const grid = document.getElementById('services-grid');
   let services = allServices;
   if (filter !== 'all') {
-    services = allServices.filter(s => s.target && s.target.includes(filter));
+    services = allServices.filter(s => String(s && s.target || '').includes(filter));
   }
   if (!services.length) {
-    grid.innerHTML = '<div class="loading">暂无服务</div>';
+    showServiceGridMessage('暂无服务');
     return;
   }
-  grid.innerHTML = services.map(s => {
-    const targetClass = s.target === 'B端' ? 'target-b' :
-                        s.target === 'C端' ? 'target-c' : 'target-bc';
-    const tags = (s.tags || '').split(',').filter(Boolean).slice(0, 4)
-      .map(t => `<span class="service-tag">${t.trim()}</span>`).join('');
-    return `
-      <div class="service-card">
-        <div class="card-top">
-          <div class="service-icon">${s.icon}</div>
-          <div class="service-name">${s.name}</div>
-          <span class="target-badge ${targetClass}">${s.target}</span>
-        </div>
-        <div class="service-desc">${s.description}</div>
-        <div class="service-tags">${tags}</div>
-        <div class="service-footer">
-          <div class="price-block">
-            <span class="price-credits">${s.base_price} Credits</span>
-            <span class="price-unit">/${s.unit}</span>
-          </div>
-          <div class="time-saved">⏱ 省 ${s.time_saved_hours}h</div>
-          <a href="/3d" class="buy-btn">购买</a>
-        </div>
-      </div>`;
-  }).join('');
+  const fragment = document.createDocumentFragment();
+  services.forEach(service => fragment.appendChild(createServiceCard(service)));
+  grid.replaceChildren(fragment);
 }
 
-function filterServices(filter) {
+function filterServices(filter, activeButton) {
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-  event.target.classList.add('active');
+  if (activeButton) activeButton.classList.add('active');
   renderServices(filter);
 }
 

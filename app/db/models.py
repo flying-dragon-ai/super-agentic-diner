@@ -15,10 +15,13 @@ from sqlalchemy import (
     SmallInteger,
     String,
     Text,
+    UniqueConstraint,
 )
 
 from app.db.database import Base
 from app.domain_constants import (
+    ACCOUNT_ROLES,
+    ACCOUNT_ROLE_USER,
     IDENTITY_STATUS_ACTIVE,
     IDENTITY_STATUSES,
     LEDGER_PAYMENT_STATUSES,
@@ -32,6 +35,7 @@ from app.domain_constants import (
     ORDER_STATUSES,
     PAYMENT_STATUS_PAID,
     PRODUCT_STATUSES,
+    STOCK_RESERVATION_STATUSES,
     PRODUCT_STATUS_AVAILABLE,
     TRANSACTION_TYPES,
     WALLET_CURRENCIES,
@@ -74,6 +78,8 @@ class UserAccount(Base):
     gender = Column(String(16), nullable=True)
     specialty = Column(String(128), nullable=True)
     profession = Column(String(128), nullable=True)
+    role = Column(String(16), nullable=False, default=ACCOUNT_ROLE_USER)
+    session_version = Column(Integer, nullable=False, default=0)
     user_id = Column(_PK, ForeignKey("user.user_id"), nullable=False, unique=True)
     status = Column(String(16), nullable=False, default=IDENTITY_STATUS_ACTIVE)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -89,6 +95,11 @@ class UserAccount(Base):
             f"status IN ({', '.join(repr(value) for value in sorted(IDENTITY_STATUSES))})",
             name="ck_user_account_status",
         ),
+        CheckConstraint(
+            f"role IN ({', '.join(repr(value) for value in sorted(ACCOUNT_ROLES))})",
+            name="ck_user_account_role",
+        ),
+        CheckConstraint("session_version >= 0", name="ck_user_account_session_version"),
     )
 
 
@@ -105,7 +116,7 @@ class Order(Base):
     total_amount = Column(DECIMAL(10, 2), nullable=True)
     cancelled_at = Column(DateTime, nullable=True)
     refunded_at = Column(DateTime, nullable=True)
-    request_id = Column(String(64), nullable=True, unique=True)
+    request_id = Column(String(128), nullable=True, unique=True)
     source_type = Column(String(32), nullable=False, default=ORDER_SOURCE_WEB_DIALOG)
     payment_status = Column(String(32), nullable=False, default=PAYMENT_STATUS_PAID)
     consumer_url = Column(String(512), nullable=True)
@@ -170,6 +181,11 @@ class AgentProfile(Base):
     __tablename__ = "agent_profile"
 
     agent_id = Column(_PK, primary_key=True, autoincrement=True)
+    consumer_id = Column(
+        BigInteger,
+        ForeignKey("evomap_consumer.consumer_id"),
+        nullable=True,
+    )
     tool_name = Column(String(64), nullable=False)
     display_name = Column(String(128), nullable=False)
     role_type = Column(String(32), nullable=False, default="waiter")
@@ -193,6 +209,7 @@ class AgentProfile(Base):
             name="ck_agent_profile_status",
         ),
         Index("idx_agent_status_role", "status", "role_type"),
+        Index("idx_agent_consumer", "consumer_id"),
     )
 
 
@@ -270,6 +287,10 @@ class SkillOrderLedger(Base):
     evomap_order_id = Column(String(128), nullable=True)
     payment_proof_json = Column(Text, nullable=True)
     free_order_sequence = Column(Integer, nullable=True)
+    version = Column(Integer, nullable=False, default=0)
+    payment_attempts = Column(Integer, nullable=False, default=0)
+    stock_reservation_json = Column(Text, nullable=True)
+    stock_reservation_status = Column(String(16), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(
         DateTime,
@@ -282,6 +303,22 @@ class SkillOrderLedger(Base):
         CheckConstraint(
             f"payment_status IN ({', '.join(repr(value) for value in sorted(LEDGER_PAYMENT_STATUSES))})",
             name="ck_skill_order_ledger_payment_status",
+        ),
+        CheckConstraint(
+            "free_order_sequence IS NULL OR free_order_sequence > 0",
+            name="ck_skill_order_ledger_free_sequence",
+        ),
+        CheckConstraint("amount_credits >= 0", name="ck_skill_order_ledger_amount_nonneg"),
+        CheckConstraint("payment_attempts >= 0", name="ck_skill_order_ledger_attempts_nonneg"),
+        CheckConstraint(
+            "stock_reservation_status IS NULL OR "
+            f"stock_reservation_status IN ({', '.join(repr(value) for value in sorted(STOCK_RESERVATION_STATUSES))})",
+            name="ck_skill_order_ledger_stock_reservation",
+        ),
+        UniqueConstraint(
+            "consumer_id",
+            "free_order_sequence",
+            name="uq_skill_order_consumer_free_sequence",
         ),
         Index("idx_skill_order_consumer", "consumer_id", "created_at"),
         Index("idx_skill_order_payment", "payment_status"),
@@ -601,6 +638,7 @@ class OfficeLayout(Base):
     layout_id = Column(_PK, primary_key=True, autoincrement=True)
     namespace = Column(String(32), nullable=False, unique=True)
     layout_json = Column(Text, nullable=False)
+    version = Column(Integer, nullable=False, default=1)
     updated_at = Column(
         DateTime,
         nullable=False,

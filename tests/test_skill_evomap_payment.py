@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import _test_env  # noqa: F401 - activate hermetic defaults before app imports
 import json
 import unittest
 from decimal import Decimal
@@ -101,6 +102,11 @@ class _FakeSelectResult:
         return self._value
 
 
+class _FakeDmlResult:
+    def __init__(self, rowcount: int):
+        self.rowcount = rowcount
+
+
 class _FakeSession:
     def __init__(self):
         self.coffees = [
@@ -134,6 +140,32 @@ class _FakeSession:
     def execute(self, statement):
         # The new skill path executes SELECT statements for Product (stock),
         # UserWallet, and OrderItem lookups. Resolve against the in-memory state.
+        if getattr(statement, "__visit_name__", None) == "update":
+            table_name = getattr(getattr(statement, "table", None), "name", None)
+            if table_name == "evomap_consumer":
+                # All fixtures start with the free quota exhausted.
+                return _FakeDmlResult(0)
+            if table_name == "skill_order_ledger":
+                ledger = self.existing_ledger or (self.ledgers[0] if self.ledgers else None)
+                if ledger is None:
+                    return _FakeDmlResult(0)
+                value_keys = {
+                    getattr(column, "key", str(column))
+                    for column in getattr(statement, "_values", {})
+                }
+                if "stock_reservation_status" in value_keys:
+                    if ledger.stock_reservation_status in (None, "released", "reserving"):
+                        ledger.stock_reservation_status = "reserving"
+                        ledger.version = (ledger.version or 0) + 1
+                        return _FakeDmlResult(1)
+                    return _FakeDmlResult(0)
+                if ledger.payment_status in {"payment_pending", "payment_required", "payment_failed"}:
+                    ledger.payment_status = "payment_processing"
+                    ledger.payment_attempts = (ledger.payment_attempts or 0) + 1
+                    ledger.version = (ledger.version or 0) + 1
+                    return _FakeDmlResult(1)
+                return _FakeDmlResult(0)
+
         model = getattr(statement, "column_descriptions", None)
         try:
             target = model[0]["entity"] if model else None
@@ -145,6 +177,15 @@ class _FakeSession:
             # user_id/currency key lookups: return the matching wallet if present.
             return _FakeSelectResult(None)
         return _FakeSelectResult(None)
+
+    def get(self, model, key):
+        if model is SkillOrderLedger:
+            candidates = [self.existing_ledger, *self.ledgers]
+            return next(
+                (row for row in candidates if row is not None and row.ledger_id == key),
+                None,
+            )
+        return None
 
     def add(self, obj):
         if isinstance(obj, SkillOrderLedger) and obj not in self.ledgers:
@@ -237,6 +278,11 @@ class SkillEvoMapPaymentTests(unittest.TestCase):
             side_effect=self._fake_decrement_stock,
         )
         self._stock_patch.start()
+        self._restore_patch = patch(
+            "app.services.skill_order_service.restore_stock",
+            side_effect=self._fake_restore_stock,
+        )
+        self._restore_patch.start()
 
     def _fake_decrement_stock(self, db, product_id, quantity):
         for product in db.products:
@@ -245,7 +291,16 @@ class SkillEvoMapPaymentTests(unittest.TestCase):
                 return product
         return None
 
+    def _fake_restore_stock(self, db, product_id, quantity):
+        for product in db.products:
+            if product.product_id == product_id:
+                product.stock = (product.stock or 0) + quantity
+                product.status = "available"
+                return product
+        return None
+
     def tearDown(self):
+        self._restore_patch.stop()
         self._stock_patch.stop()
         self._wallet_patch.stop()
         for key, value in self._settings.items():

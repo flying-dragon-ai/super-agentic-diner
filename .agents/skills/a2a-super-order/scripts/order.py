@@ -39,7 +39,25 @@ def read_json(path: Path, fallback: Any) -> Any:
 
 def write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_path = path.with_name(
+        f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+    )
+    try:
+        temp_path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        try:
+            temp_path.chmod(0o600)
+        except OSError:
+            pass
+        temp_path.replace(path)
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 
 def redact_for_stdout(value: Any) -> Any:
@@ -285,7 +303,16 @@ def register_if_needed(args: argparse.Namespace, root: Path, state: dict[str, An
         "metadata": {"workspace": str(root), "source": "a2a-super-order-skill"},
         "evomap_capability_status": "detected" if (evomap_creds or args.evomap_node_id or os.getenv("A2A_HUB_URL")) else "unknown",
     }
-    result = request_json(base_url + "/skill/register", payload)
+    if not args.evomap_node_secret:
+        raise SystemExit(
+            "Skill registration requires verified EvoMap credentials. "
+            "Run --check-evomap and install/bind the node before ordering."
+        )
+    result = request_json(
+        base_url + "/skill/register",
+        payload,
+        extra_headers={"X-Evomap-Node-Secret": args.evomap_node_secret},
+    )
     result["evomap_node_id"] = node_id
     state[base_url] = result
     write_json(STATE_PATH, state)

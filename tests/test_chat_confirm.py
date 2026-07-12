@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import _test_env  # noqa: F401 - activate hermetic defaults before app imports
+
 import unittest
 from decimal import Decimal
 from types import SimpleNamespace
@@ -94,6 +96,9 @@ class _FakeRedis:
     def get(self, key):
         return self._strings.get(key)
 
+    def getdel(self, key):
+        return self._strings.pop(key, None)
+
     def delete(self, key):
         self._strings.pop(key, None)
         self._lists.pop(key, None)
@@ -158,6 +163,11 @@ class ConfirmEndpointTests(unittest.TestCase):
         with (
             patch.object(chat_history, "_client", lambda: fake_redis),
             patch.object(app_main, "place_orders", return_value=[fake_order]) as mock_place,
+            patch.object(
+                app_main,
+                "current_account",
+                return_value=SimpleNamespace(user_id=1, account_id=1, role="user"),
+            ),
             patch.object(app_main, "_publish_web_restaurant_event", lambda *a, **k: None),
             patch.object(app_main, "_try_publish_visualization_event", lambda *a, **k: None),
         ):

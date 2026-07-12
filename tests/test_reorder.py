@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import _test_env  # noqa: F401 - activate hermetic defaults before app imports
 import unittest
 from collections import Counter
 from datetime import datetime

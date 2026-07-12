@@ -61,7 +61,11 @@ import type { SnapshotAgent, VisEvent } from "../net/api";
 import { ROLE_LABEL, resolveAction, resolveRole } from "../sim/roleMap";
 import { Palette, PALETTE } from "../ui/Palette";
 import { SelectedObjectPanel } from "../ui/SelectedObjectPanel";
-import { ChatPanel } from "../ui/ChatPanel";
+import {
+  BatchDeletePanel,
+  getFurniturePaletteType,
+  isDecorativeFurniture,
+} from "../ui/BatchDeletePanel";
 import { VisitorSocialPanel } from "../ui/VisitorSocialPanel";
 import { TodayTopicsPanel } from "../ui/TodayTopicsPanel";
 import { ImmersiveOverlay, type OverlayKind } from "../overlays/ImmersiveOverlay";
@@ -164,10 +168,15 @@ export default function OfficeScene() {
   // the debounced autosave skips the initial render and doesn't race the GET
   // (which could clobber a newer server layout or upload defaults prematurely).
   const hydratedRef = useRef(false);
+  // Hydration itself calls setFurniture. Explicitly consume that one state change
+  // so the autosave effect cannot write a server layout merely because loading or
+  // exact duplicate normalization produced a new array reference.
+  const skipNextAutosaveRef = useRef(false);
   const [hoverUid, setHoverUid] = useState<string | null>(null);
   const [ghostPos, setGhostPos] = useState<[number, number, number] | null>(null);
   const [wallDrawStart, setWallDrawStart] = useState<{ x: number; y: number } | null>(null);
   const [overlay, setOverlay] = useState<OverlayKind>(null);
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
   const colorMap = useColorMap(agentsRef);
   // Visitor chat consumer: forwarded from the WebSocket event handler so
   // VisitorSocialPanel can display real-time messages without its own WS.
@@ -175,6 +184,11 @@ export default function OfficeScene() {
   const registerChatConsumer = useCallback(
     (handler: (msg: import("../net/api").VisitorChatMessage) => void) => {
       visitorChatConsumerRef.current = handler;
+      return () => {
+        if (visitorChatConsumerRef.current === handler) {
+          visitorChatConsumerRef.current = null;
+        }
+      };
     },
     [],
   );
@@ -203,10 +217,11 @@ export default function OfficeScene() {
       const server = await fetchServerLayout();
       if (cancelled) return;
       if (server) {
-        const serverLayout =
-          server.items.length > 0
-            ? deduplicateFurniture(ensureEvoMapSceneMaterials(server.items))
-            : [];
+        const serverWithMaterials =
+          server.items.length > 0 ? ensureEvoMapSceneMaterials(server.items) : [];
+        const serverNeedsMaterialUpgrade =
+          server.items.length > 0 && serverWithMaterials !== server.items;
+        const serverLayout = deduplicateFurniture(serverWithMaterials);
         const local = loadFurniture();
         const localLayout =
           local
@@ -225,14 +240,21 @@ export default function OfficeScene() {
           (localIsNewer || (!localSavedAt && serverIsDefault));
         const nextLayout = shouldRecoverLocal ? (localLayout as FurnitureItem[]) : serverLayout;
 
+        skipNextAutosaveRef.current = true;
         setFurniture(nextLayout);
+        // This is also the v1 -> v2 cache migration point. The old v1 keys remain
+        // untouched for compatibility; only the selected server/local winner is
+        // written to v2.
         saveFurniture(nextLayout);
-        if (shouldRecoverLocal || nextLayout.length !== server.items.length) {
+        if (shouldRecoverLocal || serverNeedsMaterialUpgrade) {
           setLayoutSaveStatus("saving");
           const ok = await pushServerLayout(nextLayout);
           if (!cancelled) setLayoutSaveStatus(ok ? "saved" : "local-only");
         }
       } else {
+        // No usable server layout (including offline): preserve/migrate the local
+        // winner before the best-effort upload. Never delete the legacy v1 copy.
+        saveFurniture(furniture);
         setLayoutSaveStatus("saving");
         const ok = await pushServerLayout(furniture);
         if (!cancelled) setLayoutSaveStatus(ok ? "saved" : "local-only");
@@ -244,6 +266,10 @@ export default function OfficeScene() {
   }, []);
 
   useEffect(() => {
+    if (skipNextAutosaveRef.current) {
+      skipNextAutosaveRef.current = false;
+      return;
+    }
     if (!hydratedRef.current) return;
     let cancelled = false;
     const timeoutId = window.setTimeout(() => {
@@ -386,6 +412,7 @@ export default function OfficeScene() {
         setSelectedUid(null);
         setGhostPos(null);
         setWallDrawStart(null);
+        setBatchDeleteOpen(false);
       }
       return next;
     });
@@ -510,6 +537,8 @@ export default function OfficeScene() {
     if (!selectedUid) return;
     setFurniture((prev) => prev.filter((it) => it._uid !== selectedUid));
     setSelectedUid(null);
+    setDrag({ kind: "idle" });
+    setHoverUid(null);
   }, [selectedUid]);
 
   const closeSelectedEditor = useCallback(() => {
@@ -517,13 +546,38 @@ export default function OfficeScene() {
     setDrag({ kind: "idle" });
     setGhostPos(null);
     setWallDrawStart(null);
+    setHoverUid(null);
   }, []);
+
+  const resetEditorInteraction = useCallback(() => {
+    setSelectedUid(null);
+    setDrag({ kind: "idle" });
+    setGhostPos(null);
+    setWallDrawStart(null);
+    setHoverUid(null);
+  }, []);
+
+  const deleteFurnitureByType = useCallback((type: string) => {
+    setFurniture((prev) => prev.filter((item) => getFurniturePaletteType(item) !== type));
+    resetEditorInteraction();
+  }, [resetEditorInteraction]);
+
+  const deleteDecorativeFurniture = useCallback(() => {
+    setFurniture((prev) => prev.filter((item) => !isDecorativeFurniture(item)));
+    resetEditorInteraction();
+  }, [resetEditorInteraction]);
+
+  const deleteAllFurniture = useCallback(() => {
+    setFurniture([]);
+    resetEditorInteraction();
+    setBatchDeleteOpen(false);
+  }, [resetEditorInteraction]);
 
   const resetLayout = useCallback(() => {
     if (!window.confirm("恢复默认布局？当前所有编辑将丢失。")) return;
     setFurniture(DEFAULT_FURNITURE);
-    setSelectedUid(null);
-  }, []);
+    resetEditorInteraction();
+  }, [resetEditorInteraction]);
 
   // Outside edit mode, clicking a cafe machine opens its immersive panel.
   const handleMachineActivate = useCallback((item: FurnitureItem) => {
@@ -734,6 +788,23 @@ export default function OfficeScene() {
         >
           {editMode ? "✏️ 编辑中" : "✏️ 编辑"}
         </button>
+        {editMode && (
+          <button
+            onClick={() => setBatchDeleteOpen((open) => !open)}
+            style={{
+              padding: "6px 12px",
+              fontFamily: "monospace",
+              fontSize: 12,
+              cursor: "pointer",
+              border: batchDeleteOpen ? "1px solid #fca5a5" : "1px solid rgba(255,255,255,0.15)",
+              background: batchDeleteOpen ? "rgba(239,68,68,0.18)" : "rgba(0,0,0,0.55)",
+              color: batchDeleteOpen ? "#fca5a5" : "#cfe0ff",
+              borderRadius: 6,
+            }}
+          >
+            🧹 批量删除
+          </button>
+        )}
         <a
           href="/about"
           target="_blank"
@@ -791,6 +862,16 @@ export default function OfficeScene() {
           onReset={resetLayout}
         />
       )}
+      {editMode && batchDeleteOpen && (
+        <BatchDeletePanel
+          furniture={furniture}
+          top={compactChrome ? 160 : 112}
+          onDeleteByType={deleteFurnitureByType}
+          onDeleteDecorative={deleteDecorativeFurniture}
+          onDeleteAll={deleteAllFurniture}
+          onClose={() => setBatchDeleteOpen(false)}
+        />
+      )}
       <div style={{ position: "absolute", bottom: 12, right: 12, width: "min(360px, calc(100vw - 24px))", maxHeight: eventLogMaxHeight, overflowY: "auto", background: "rgba(8,12,20,0.8)", color: "#cfe0ff", fontFamily: "monospace", fontSize: 11, padding: 8, borderRadius: 6 }}>
         <div style={{ color: "#9fb6d8", fontSize: 11, padding: "0 0 6px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
           Crossroads Agent Café动态
@@ -805,7 +886,6 @@ export default function OfficeScene() {
           );
         })}
       </div>
-      <ChatPanel />
       <VisitorSocialPanel registerChatConsumer={registerChatConsumer} />
     </div>
   );
