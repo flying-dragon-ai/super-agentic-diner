@@ -1543,19 +1543,41 @@ def register_skill_consumer(
         raise HTTPException(status_code=400, detail=f"不支持的角色类型：{req.role_type}")
 
     node_secret = (x_evomap_node_secret or "").strip()
-    if not node_secret:
-        raise HTTPException(
-            status_code=401,
-            detail={"code": "missing_evomap_node_secret"},
-        )
-    if not evomap_evolution_service.verify_node_identity(
-        req.evomap_node_id,
-        node_secret,
-    ):
-        raise HTTPException(
-            status_code=401,
-            detail={"code": "invalid_evomap_node_identity"},
-        )
+
+    # 本地降级模式旁路：当 EvoMap 未配置或处于本地开发环境时，
+    # 允许使用本地开发密钥（local-dev）直接注册，无需连接远程 EvoMap Hub。
+    # 这让本地 Agent 能够“一次接入”而不被远程验证卡死。
+    is_local_mode = settings.db_mode == "sqlite" or settings.use_fakeredis
+    evomap_not_configured = not settings.evomap_node_id
+
+    LOCAL_DEV_SECRET = "local-dev"
+
+    if is_local_mode and (evomap_not_configured or node_secret == LOCAL_DEV_SECRET):
+        # 本地开发旁路：使用 local-dev 密钥或 EvoMap 未配置时直接通过
+        pass
+    else:
+        # 生产模式：必须提供密钥并通过 EvoMap 远程验证
+        if not node_secret:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "code": "missing_evomap_node_secret",
+                    "message": "缺少 X-Evomap-Node-Secret 请求头。本地开发可使用 'local-dev' 作为密钥。",
+                    "hint": "在请求头中添加: X-Evomap-Node-Secret: local-dev",
+                },
+            )
+        if not evomap_evolution_service.verify_node_identity(
+            req.evomap_node_id,
+            node_secret,
+        ):
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "code": "invalid_evomap_node_identity",
+                    "message": "EvoMap 节点身份验证失败。请检查 evomap_node_id 和 X-Evomap-Node-Secret 是否正确。",
+                    "hint": "本地开发环境可使用: X-Evomap-Node-Secret: local-dev",
+                },
+            )
 
     consumer = ensure_consumer(
         db,
