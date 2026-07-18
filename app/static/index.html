@@ -1320,7 +1320,7 @@ async function initAuth() {
   _connectAgentWS();  // 启动 Agent 指示灯 WebSocket
   const ok = await initAuth();
   if (!ok) return;
-  addMsg('您好！我是 Crossroads Agent Café AI 店长 ☕\n\n告诉我您喜欢的口味，或者有什么忌口，我来为您推荐~\n（试试下侧的快捷按钮）', 'bot');
+  addMsg('您好！我是 Crossroads Agent Café AI 店长 ☕\n\n现在就能体验：\n• 用自然语言点咖啡，我来帮您挑口味\n• 进入 3D 咖啡厅，看 Agent 虚拟角色实时活动（点右上角「3D」按钮）\n• 新用户前 2 单免费，第 3 单起用 EvoMap 积分\n\n告诉我您喜欢什么口味，或者有什么忌口？\n（也可以试试下方的快捷按钮 ☟）', 'bot');
   await Promise.all([refreshUser(), refreshOrders(), refreshMode()]);
 })();
 </script>
