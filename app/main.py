@@ -1698,6 +1698,32 @@ def deny_skill_device_authorization(
     return {"ok": True, "status": row.status}
 
 
+@app.post("/skill/auth/device/unbind")
+def unbind_skill_device_account(
+    req: SkillDeviceApprovalRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    account=Depends(require_account),
+):
+    enforce_rate_limit(
+        request,
+        scope="skill-device-unbind",
+        limit=10,
+        window_seconds=300,
+        identity=f"account:{account.account_id}",
+    )
+    try:
+        _row, _consumer, unbound = skill_auth_service.unbind_authorization_account(
+            db, user_code=req.user_code, account=account
+        )
+    except skill_auth_service.SkillAuthError as exc:
+        raise _skill_auth_error(exc) from exc
+    return {
+        "ok": True,
+        "status": "unbound" if unbound else "not_bound",
+    }
+
+
 @app.get("/skill/authorize", response_class=HTMLResponse)
 def skill_authorize_page():
     path = _STATIC_DIR / "skill-authorize.html"

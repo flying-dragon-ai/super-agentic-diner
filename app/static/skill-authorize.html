@@ -8,7 +8,7 @@
     *{box-sizing:border-box} body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 50% 20%,#21324c,#090d13);color:#edf3ff;font-family:system-ui,sans-serif}
     main{width:min(92vw,460px);padding:28px;border:1px solid #35506f;border-radius:16px;background:rgba(12,18,28,.96);box-shadow:0 18px 70px #0008}
     h1{font-size:22px;margin:0 0 12px}.muted{color:#a9bad0;line-height:1.6}.code{font:700 26px ui-monospace,monospace;letter-spacing:3px;text-align:center;padding:14px;margin:18px 0;background:#070b10;border-radius:10px}
-    .account{padding:12px;background:#162335;border-radius:10px;margin:14px 0}.actions{display:flex;gap:10px;margin-top:18px}button{flex:1;padding:11px;border:0;border-radius:8px;cursor:pointer;font-weight:700}#approve{background:#2d7dd2;color:white}#deny{background:#2a3442;color:#d7e1ef}.ok{color:#7ce3a1}.error{color:#ff8b8b}
+    .account{padding:12px;background:#162335;border-radius:10px;margin:14px 0}.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}button{padding:11px;border:0;border-radius:8px;cursor:pointer;font-weight:700}#approve{background:#2d7dd2;color:white}#deny{background:#2a3442;color:#d7e1ef}#switch-account{grid-column:1/-1;background:transparent;color:#8ab4ff;border:1px solid #35506f}.ok{color:#7ce3a1}.error{color:#ff8b8b}
   </style>
 </head>
 <body>
@@ -18,7 +18,7 @@
   <div id="code" class="code">----</div>
   <div id="account" class="account">正在检查登录状态…</div>
   <div id="message"></div>
-  <div class="actions"><button id="deny">拒绝</button><button id="approve">确认授权</button></div>
+  <div class="actions"><button id="deny">拒绝</button><button id="approve">确认授权</button><button id="switch-account">切换其他账号</button></div>
 </main>
 <script>
 const params = new URLSearchParams(location.search);
@@ -46,9 +46,14 @@ function fail(text) {
   document.getElementById('approve').disabled = true;
 }
 
+function setActionsDisabled(disabled) {
+  document.getElementById('approve').disabled = disabled;
+  document.getElementById('deny').disabled = disabled;
+  document.getElementById('switch-account').disabled = disabled;
+}
+
 async function decide(action) {
-  document.getElementById('approve').disabled = true;
-  document.getElementById('deny').disabled = true;
+  setActionsDisabled(true);
   const response = await fetch('/skill/auth/device/' + action, {
     method:'POST', credentials:'include', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({user_code:code})
@@ -58,8 +63,37 @@ async function decide(action) {
   messageEl.className = 'ok';
   messageEl.textContent = action === 'approve' ? '登录授权成功，可以关闭此页面并返回 Codex。' : '已拒绝授权。';
 }
+
+async function switchAccount() {
+  setActionsDisabled(true);
+  messageEl.className = '';
+  messageEl.textContent = '正在安全退出当前账号…';
+  const unbind = await fetch('/skill/auth/device/unbind', {
+    method:'POST', credentials:'include', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({user_code:code})
+  });
+  const data = await unbind.json().catch(() => ({}));
+  if (!unbind.ok && data.detail?.code !== 'node_binding_owner_required') {
+    setActionsDisabled(false);
+    fail(data.detail?.message || data.detail || '无法切换账号');
+    document.getElementById('switch-account').disabled = false;
+    return;
+  }
+  const logout = await fetch('/auth/logout', {
+    method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body:'{}'
+  });
+  if (!logout.ok) {
+    setActionsDisabled(false);
+    fail('节点已解绑，但网页账号退出失败，请手动退出后重试');
+    document.getElementById('switch-account').disabled = false;
+    return;
+  }
+  const next = '/skill/authorize?code=' + encodeURIComponent(code);
+  location.replace('/3d/login?next=' + encodeURIComponent(next));
+}
 document.getElementById('approve').addEventListener('click', () => decide('approve'));
 document.getElementById('deny').addEventListener('click', () => decide('deny'));
+document.getElementById('switch-account').addEventListener('click', switchAccount);
 init().catch(() => fail('授权页面加载失败'));
 </script>
 </body>

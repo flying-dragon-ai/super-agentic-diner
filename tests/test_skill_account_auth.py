@@ -11,7 +11,14 @@ from fastapi.testclient import TestClient
 
 from app import rate_limit
 from app.db.database import SessionLocal
-from app.db.models import Product, SkillDeviceAuthorization
+from app.db.models import (
+    AgentProfile,
+    EvomapConsumer,
+    Order,
+    Product,
+    SkillDeviceAuthorization,
+    UserAccount,
+)
 from app.main import app
 
 
@@ -142,6 +149,94 @@ def test_node_cannot_be_rebound_to_another_account() -> None:
         )
         assert denied.status_code == 409
         assert denied.json()["detail"]["code"] == "node_bound_to_another_account"
+        unbind = other.post(
+            "/skill/auth/device/unbind", json={"user_code": started["user_code"]}
+        )
+        assert unbind.status_code == 403
+        assert unbind.json()["detail"]["code"] == "node_binding_owner_required"
+
+
+def test_binding_owner_can_unbind_and_switch_account() -> None:
+    node_id = f"node-{uuid4().hex}"
+    with TestClient(app) as client:
+        owner_username = _register(client, "switch_owner")
+        first = _authorize(client, node_id)
+        first_headers = {"Authorization": f"Bearer {first['api_token']}"}
+
+        with SessionLocal() as db:
+            owner_account = db.query(UserAccount).filter(
+                UserAccount.username == owner_username
+            ).one()
+            historical_user_id = owner_account.user_id
+            historical = Order(
+                user_id=historical_user_id,
+                coffee_name="历史 Skill 订单",
+                amount=Decimal("1.00"),
+                total_amount=Decimal("1.00"),
+                status=1,
+                request_id=f"history-{uuid4().hex}",
+                source_type="skill",
+                payment_status="paid",
+                consumer_id=first["consumer_id"],
+                agent_id=first["agent_id"],
+            )
+            db.add(historical)
+            db.commit()
+            historical_order_id = historical.order_id
+
+        pending = _start(client, node_id)
+        unbind = client.post(
+            "/skill/auth/device/unbind", json={"user_code": pending["user_code"]}
+        )
+        assert unbind.status_code == 200, unbind.text
+        assert unbind.json()["status"] == "unbound"
+        assert client.get("/skill/me", headers=first_headers).status_code == 401
+
+        with SessionLocal() as db:
+            consumer = db.query(EvomapConsumer).filter(
+                EvomapConsumer.evomap_node_id == node_id
+            ).one()
+            assert consumer.local_user_id is None
+            assert db.query(AgentProfile).filter(
+                AgentProfile.consumer_id == consumer.consumer_id,
+                AgentProfile.status == "active",
+            ).count() == 0
+
+        assert client.post("/auth/logout").status_code == 200
+        replacement = _register(client, "switch_replacement")
+        approved = client.post(
+            "/skill/auth/device/approve", json={"user_code": pending["user_code"]}
+        )
+        assert approved.status_code == 200, approved.text
+        exchanged = client.post(
+            "/skill/auth/device/token", json={"device_code": pending["device_code"]}
+        )
+        assert exchanged.status_code == 200, exchanged.text
+        assert exchanged.json()["username"] == replacement
+
+        with SessionLocal() as db:
+            historical = db.query(Order).filter(
+                Order.order_id == historical_order_id
+            ).one()
+            consumer = db.query(EvomapConsumer).filter(
+                EvomapConsumer.evomap_node_id == node_id
+            ).one()
+            replacement_account = db.query(UserAccount).filter(
+                UserAccount.username == replacement
+            ).one()
+            assert historical.user_id == historical_user_id
+            assert consumer.local_user_id == replacement_account.user_id
+
+
+def test_unbind_allows_switch_when_node_has_no_existing_binding() -> None:
+    with TestClient(app) as client:
+        _register(client, "switch_unbound")
+        pending = _start(client, f"node-{uuid4().hex}")
+        response = client.post(
+            "/skill/auth/device/unbind", json={"user_code": pending["user_code"]}
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "not_bound"
 
 
 def test_insufficient_cny_does_not_consume_stock() -> None:

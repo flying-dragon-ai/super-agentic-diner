@@ -14,12 +14,15 @@ Response fields: `device_code`, `user_code`, `verification_uri`, `verification_u
 
 ### Browser approval
 
-Open `verification_uri_complete`. The page checks the existing httpOnly café session. A logged-out user is sent to `/welcome?next=...`, which uses the normal `/auth/login` or `/auth/register` backend and returns to the approval page.
+Open `verification_uri_complete`. The page checks the existing httpOnly café session. A logged-out user is sent to `/3d/login?next=...`, which uses the normal `/auth/login` or `/auth/register` backend and returns to the approval page.
 
 - `POST /skill/auth/device/approve` with `{ "user_code": "ABCD-EFGH" }`
 - `POST /skill/auth/device/deny` with the same body
+- `POST /skill/auth/device/unbind` with the same body. Only the account currently bound to the node may use it. It revokes active node tokens and clears the current account link while retaining historical orders and ledgers.
 
 Both require the signed project account cookie.
+
+The authorization page's “切换其他账号” action calls `/unbind`, then the existing `/auth/logout`, and returns to `/3d/login` with the same safe authorization target. An unbound first-time node may switch the browser account without an ownership check.
 
 ### `POST /skill/auth/device/token`
 
@@ -36,6 +39,8 @@ All use `Authorization: Bearer <api_token>`.
 - `GET /skill/me`: username, nickname, display name, CNY balance, IDs, node and scopes.
 - `GET /skill/menu`: product menu; unlike the web `/menu`, this Skill route requires login.
 - `POST /skill/logout`: marks the current Agent token inactive. The node/account link remains.
+
+Skill logout does not clear the browser cookie. It is intentionally separate from the owner-confirmed account-switch flow.
 
 Missing, legacy-unlinked or revoked tokens return HTTP 401 with `code=account_login_required`.
 

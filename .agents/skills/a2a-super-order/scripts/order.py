@@ -444,7 +444,12 @@ def logout_account(args: argparse.Namespace, state: dict[str, Any]) -> dict[str,
                 raise
     state.pop(base_url, None)
     write_json(STATE_PATH, state)
-    return {"ok": True, "status": "logged_out"}
+    return {
+        "ok": True,
+        "status": "skill_logged_out",
+        "web_session": "unchanged",
+        "account_binding": "retained",
+    }
 
 
 def submit_order(args: argparse.Namespace, registration: dict[str, Any]) -> dict[str, Any]:
@@ -515,7 +520,11 @@ def main() -> int:
     parser.add_argument("--register-only", action="store_true")
     parser.add_argument("--login", action="store_true", help="Log in through the cafe web page and bind this Skill.")
     parser.add_argument("--me", action="store_true", help="Show the linked cafe account and CNY balance.")
-    parser.add_argument("--logout", action="store_true", help="Revoke this Skill login and clear local state.")
+    parser.add_argument(
+        "--logout",
+        action="store_true",
+        help="Revoke this Skill login and clear local state; the browser session and node binding remain.",
+    )
     parser.add_argument(
         "--check-evomap",
         action="store_true",

@@ -18,6 +18,7 @@ Use this thin CLI to authenticate through the café web page, inspect the linked
    python .agents/skills/a2a-super-order/scripts/order.py --login
    ```
    The command opens `/skill/authorize`, waits for the user to log in with the project's existing `/auth/login` account, and stores the resulting Agent token locally. The browser shows “登录授权成功，可以返回 Codex” when complete.
+   If the browser is already signed in as another account, use “切换其他账号” on the authorization page. Only the currently bound account may confirm unbinding; active node tokens are revoked and historical orders remain unchanged.
 3. Verify reachability and list the authenticated menu:
    ```bash
    python .agents/skills/a2a-super-order/scripts/order.py --ping
@@ -44,7 +45,7 @@ Use this thin CLI to authenticate through the café web page, inspect the linked
 |---|---|
 | `--login` | Open browser device authorization and store the resulting Skill token |
 | `--me` | Validate login and show account/nickname/CNY balance |
-| `--logout` | Revoke the current Agent token and remove its local state |
+| `--logout` | Revoke the current Agent token and remove local state; keep the browser session and node binding |
 | `--ping` | Authenticated backend/menu reachability check |
 | `--menu` | Authenticated product menu |
 | `--message "..."` | Place a CNY-paid order |
@@ -60,7 +61,8 @@ Use this thin CLI to authenticate through the café web page, inspect the linked
 - The browser is the only place where a user enters account credentials.
 - The CLI stores its token in `~/.a2a-super-order/state.json`, attempts owner-only file permissions, and redacts secret/token/key/authorization fields from output.
 - Login, logout, registration, top-up, and ordering change external state. Explain the action and obtain user intent before executing it. Read-only account/menu checks are safe after login.
-- Use `/skill/auth/device/*`, `/skill/me`, `/skill/menu`, `/skill/logout`, and `/skill/orders`; never write database rows directly.
+- Use `/skill/auth/device/*` (including the owner-confirmed `/unbind` route), `/skill/me`, `/skill/menu`, `/skill/logout`, and `/skill/orders`; never write database rows directly.
+- `--logout` is not an account switch. Account switching must happen on the browser authorization page so the current binding owner can explicitly confirm it.
 - Existing EvoMap/free ledgers are historical records and must not be rewritten or migrated to the linked account.
 
 ## 3D visualization

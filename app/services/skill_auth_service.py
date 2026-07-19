@@ -168,6 +168,50 @@ def deny_authorization(
     return row
 
 
+def unbind_authorization_account(
+    db: Session, *, user_code: str, account: UserAccount
+) -> tuple[SkillDeviceAuthorization, EvomapConsumer | None, bool]:
+    """Unbind a node only when the current web account owns its binding.
+
+    The pending device authorization remains usable so the browser can sign in
+    as another account and approve the same request. Historical orders and
+    ledgers keep their existing ownership; only the consumer's current account
+    link and active Agent credentials are changed.
+    """
+    row = _active_authorization_by_user_code(db, user_code)
+    if row.status != DEVICE_AUTH_STATUS_PENDING:
+        raise SkillAuthError("authorization_not_pending", "授权请求已处理", http_status=409)
+
+    consumer = db.query(EvomapConsumer).filter(
+        EvomapConsumer.evomap_node_id == row.evomap_node_id
+    ).first()
+    if consumer is None or consumer.local_user_id is None:
+        return row, consumer, False
+    if consumer.local_user_id != account.user_id:
+        raise SkillAuthError(
+            "node_binding_owner_required",
+            "只有当前绑定账号可以解除该节点绑定",
+            http_status=403,
+        )
+
+    now = datetime.utcnow()
+    db.query(AgentProfile).filter(
+        AgentProfile.consumer_id == consumer.consumer_id,
+        AgentProfile.status == IDENTITY_STATUS_ACTIVE,
+    ).update(
+        {
+            AgentProfile.status: IDENTITY_STATUS_INACTIVE,
+            AgentProfile.updated_at: now,
+        },
+        synchronize_session=False,
+    )
+    consumer.local_user_id = None
+    consumer.updated_at = now
+    row.updated_at = now
+    db.commit()
+    return row, consumer, True
+
+
 def exchange_device_code(
     db: Session, *, device_code: str
 ) -> tuple[str, AgentProfile, EvomapConsumer, UserAccount] | None:

@@ -26,6 +26,9 @@ class FrontendReleaseContractTests(unittest.TestCase):
             "location.replace('/3d/login?next=' + encodeURIComponent(next))",
             authorize_source,
         )
+        self.assertIn("id=\"switch-account\"", authorize_source)
+        self.assertIn("'/skill/auth/device/unbind'", authorize_source)
+        self.assertIn("'/auth/logout'", authorize_source)
 
     def test_legacy_public_pages_do_not_reintroduce_html_sinks_or_demo_passwords(
         self,

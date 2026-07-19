@@ -13,7 +13,7 @@
 
 - `POST /skill/auth/device/start`
 - `POST /skill/auth/device/token`
-- `POST /skill/auth/device/approve`、`/deny`
+- `POST /skill/auth/device/approve`、`/deny`、`/unbind`
 - `GET /skill/me`、`GET /skill/menu`
 - `POST /skill/logout`
 - `POST /skill/orders`
@@ -25,7 +25,8 @@
 - 密码只允许进入现有网页 `/auth/login`；不得进入 CLI、日志、文档示例或 AI 上下文。
 - 数据库、Redis、EvoMap 和 Agent 凭证不得硬编码或回显。
 - 设备码只保存 SHA-256 哈希，10 分钟过期且只能兑换一次。
-- 节点绑定其他真实账号时禁止直接换绑；同账号可以重新授权。
+- 节点绑定其他真实账号时禁止直接换绑；账号切换必须由当前绑定账号在授权页确认 `/unbind`，并撤销该节点全部活动 Token。
+- 解绑只清除当前 `local_user_id` 关系，不迁移或重写历史订单与 ledger。
 - 新 Skill 订单必须原子检查 CNY 余额、扣库存并写订单/钱包流水；重试复用 `request_id`。
 - 不迁移或重写旧订单归属、免费额度、EvoMap 支付 ledger。
 - 数据模型变更同时更新 `scripts/migrate_order_sources.py`，并保持 SQLite/MySQL 幂等。
