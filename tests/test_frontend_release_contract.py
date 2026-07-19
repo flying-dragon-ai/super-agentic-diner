@@ -9,14 +9,23 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class FrontendReleaseContractTests(unittest.TestCase):
-    def test_auth_success_stays_inside_the_3d_router(self) -> None:
+    def test_auth_success_uses_safe_skill_return_or_3d_scene(self) -> None:
         source = (REPO_ROOT / "frontend/src/auth/AuthPages.tsx").read_text(
+            encoding="utf-8"
+        )
+        authorize_source = (REPO_ROOT / "app/static/skill-authorize.html").read_text(
             encoding="utf-8"
         )
 
         self.assertNotIn('window.location.href = "/"', source)
         self.assertNotIn("window.location.href = '/'", source)
-        self.assertEqual(source.count('nav("/scene", { replace: true })'), 2)
+        self.assertEqual(source.count('nav("/scene", { replace: true })'), 1)
+        self.assertIn('candidate.startsWith("/skill/authorize?")', source)
+        self.assertIn("window.location.replace(next)", source)
+        self.assertIn(
+            "location.replace('/3d/login?next=' + encodeURIComponent(next))",
+            authorize_source,
+        )
 
     def test_legacy_public_pages_do_not_reintroduce_html_sinks_or_demo_passwords(
         self,

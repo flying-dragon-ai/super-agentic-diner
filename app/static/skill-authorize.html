@@ -33,7 +33,7 @@ async function init() {
   const response = await fetch('/auth/me', {credentials:'include'});
   if (response.status === 401) {
     const next = '/skill/authorize?code=' + encodeURIComponent(code);
-    location.replace('/welcome?next=' + encodeURIComponent(next));
+    location.replace('/3d/login?next=' + encodeURIComponent(next));
     return;
   }
   if (!response.ok) { fail('无法读取登录账号'); return; }

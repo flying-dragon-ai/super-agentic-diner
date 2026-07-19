@@ -1,8 +1,7 @@
 // Login + Register pages. On success the signed cookie is set and we navigate
-// to the 3D scene. Anonymous entry to the scene is still allowed (per plan the
-// /chat contract stays backward compatible).
+// to the 3D scene, or back to the Skill authorization page for device login.
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "./AuthProvider";
 
 const wrap: React.CSSProperties = {
@@ -34,9 +33,26 @@ const sectionLabel: React.CSSProperties = {
   fontSize: 12, color: "rgba(180,200,230,0.5)", marginBottom: 8,
 };
 
+function skillAuthorizationNext(search: string): string | null {
+  const candidate = new URLSearchParams(search).get("next") || "";
+  return candidate.startsWith("/skill/authorize?") ? candidate : null;
+}
+
+function finishAuthentication(search: string, nav: ReturnType<typeof useNavigate>) {
+  const next = skillAuthorizationNext(search);
+  if (next) {
+    window.location.replace(next);
+    return;
+  }
+  nav("/scene", { replace: true });
+}
+
 export function LoginPage() {
   const { login } = useAuth();
   const nav = useNavigate();
+  const location = useLocation();
+  const next = skillAuthorizationNext(location.search);
+  const nextQuery = next ? `?next=${encodeURIComponent(next)}` : "";
   const [username, setU] = useState("");
   const [password, setP] = useState("");
   const [err, setErr] = useState("");
@@ -46,7 +62,7 @@ export function LoginPage() {
     e.preventDefault();
     setBusy(true);
     setErr("");
-    try { await login(username, password); nav("/scene", { replace: true }); }
+    try { await login(username, password); finishAuthentication(location.search, nav); }
     catch (e2) { setErr(String((e2 as Error).message)); }
     finally { setBusy(false); }
   };
@@ -60,7 +76,7 @@ export function LoginPage() {
         {err ? <div style={{ color: "#f87171", fontSize: 13, marginBottom: 10 }}>{err}</div> : null}
         <button style={btn} disabled={busy || !username || !password}>{busy ? "登录中…" : "登录"}</button>
         <div style={{ marginTop: 14, fontSize: 13, opacity: 0.7 }}>
-          没有账号？<a style={{ color: "#8ab4ff" }} onClick={() => nav("/register")} href="#">注册</a>
+          没有账号？<a style={{ color: "#8ab4ff" }} onClick={() => nav(`/register${nextQuery}`)} href="#">注册</a>
         </div>
       </form>
     </div>
@@ -70,6 +86,9 @@ export function LoginPage() {
 export function RegisterPage() {
   const { register } = useAuth();
   const nav = useNavigate();
+  const location = useLocation();
+  const next = skillAuthorizationNext(location.search);
+  const nextQuery = next ? `?next=${encodeURIComponent(next)}` : "";
   const [username, setU] = useState("");
   const [nickname, setN] = useState("");
   const [password, setP] = useState("");
@@ -92,7 +111,7 @@ export function RegisterPage() {
           profession: profession || undefined,
         },
       );
-      nav("/scene", { replace: true });
+      finishAuthentication(location.search, nav);
     } catch (e2) { setErr(String((e2 as Error).message)); }
     finally { setBusy(false); }
   };
@@ -136,7 +155,7 @@ export function RegisterPage() {
         {err ? <div style={{ color: "#f87171", fontSize: 13, marginBottom: 10 }}>{err}</div> : null}
         <button style={btn} disabled={busy || !username || !password}>{busy ? "注册中…" : "注册并登录"}</button>
         <div style={{ marginTop: 14, fontSize: 13, opacity: 0.7 }}>
-          已有账号？<a style={{ color: "#8ab4ff" }} onClick={() => nav("/login")} href="#">去登录</a>
+          已有账号？<a style={{ color: "#8ab4ff" }} onClick={() => nav(`/login${nextQuery}`)} href="#">去登录</a>
         </div>
       </form>
     </div>
