@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, text
@@ -29,6 +29,7 @@ from app.db.models import (
     Order,
     SkillOrderLedger,
     User,
+    UserAccount,
     VisualizationEvent,
 )
 from app.db.models import Product
@@ -45,6 +46,7 @@ from app.domain_constants import (
     PAYMENT_STATUS_PAYMENT_FAILED,
     PAYMENT_STATUS_PAYMENT_PENDING,
     PAYMENT_STATUS_RECONCILING,
+    IDENTITY_STATUS_INACTIVE,
 )
 from app.llm import client as llm
 from app.memory.chat_history import (
@@ -76,9 +78,8 @@ from app.services.order_service import (
 from app.services.catalog_service import CatalogError, OutOfStockError
 from app.services.skill_order_service import (
     SkillOrderError,
-    SkillPaymentRequired,
     ensure_consumer,
-    process_skill_order,
+    process_skill_cny_order,
     reconcile_skill_ledger,
 )
 from app.services.visualization_service import (
@@ -97,6 +98,7 @@ from app.services.visualization_service import (
     visualization_hub,
 )
 from app.services import staff_service
+from app.services import skill_auth_service
 from app.auth import service as auth_service
 from app.rate_limit import enforce_rate_limit
 from app.release_integrity import validate_3d_release
@@ -599,6 +601,21 @@ class SkillRegisterResponse(BaseModel):
     evomap_node_id: str
 
 
+class SkillDeviceStartRequest(BaseModel):
+    tool_name: str = Field(default="codex", min_length=1, max_length=64)
+    display_name: str = Field(default="A2A Consumer", min_length=1, max_length=128)
+    evomap_node_id: str = Field(min_length=1, max_length=128)
+    evomap_did: Optional[str] = Field(default=None, max_length=255)
+
+
+class SkillDeviceTokenRequest(BaseModel):
+    device_code: str = Field(min_length=20, max_length=256)
+
+
+class SkillDeviceApprovalRequest(BaseModel):
+    user_code: str = Field(min_length=8, max_length=16)
+
+
 class SkillOrderRequest(BaseModel):
     consumer_id: int
     agent_id: int
@@ -618,6 +635,9 @@ class SkillOrderResponse(BaseModel):
     order_ids: list[int] = Field(default_factory=list)
     coffee_names: list[str] = Field(default_factory=list)
     amount_credits: Optional[int] = None
+    amount_cny: Optional[float] = None
+    currency: Optional[str] = None
+    balance_after: Optional[float] = None
     payment_status: Optional[str] = None
     free_orders_remaining: int = 0
     evomap_order_id: Optional[str] = None
@@ -1530,7 +1550,214 @@ def register_agent(
     )
 
 
-@app.post("/skill/register", response_model=SkillRegisterResponse)
+def _validate_skill_node_identity(node_id: str, node_secret: str | None) -> None:
+    """Apply the same EvoMap verification policy used by legacy registration."""
+    secret = (node_secret or "").strip()
+    is_local_mode = settings.db_mode == "sqlite" or settings.use_fakeredis
+    evomap_not_configured = not settings.evomap_node_id
+    if is_local_mode and (evomap_not_configured or secret == "local-dev"):
+        return
+    if not secret:
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "missing_evomap_node_secret", "message": "缺少 EvoMap 节点凭证"},
+        )
+    if not evomap_evolution_service.verify_node_identity(node_id, secret):
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "invalid_evomap_node_identity", "message": "EvoMap 节点身份验证失败"},
+        )
+
+
+def _skill_auth_error(exc: skill_auth_service.SkillAuthError) -> HTTPException:
+    return HTTPException(
+        status_code=exc.http_status,
+        detail={"code": exc.code, "message": str(exc)},
+    )
+
+
+def _require_bound_skill_agent(
+    db: Session,
+    authorization: str | None,
+    x_agent_token: str | None,
+) -> tuple[AgentProfile, EvomapConsumer, UserAccount]:
+    try:
+        token = _extract_agent_token(authorization, x_agent_token)
+    except HTTPException as exc:
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "account_login_required", "message": "请先登录咖啡厅账号"},
+        ) from exc
+    agent = db.query(AgentProfile).filter(
+        AgentProfile.api_token_hash == hash_agent_token(token),
+        AgentProfile.status == IDENTITY_STATUS_ACTIVE,
+    ).first()
+    if agent is None:
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "account_login_required", "message": "登录已失效，请重新授权"},
+        )
+    try:
+        consumer, account = skill_auth_service.account_for_agent(db, agent)
+    except skill_auth_service.SkillAuthError as exc:
+        raise _skill_auth_error(exc) from exc
+    return agent, consumer, account
+
+
+@app.post("/skill/auth/device/start")
+def start_skill_device_authorization(
+    req: SkillDeviceStartRequest,
+    request: Request,
+    x_evomap_node_secret: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    enforce_rate_limit(request, scope="skill-device-start", limit=10, window_seconds=300)
+    _validate_skill_node_identity(req.evomap_node_id, x_evomap_node_secret)
+    try:
+        _row, device_code, user_code = skill_auth_service.start_authorization(
+            db,
+            evomap_node_id=req.evomap_node_id,
+            evomap_did=req.evomap_did,
+            tool_name=req.tool_name,
+            display_name=req.display_name,
+        )
+    except skill_auth_service.SkillAuthError as exc:
+        raise _skill_auth_error(exc) from exc
+    verification_uri = str(request.base_url).rstrip("/") + "/skill/authorize"
+    return {
+        "status": "authorization_required",
+        "device_code": device_code,
+        "user_code": user_code,
+        "verification_uri": verification_uri,
+        "verification_uri_complete": verification_uri + "?code=" + user_code,
+        "expires_in": skill_auth_service.DEVICE_AUTH_TTL_SECONDS,
+        "interval": skill_auth_service.DEVICE_AUTH_POLL_INTERVAL_SECONDS,
+    }
+
+
+@app.post("/skill/auth/device/token")
+def exchange_skill_device_token(
+    req: SkillDeviceTokenRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    enforce_rate_limit(request, scope="skill-device-token", limit=320, window_seconds=600)
+    try:
+        result = skill_auth_service.exchange_device_code(db, device_code=req.device_code)
+    except skill_auth_service.SkillAuthError as exc:
+        raise _skill_auth_error(exc) from exc
+    if result is None:
+        return JSONResponse(
+            status_code=202,
+            content={"status": "authorization_pending", "interval": 2},
+        )
+    token, agent, consumer, account = result
+    profile = skill_auth_service.public_skill_account(
+        db, agent=agent, consumer=consumer, account=account
+    )
+    return {"status": "authorized", "api_token": token, **profile}
+
+
+@app.post("/skill/auth/device/approve")
+def approve_skill_device_authorization(
+    req: SkillDeviceApprovalRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    account=Depends(require_account),
+):
+    enforce_rate_limit(
+        request,
+        scope="skill-device-approve",
+        limit=20,
+        window_seconds=300,
+        identity=f"account:{account.account_id}",
+    )
+    try:
+        row = skill_auth_service.approve_authorization(
+            db, user_code=req.user_code, account=account
+        )
+    except skill_auth_service.SkillAuthError as exc:
+        raise _skill_auth_error(exc) from exc
+    return {"ok": True, "status": row.status}
+
+
+@app.post("/skill/auth/device/deny")
+def deny_skill_device_authorization(
+    req: SkillDeviceApprovalRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    account=Depends(require_account),
+):
+    enforce_rate_limit(request, scope="skill-device-deny", limit=20, window_seconds=300)
+    try:
+        row = skill_auth_service.deny_authorization(
+            db, user_code=req.user_code, account=account
+        )
+    except skill_auth_service.SkillAuthError as exc:
+        raise _skill_auth_error(exc) from exc
+    return {"ok": True, "status": row.status}
+
+
+@app.get("/skill/authorize", response_class=HTMLResponse)
+def skill_authorize_page():
+    path = _STATIC_DIR / "skill-authorize.html"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Skill authorization page not found")
+    return FileResponse(path, headers={"Cache-Control": "no-store, max-age=0"})
+
+
+@app.get("/skill/me")
+def get_skill_account(
+    authorization: Optional[str] = Header(None),
+    x_agent_token: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    agent, consumer, account = _require_bound_skill_agent(
+        db, authorization, x_agent_token
+    )
+    return skill_auth_service.public_skill_account(
+        db, agent=agent, consumer=consumer, account=account
+    )
+
+
+@app.get("/skill/menu")
+def get_skill_menu(
+    authorization: Optional[str] = Header(None),
+    x_agent_token: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    _require_bound_skill_agent(db, authorization, x_agent_token)
+    products = get_all_products(db)
+    return [
+        {
+            "name": p.name,
+            "price": float(p.base_price),
+            "tags": p.tags or "",
+            "category": p.category or "",
+            "description": (p.description or "")[:120],
+            "image": resolve_image_path(p.name),
+            "stock": p.stock,
+        }
+        for p in products
+    ]
+
+
+@app.post("/skill/logout")
+def logout_skill_account(
+    authorization: Optional[str] = Header(None),
+    x_agent_token: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    agent, _consumer, _account = _require_bound_skill_agent(
+        db, authorization, x_agent_token
+    )
+    agent.status = IDENTITY_STATUS_INACTIVE
+    agent.updated_at = datetime.utcnow()
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/skill/register", response_model=SkillRegisterResponse, deprecated=True)
 def register_skill_consumer(
     req: SkillRegisterRequest,
     request: Request,
@@ -1655,6 +1882,10 @@ def create_skill_order(
     agent = _require_agent(db, req.agent_id, authorization, x_agent_token)
     if agent.consumer_id != req.consumer_id:
         raise HTTPException(status_code=403, detail="Agent 与消费者身份不匹配")
+    try:
+        bound_consumer, _account = skill_auth_service.account_for_agent(db, agent)
+    except skill_auth_service.SkillAuthError as exc:
+        raise _skill_auth_error(exc) from exc
     enforce_rate_limit(
         request,
         scope="skill-order",
@@ -1662,24 +1893,18 @@ def create_skill_order(
         identity=f"agent:{agent.agent_id}",
     )
 
-    consumer = db.query(EvomapConsumer).filter(EvomapConsumer.consumer_id == req.consumer_id).first()
+    consumer = bound_consumer
     if not consumer or consumer.status != IDENTITY_STATUS_ACTIVE:
         raise HTTPException(status_code=404, detail="EvoMap 消费者不存在或已停用")
 
     try:
-        return process_skill_order(
+        return process_skill_cny_order(
             db,
             consumer=consumer,
             agent=agent,
             message=req.message,
             request_id=req.request_id,
-            # Secrets are accepted only in the header so they do not enter JSON
-            # request logging, validation traces, or client-side persistence.
-            evomap_node_secret=x_evomap_node_secret,
-            payment_proof=req.payment_proof,
         )
-    except SkillPaymentRequired as exc:
-        raise HTTPException(status_code=402, detail=exc.payload) from exc
     except SkillOrderError as exc:
         _try_publish_visualization_event(
             db,

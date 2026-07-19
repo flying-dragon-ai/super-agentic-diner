@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>授权 A2A 咖啡 Skill</title>
+  <style>
+    *{box-sizing:border-box} body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 50% 20%,#21324c,#090d13);color:#edf3ff;font-family:system-ui,sans-serif}
+    main{width:min(92vw,460px);padding:28px;border:1px solid #35506f;border-radius:16px;background:rgba(12,18,28,.96);box-shadow:0 18px 70px #0008}
+    h1{font-size:22px;margin:0 0 12px}.muted{color:#a9bad0;line-height:1.6}.code{font:700 26px ui-monospace,monospace;letter-spacing:3px;text-align:center;padding:14px;margin:18px 0;background:#070b10;border-radius:10px}
+    .account{padding:12px;background:#162335;border-radius:10px;margin:14px 0}.actions{display:flex;gap:10px;margin-top:18px}button{flex:1;padding:11px;border:0;border-radius:8px;cursor:pointer;font-weight:700}#approve{background:#2d7dd2;color:white}#deny{background:#2a3442;color:#d7e1ef}.ok{color:#7ce3a1}.error{color:#ff8b8b}
+  </style>
+</head>
+<body>
+<main>
+  <h1>授权 A2A 咖啡 Skill</h1>
+  <p class="muted">确认后，Codex 中的咖啡 Skill 可以读取你的昵称、咖啡厅 CNY 余额并代表你下单。密码只会提交给咖啡厅网页登录接口。</p>
+  <div id="code" class="code">----</div>
+  <div id="account" class="account">正在检查登录状态…</div>
+  <div id="message"></div>
+  <div class="actions"><button id="deny">拒绝</button><button id="approve">确认授权</button></div>
+</main>
+<script>
+const params = new URLSearchParams(location.search);
+const code = (params.get('code') || '').toUpperCase();
+const codeEl = document.getElementById('code');
+const accountEl = document.getElementById('account');
+const messageEl = document.getElementById('message');
+codeEl.textContent = code || '无授权码';
+
+async function init() {
+  if (!code) { fail('缺少授权码'); return; }
+  const response = await fetch('/auth/me', {credentials:'include'});
+  if (response.status === 401) {
+    const next = '/skill/authorize?code=' + encodeURIComponent(code);
+    location.replace('/welcome?next=' + encodeURIComponent(next));
+    return;
+  }
+  if (!response.ok) { fail('无法读取登录账号'); return; }
+  const account = await response.json();
+  accountEl.textContent = '当前账号：' + (account.nickname || account.username) + '（' + account.username + '）';
+}
+
+function fail(text) {
+  messageEl.className = 'error'; messageEl.textContent = text;
+  document.getElementById('approve').disabled = true;
+}
+
+async function decide(action) {
+  document.getElementById('approve').disabled = true;
+  document.getElementById('deny').disabled = true;
+  const response = await fetch('/skill/auth/device/' + action, {
+    method:'POST', credentials:'include', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({user_code:code})
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) { fail(data.detail?.message || data.detail || '授权失败'); return; }
+  messageEl.className = 'ok';
+  messageEl.textContent = action === 'approve' ? '登录授权成功，可以关闭此页面并返回 Codex。' : '已拒绝授权。';
+}
+document.getElementById('approve').addEventListener('click', () => decide('approve'));
+document.getElementById('deny').addEventListener('click', () => decide('deny'));
+init().catch(() => fail('授权页面加载失败'));
+</script>
+</body>
+</html>

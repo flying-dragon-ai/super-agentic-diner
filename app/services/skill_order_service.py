@@ -42,6 +42,11 @@ from app.llm import client as llm
 from app.rag.keywords import extract_keywords
 from app.rag.retrieval import retrieve
 from app.services.chat_service import extract_price, match_by_price
+from app.services.order_service import (
+    InsufficientBalanceError,
+    OrderError,
+    place_orders,
+)
 from app.services.evomap_payment_service import (
     EvomapPaymentError,
     build_service_order_request,
@@ -57,6 +62,7 @@ from app.services.visualization_service import (
 )
 from app.db.models import Product
 from app.domain_constants import WALLET_CURRENCY_CREDITS
+from app.domain_constants import WALLET_CURRENCY_CNY
 from app.services import wallet_service
 from app.services.catalog_service import (
     AmbiguousProductError,
@@ -1656,6 +1662,187 @@ def _payment_required_payload(
         "payment_request": None,
         "payment_method": "evomap_service_order",
         "service_order_request": service_order_request,
+    }
+
+
+def process_skill_cny_order(
+    db: Session,
+    *,
+    consumer: EvomapConsumer,
+    agent: AgentProfile,
+    message: str,
+    request_id: str | None,
+) -> dict[str, Any]:
+    """Place a Skill order against the linked project's CNY wallet.
+
+    Historical EvoMap ledgers continue to use :func:`process_skill_order` for
+    reconciliation.  All newly authenticated Skill traffic enters here.
+    """
+    correlation_id = request_id or f"skill-{consumer.consumer_id}-{uuid.uuid4().hex}"
+    existing = db.query(SkillOrderLedger).filter(
+        SkillOrderLedger.request_id == correlation_id
+    ).first()
+    if existing is not None:
+        if existing.consumer_id != consumer.consumer_id or existing.agent_id != agent.agent_id:
+            raise SkillOrderError(
+                "request_id 已被其他账号使用",
+                code="request_id_conflict",
+                http_status=409,
+            )
+        orders = db.query(Order).filter(Order.ledger_id == existing.ledger_id).all()
+        if orders:
+            if existing.payment_status != PAYMENT_STATUS_PAID:
+                existing.payment_status = PAYMENT_STATUS_PAID
+                existing.order_ids_json = encode_json([order.order_id for order in orders])
+                existing.updated_at = datetime.utcnow()
+                db.commit()
+            return _cny_success_response(db, consumer, existing, orders)
+
+    items = _resolve_items(db, message)
+    if not items:
+        raise SkillOrderError(
+            "未能从 Skill 点单消息中识别咖啡",
+            code="coffee_not_resolved",
+            http_status=400,
+        )
+    total = sum((Decimal(str(item["price"])) for item in items), Decimal("0.00"))
+    conflicting = db.query(Order).filter(Order.request_id == correlation_id).first()
+    if conflicting is not None:
+        raise SkillOrderError(
+            "request_id 已被其他订单使用",
+            code="request_id_conflict",
+            http_status=409,
+        )
+
+    ledger = SkillOrderLedger(
+        consumer_id=consumer.consumer_id,
+        agent_id=agent.agent_id,
+        request_id=correlation_id,
+        coffee_items_json=encode_json(_public_items(items)),
+        amount_credits=0,
+        amount_cny=total,
+        payment_status=PAYMENT_STATUS_PENDING,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(ledger)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        concurrent = db.query(SkillOrderLedger).filter(
+            SkillOrderLedger.request_id == correlation_id
+        ).first()
+        if concurrent is not None:
+            if (
+                concurrent.consumer_id != consumer.consumer_id
+                or concurrent.agent_id != agent.agent_id
+            ):
+                raise SkillOrderError(
+                    "request_id 已被其他账号使用",
+                    code="request_id_conflict",
+                    http_status=409,
+                ) from exc
+            concurrent_orders = db.query(Order).filter(
+                Order.ledger_id == concurrent.ledger_id
+            ).all()
+            if concurrent_orders:
+                return _cny_success_response(
+                    db, consumer, concurrent, concurrent_orders
+                )
+        raise SkillOrderError(
+            "相同 request_id 正在处理中，请稍后使用原 request_id 重试",
+            code="request_race_retry",
+            http_status=409,
+        ) from exc
+    order_items = [
+        (item["name"], correlation_id if index == 0 else f"{correlation_id}:{index + 1}")
+        for index, item in enumerate(items)
+    ]
+    try:
+        orders = place_orders(
+            db,
+            consumer.local_user_id,
+            order_items,
+            source_type=ORDER_SOURCE_SKILL,
+            payment_status=PAYMENT_STATUS_PAID,
+            consumer_id=consumer.consumer_id,
+            agent_id=agent.agent_id,
+            ledger_id=ledger.ledger_id,
+            correlation_id=correlation_id,
+            commit=False,
+        )
+    except InsufficientBalanceError as exc:
+        db.rollback()
+        raise SkillOrderError(
+            str(exc), code="insufficient_balance", http_status=402
+        ) from exc
+    except OutOfStockError as exc:
+        db.rollback()
+        raise SkillOrderError(str(exc), code="out_of_stock", http_status=409) from exc
+    except (CatalogError, OrderError, ValueError) as exc:
+        db.rollback()
+        raise SkillOrderError(str(exc), code="order_failed", http_status=400) from exc
+
+    ledger = db.query(SkillOrderLedger).filter(
+        SkillOrderLedger.ledger_id == ledger.ledger_id
+    ).first()
+    if ledger is None:
+        raise SkillOrderError("订单账本写入失败", code="ledger_missing", http_status=500)
+    ledger.order_ids_json = encode_json([order.order_id for order in orders])
+    ledger.payment_status = PAYMENT_STATUS_PAID
+    ledger.updated_at = datetime.utcnow()
+    agent.last_seen_at = datetime.utcnow()
+    consumer.last_seen_at = datetime.utcnow()
+    db.commit()
+
+    try:
+        customer_enter_scene(db, agent, correlation_id=correlation_id)
+        _publish_skill_completion_flow(
+            db,
+            consumer=consumer,
+            agent=agent,
+            ledger=ledger,
+            orders=orders,
+            items=items,
+            payment_status=PAYMENT_STATUS_PAID,
+            free_order_sequence=None,
+        )
+    except Exception:
+        logger.warning("Skill CNY 订单可视化事件发布失败", exc_info=True)
+    return _cny_success_response(db, consumer, ledger, orders)
+
+
+def _cny_success_response(
+    db: Session,
+    consumer: EvomapConsumer,
+    ledger: SkillOrderLedger,
+    orders: list[Order],
+) -> dict[str, Any]:
+    amount_cny = ledger.amount_cny
+    if amount_cny is None:
+        amount_cny = sum(
+            (Decimal(str(order.total_amount or order.amount or 0)) for order in orders),
+            Decimal("0.00"),
+        )
+    balance = wallet_service.get_balance(db, consumer.local_user_id, WALLET_CURRENCY_CNY)
+    items = _ledger_items(ledger)
+    return {
+        "ok": True,
+        "status": "completed",
+        "reply": "Skill 点单完成，已从咖啡厅账户余额扣款",
+        "request_id": ledger.request_id,
+        "consumer_id": consumer.consumer_id,
+        "ledger_id": ledger.ledger_id,
+        "order_ids": [order.order_id for order in orders],
+        "coffee_names": [item["name"] for item in items],
+        "amount_credits": 0,
+        "amount_cny": float(amount_cny),
+        "currency": WALLET_CURRENCY_CNY,
+        "balance_after": float(balance),
+        "payment_status": PAYMENT_STATUS_PAID,
+        "free_orders_remaining": 0,
+        "evomap_order_id": None,
     }
 
 

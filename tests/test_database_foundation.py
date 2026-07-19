@@ -183,7 +183,17 @@ class DatabaseRuntimeFoundationTests(unittest.TestCase):
                         "payment_attempts",
                         "stock_reservation_json",
                         "stock_reservation_status",
+                        "amount_cny",
                     }.issubset(ledger_columns)
+                )
+                self.assertIn(
+                    "skill_device_authorization",
+                    {
+                        row[0]
+                        for row in conn.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table'"
+                        )
+                    },
                 )
 
                 request_type = next(
@@ -231,7 +241,7 @@ class DatabaseRuntimeFoundationTests(unittest.TestCase):
                 self.assertIn(("consumer_id", "free_order_sequence"), unique_columns)
                 self.assertEqual(
                     conn.execute("SELECT COUNT(*) FROM schema_migration").fetchone()[0],
-                    4,
+                    5,
                 )
 
     def test_legacy_schema_is_upgraded_without_deleting_unrelated_fk_violations(self):

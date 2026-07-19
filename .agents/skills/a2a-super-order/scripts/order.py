@@ -7,9 +7,11 @@ import os
 import platform
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 import uuid
+import webbrowser
 from pathlib import Path
 from typing import Any
 
@@ -105,15 +107,36 @@ def request_json(
         raise SystemExit(f"无法连接服务器 {url}: {exc.reason}") from exc
 
 
-def fetch_menu(base_url: str) -> tuple[bool, Any, str]:
+def request_get_json(url: str, token: str | None = None) -> Any:
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        try:
+            body = json.loads(raw)
+        except json.JSONDecodeError:
+            body = raw
+        raise ApiError(exc.code, body) from exc
+    except urllib.error.URLError as exc:
+        raise SystemExit(f"Unable to connect to {url}: {exc.reason}") from exc
+
+
+def fetch_menu(base_url: str, token: str) -> tuple[bool, Any, str]:
     """GET {base_url}/menu. Read-only reachability + menu probe.
 
     ``/menu`` is anonymous and returns a list of products, so a 200 here also
     proves the backend is reachable for ordering. Used by ``--ping`` and
     ``--menu``. Returns ``(ok, data, error_message)``.
     """
-    url = base_url.rstrip("/") + "/menu"
-    request = urllib.request.Request(url, method="GET")
+    url = base_url.rstrip("/") + "/skill/menu"
+    request = urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {token}"}, method="GET"
+    )
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
             data = json.loads(response.read().decode("utf-8"))
@@ -126,9 +149,9 @@ def fetch_menu(base_url: str) -> tuple[bool, Any, str]:
         return False, None, str(exc)
 
 
-def cmd_ping(args: argparse.Namespace) -> int:
+def cmd_ping(args: argparse.Namespace, registration: dict[str, Any]) -> int:
     """Step-0 self-check: is the backend reachable? Prints a decision-friendly JSON."""
-    ok, data, err = fetch_menu(args.base_url)
+    ok, data, err = fetch_menu(args.base_url, registration["api_token"])
     if not ok:
         print(json.dumps({
             "ok": False,
@@ -155,9 +178,9 @@ def cmd_ping(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_menu(args: argparse.Namespace) -> int:
+def cmd_menu(args: argparse.Namespace, registration: dict[str, Any]) -> int:
     """List available coffees so the caller knows exactly what to put in --message."""
-    ok, data, err = fetch_menu(args.base_url)
+    ok, data, err = fetch_menu(args.base_url, registration["api_token"])
     if not ok:
         print(json.dumps({
             "ok": False,
@@ -319,6 +342,111 @@ def register_if_needed(args: argparse.Namespace, root: Path, state: dict[str, An
     return result
 
 
+def require_logged_in(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]:
+    base_url = args.base_url.rstrip("/")
+    registration = state.get(base_url) if isinstance(state, dict) else None
+    if not isinstance(registration, dict) or not registration.get("api_token"):
+        raise SystemExit(
+            "account_login_required: run this Skill with --login, complete login in the browser, then retry"
+        )
+    try:
+        profile = request_get_json(
+            base_url + "/skill/me", token=registration["api_token"]
+        )
+    except ApiError as exc:
+        if exc.status == 401:
+            state.pop(base_url, None)
+            write_json(STATE_PATH, state)
+            raise SystemExit(
+                "account_login_required: the saved login is invalid; run --login again"
+            ) from exc
+        raise
+    for key in (
+        "consumer_id", "agent_id", "evomap_node_id", "username", "nickname",
+        "display_name", "currency", "balance", "scopes",
+    ):
+        if key in profile:
+            registration[key] = profile[key]
+    state[base_url] = registration
+    write_json(STATE_PATH, state)
+    return registration
+
+
+def login_account(
+    args: argparse.Namespace, root: Path, state: dict[str, Any]
+) -> dict[str, Any]:
+    base_url = args.base_url.rstrip("/")
+    evomap_creds = load_evomap_credentials()
+    node_id = (
+        evomap_creds["node_id"]
+        if evomap_creds
+        else detect_node_id(root, args.evomap_node_id)
+    )
+    node_secret = args.evomap_node_secret or (
+        evomap_creds["node_secret"] if evomap_creds else None
+    )
+    started = request_json(
+        base_url + "/skill/auth/device/start",
+        {
+            "tool_name": args.tool_name,
+            "display_name": args.display_name,
+            "evomap_node_id": node_id,
+            "evomap_did": args.evomap_did,
+        },
+        extra_headers={"X-Evomap-Node-Secret": node_secret or ""},
+    )
+    verification_url = str(started["verification_uri_complete"])
+    user_code = str(started["user_code"])
+    print(
+        f"请在浏览器完成咖啡厅账号登录与授权：{verification_url}\n授权码：{user_code}",
+        file=sys.stderr,
+    )
+    try:
+        webbrowser.open(verification_url, new=2)
+    except Exception:
+        pass
+
+    deadline = time.monotonic() + int(started.get("expires_in") or 600)
+    interval = max(2, int(started.get("interval") or 2))
+    device_code = str(started["device_code"])
+    while time.monotonic() < deadline:
+        result = request_json(
+            base_url + "/skill/auth/device/token", {"device_code": device_code}
+        )
+        if result.get("status") == "authorization_pending":
+            time.sleep(interval)
+            continue
+        if result.get("status") != "authorized" or not result.get("api_token"):
+            raise SystemExit("Skill login failed: invalid authorization response")
+        registration = {
+            key: value
+            for key, value in result.items()
+            if key not in {"status", "authenticated"}
+        }
+        state[base_url] = registration
+        write_json(STATE_PATH, state)
+        return registration
+    raise SystemExit("Skill login expired; run --login and try again")
+
+
+def logout_account(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]:
+    base_url = args.base_url.rstrip("/")
+    registration = state.get(base_url) if isinstance(state, dict) else None
+    if isinstance(registration, dict) and registration.get("api_token"):
+        try:
+            request_json(
+                base_url + "/skill/logout",
+                {},
+                token=registration["api_token"],
+            )
+        except ApiError as exc:
+            if exc.status != 401:
+                raise
+    state.pop(base_url, None)
+    write_json(STATE_PATH, state)
+    return {"ok": True, "status": "logged_out"}
+
+
 def submit_order(args: argparse.Namespace, registration: dict[str, Any]) -> dict[str, Any]:
     base_url = args.base_url.rstrip("/")
     request_id = args.request_id or "skill-" + uuid.uuid4().hex
@@ -385,6 +513,9 @@ def main() -> int:
     )
     parser.add_argument("--force-register", action="store_true")
     parser.add_argument("--register-only", action="store_true")
+    parser.add_argument("--login", action="store_true", help="Log in through the cafe web page and bind this Skill.")
+    parser.add_argument("--me", action="store_true", help="Show the linked cafe account and CNY balance.")
+    parser.add_argument("--logout", action="store_true", help="Revoke this Skill login and clear local state.")
     parser.add_argument(
         "--check-evomap",
         action="store_true",
@@ -431,11 +562,6 @@ def main() -> int:
         }, ensure_ascii=False, indent=2))
         return 0
 
-    if args.ping:
-        return cmd_ping(args)
-    if args.menu:
-        return cmd_menu(args)
-
     if args.payment_proof:
         print(
             "⚠️ --payment-proof 已弃用并被忽略：后端拒绝客户端伪造的支付凭证，付费请用 --evomap-node-secret。",
@@ -445,14 +571,29 @@ def main() -> int:
     root = Path.cwd()
     state = read_json(STATE_PATH, {})
     try:
-        registration = register_if_needed(args, root, state)
+        if args.login:
+            registration = login_account(args, root, state)
+            print(json.dumps(redact_for_stdout(registration), ensure_ascii=False, indent=2))
+            return 0
+        if args.logout:
+            print(json.dumps(logout_account(args, state), ensure_ascii=False, indent=2))
+            return 0
+        registration = require_logged_in(args, state)
+        if args.ping:
+            return cmd_ping(args, registration)
+        if args.menu:
+            return cmd_menu(args, registration)
+        if args.me:
+            print(json.dumps(redact_for_stdout(registration), ensure_ascii=False, indent=2))
+            return 0
         if args.register_only:
+            print("--register-only is deprecated; the Skill is already linked through web login.", file=sys.stderr)
             output = redact_for_stdout(registration)
             output["state_path"] = str(STATE_PATH)
             print(json.dumps(output, ensure_ascii=False, indent=2))
             return 0
         if not args.message:
-            raise SystemExit("--message is required unless --register-only is used")
+            raise SystemExit("Use --login, --me, --ping, --menu, --logout, or --message")
         result = submit_order(args, registration)
     except ApiError as exc:
         print(f"请求失败: HTTP {exc.status}", file=sys.stderr)

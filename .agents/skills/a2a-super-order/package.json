@@ -1,7 +1,7 @@
 {
   "name": "@evomap/a2a-super-order",
-  "version": "1.0.0",
-  "description": "A2A super ordering Skill for Crossroads Agent Café — order coffee from agent tools (Claude Code, Codex, Cursor) without a web page. First two orders free, then EvoMap credit payment.",
+  "version": "2.0.0",
+  "description": "Authenticated A2A coffee ordering for Crossroads Agent Cafe with browser login and CNY wallet payment.",
   "bin": {
     "a2a-super-order": "./bin/cli.js"
   },
@@ -42,6 +42,6 @@
   },
   "homepage": "https://github.com/flying-dragon-ai/super-agentic-diner/tree/main/.agents/skills/a2a-super-order#readme",
   "license": "MIT",
-  "author": "Crossroads Agent Café",
+  "author": "Crossroads Agent Cafe",
   "private": false
 }

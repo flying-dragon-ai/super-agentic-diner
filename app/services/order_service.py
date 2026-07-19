@@ -93,6 +93,7 @@ def place_orders(
     agent_id: int | None = None,
     ledger_id: int | None = None,
     correlation_id: str | None = None,
+    commit: bool = True,
 ) -> list[Order]:
     """Place a paid order.
 
@@ -206,7 +207,10 @@ def place_orders(
     )
 
     try:
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
     except IntegrityError as exc:
         db.rollback()
         if header_request_id:

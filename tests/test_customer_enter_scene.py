@@ -77,7 +77,7 @@ class CustomerEnterSceneTests(unittest.TestCase):
         self.assertIsNotNone(ce, "restaurant.customer_entered must be emitted")
         self.assertIsNone(ce.agent_id)
 
-    def test_skill_order_broadcasts_enter_scene_even_when_order_fails(self) -> None:
+    def test_unlinked_skill_order_does_not_enter_scene(self) -> None:
         node = "enter-skill-" + uuid.uuid4().hex[:8]
         with patch(
             "app.main.evomap_evolution_service.verify_node_identity",
@@ -110,9 +110,9 @@ class CustomerEnterSceneTests(unittest.TestCase):
                 "X-Evomap-Node-Secret": "test-secret",
             },
         )
-        self.assertIsNotNone(
+        self.assertIsNone(
             _latest_action(agent_id, "enter_scene"),
-            "enter_scene must fire even when the order later fails to resolve",
+            "an unlinked legacy Skill token must be rejected before entering the scene",
         )
 
 

@@ -22,6 +22,7 @@ from app.db.database import Base
 from app.domain_constants import (
     ACCOUNT_ROLES,
     ACCOUNT_ROLE_USER,
+    DEVICE_AUTH_STATUSES,
     IDENTITY_STATUS_ACTIVE,
     IDENTITY_STATUSES,
     LEDGER_PAYMENT_STATUSES,
@@ -267,6 +268,44 @@ class EvomapConsumer(Base):
     )
 
 
+class SkillDeviceAuthorization(Base):
+    """Short-lived browser authorization used to bind an A2A node to an account."""
+
+    __tablename__ = "skill_device_authorization"
+
+    authorization_id = Column(_PK, primary_key=True, autoincrement=True)
+    device_code_hash = Column(String(64), nullable=False, unique=True)
+    user_code_hash = Column(String(64), nullable=False, unique=True)
+    evomap_node_id = Column(String(128), nullable=False)
+    evomap_did = Column(String(255), nullable=True)
+    tool_name = Column(String(64), nullable=False)
+    display_name = Column(String(128), nullable=False)
+    scopes_json = Column(Text, nullable=False)
+    status = Column(String(16), nullable=False, default="pending")
+    account_id = Column(BigInteger, ForeignKey("user_account.account_id"), nullable=True)
+    consumer_id = Column(BigInteger, ForeignKey("evomap_consumer.consumer_id"), nullable=True)
+    agent_id = Column(BigInteger, ForeignKey("agent_profile.agent_id"), nullable=True)
+    expires_at = Column(DateTime, nullable=False)
+    approved_at = Column(DateTime, nullable=True)
+    consumed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            f"status IN ({', '.join(repr(value) for value in sorted(DEVICE_AUTH_STATUSES))})",
+            name="ck_skill_device_authorization_status",
+        ),
+        Index("idx_skill_device_auth_status_expiry", "status", "expires_at"),
+        Index("idx_skill_device_auth_node", "evomap_node_id", "created_at"),
+    )
+
+
 class SkillOrderLedger(Base):
     """A2A Skill order ledger for free quota and EvoMap payment proofs."""
 
@@ -283,6 +322,7 @@ class SkillOrderLedger(Base):
     order_ids_json = Column(Text, nullable=True)
     coffee_items_json = Column(Text, nullable=False)
     amount_credits = Column(Integer, nullable=False)
+    amount_cny = Column(DECIMAL(10, 2), nullable=True)
     payment_status = Column(String(32), nullable=False)
     evomap_order_id = Column(String(128), nullable=True)
     payment_proof_json = Column(Text, nullable=True)

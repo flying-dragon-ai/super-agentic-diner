@@ -1,4 +1,4 @@
 interface:
   display_name: "A2A Super Order"
-  short_description: "Order coffee with EvoMap credit payment"
-  default_prompt: "Use $a2a-super-order to register this agent and place a coffee order through the A2A super ordering system."
+  short_description: "Log in and order with cafe balance"
+  default_prompt: "Use $a2a-super-order to verify the linked cafe account, open browser login when needed, and place a CNY wallet coffee order."

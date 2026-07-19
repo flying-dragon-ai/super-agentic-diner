@@ -161,6 +161,12 @@ ADDITIVE_COLUMNS: tuple[AddColumn, ...] = (
         "VARCHAR(16) NULL",
         "VARCHAR(16) NULL",
     ),
+    AddColumn(
+        "skill_order_ledger",
+        "amount_cny",
+        "DECIMAL(10, 2) NULL",
+        "DECIMAL(10, 2) NULL",
+    ),
 )
 
 
@@ -1231,6 +1237,7 @@ MIGRATIONS: tuple[MigrationStep, ...] = (
     ("20260712_002_additive_columns", _ensure_additive_columns),
     ("20260712_003_constraints_and_indexes", _ensure_constraints_and_indexes),
     ("20260712_004_verify_schema", _verify_schema),
+    ("20260719_005_skill_account_auth_schema", _create_declared_tables),
 )
 
 

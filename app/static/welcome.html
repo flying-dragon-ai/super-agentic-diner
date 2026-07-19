@@ -213,6 +213,11 @@ function setMessage(container, type, text) {
   container.replaceChildren(message);
 }
 
+function safeNextPath() {
+  const candidate = new URLSearchParams(window.location.search).get('next') || '';
+  return candidate.startsWith('/skill/authorize?') ? candidate : '/3d';
+}
+
 async function doRegister() {
   const btn = document.getElementById('reg-btn');
   const msgEl = document.getElementById('reg-msg');
@@ -242,7 +247,7 @@ async function doRegister() {
     if (!res.ok) throw new Error(data.detail || '注册失败');
 
     setMessage(msgEl, 'ok', '✓ 注册成功！正在进入 3D 咖啡厅…');
-    setTimeout(() => { window.location.href = '/3d'; }, 800);
+    setTimeout(() => { window.location.href = safeNextPath(); }, 800);
   } catch(e) {
     setMessage(msgEl, 'err', e.message || '注册失败');
     btn.disabled = false; btn.textContent = '注册并进入';
@@ -274,7 +279,7 @@ async function doLogin() {
     if (!res.ok) throw new Error(data.detail || '登录失败');
 
     setMessage(msgEl, 'ok', '✓ 登录成功！正在进入…');
-    setTimeout(() => { window.location.href = '/3d'; }, 600);
+    setTimeout(() => { window.location.href = safeNextPath(); }, 600);
   } catch(e) {
     setMessage(msgEl, 'err', e.message || '登录失败');
     btn.disabled = false; btn.textContent = '登录';
