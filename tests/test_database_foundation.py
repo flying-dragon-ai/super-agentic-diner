@@ -77,6 +77,12 @@ class SettingsFoundationTests(unittest.TestCase):
             120,
         )
 
+    def test_a2a_discovery_ports_are_validated(self):
+        with self.assertRaises(ValidationError):
+            Settings(_env_file=None, a2a_discovery_udp_port=0)
+        with self.assertRaises(ValidationError):
+            Settings(_env_file=None, a2a_discovery_http_port=65536)
+
     def test_cors_defaults_are_local_only_and_production_can_be_same_origin(self):
         local = Settings(_env_file=None)
         self.assertEqual(

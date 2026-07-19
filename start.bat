@@ -4,6 +4,8 @@ cd /d "%~dp0"
 title Crossroads Agent Cafe
 
 if "%PORT%"=="" set "PORT=8000"
+if "%HOST%"=="" set "HOST=127.0.0.1"
+if "%A2A_DISCOVERY_HTTP_PORT%"=="" set "A2A_DISCOVERY_HTTP_PORT=%PORT%"
 
 echo ============================================
 echo   Crossroads Agent Cafe - Local Launcher
@@ -110,11 +112,12 @@ if defined PORT_PID (
     goto fail
 )
 
-echo Starting server: http://localhost:%PORT%
+echo Starting server: http://%HOST%:%PORT%
+if "%HOST%"=="127.0.0.1" echo [INFO] LAN clients cannot connect while HOST=127.0.0.1. Set HOST=0.0.0.0 to enable LAN access.
 echo Press Ctrl+C to stop.
 echo.
 if /I not "%OPEN_BROWSER%"=="0" start "" "http://localhost:%PORT%/3d/login"
-"%PYTHON_CMD%" -m uvicorn app.main:app --host 127.0.0.1 --port %PORT% --reload --ws-max-size 16384
+"%PYTHON_CMD%" -m uvicorn app.main:app --host %HOST% --port %PORT% --reload --ws-max-size 16384
 goto end
 
 :fail

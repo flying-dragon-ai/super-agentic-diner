@@ -1,7 +1,7 @@
 {
   "name": "@evomap/a2a-super-order",
-  "version": "2.0.0",
-  "description": "Authenticated A2A coffee ordering for Crossroads Agent Cafe with browser login and CNY wallet payment.",
+  "version": "2.1.0",
+  "description": "Auto-discovered authenticated A2A coffee ordering with browser login and CNY wallet payment.",
   "bin": {
     "a2a-super-order": "./bin/cli.js"
   },
@@ -29,6 +29,7 @@
     "claude-code",
     "codex",
     "cursor",
+    "opencode",
     "agent",
     "crossroads-agent-cafe"
   ],

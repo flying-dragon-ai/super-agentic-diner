@@ -245,6 +245,7 @@ def _bootstrap() -> None:
     os.environ["USE_FAKEREDIS"] = "true"
     os.environ["SKILL_RECONCILE_ENABLED"] = "false"
     os.environ["AUTONOMOUS_AGENT_ENABLED"] = "false"
+    os.environ["A2A_DISCOVERY_ENABLED"] = "false"
     # Empty environment variables override values that may exist in a local
     # .env file, preventing accidental LLM/EvoMap calls from unit tests.
     os.environ["LLM_API_KEY"] = ""

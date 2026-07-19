@@ -40,7 +40,12 @@ def request_json(url: str, payload: dict) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Register this tool as an advanced restaurant visualization Agent.")
-    parser.add_argument("--base-url", default=os.getenv("RESTAURANT_API_BASE", "http://192.168.110.87:8001"))
+    parser.add_argument(
+        "--base-url",
+        default=os.getenv("RESTAURANT_API_BASE"),
+        required=not os.getenv("RESTAURANT_API_BASE"),
+        help="Legacy helper requires an explicit URL; use order.py --discover for automatic discovery.",
+    )
     parser.add_argument("--tool-name", default=os.getenv("RESTAURANT_TOOL_NAME", "codex"))
     parser.add_argument("--display-name", default=os.getenv("RESTAURANT_AGENT_NAME") or _detect_username())
     parser.add_argument("--role", default=os.getenv("RESTAURANT_AGENT_ROLE", "waiter"))

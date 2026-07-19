@@ -74,6 +74,14 @@ uvicorn app.main:app --reload
 ```
 打开 `http://localhost:8000/docs` 查看接口。
 
+如果要让另一台电脑上的 Codex、Claude Code 或 OpenCode 自动找到咖啡厅，请让后端监听局域网接口：
+
+```bash
+HOST=0.0.0.0 PORT=8000 ./scripts/start.sh
+```
+
+Windows 可先设置 `HOST=0.0.0.0` 再运行 `start.bat`。启动器会让 `A2A_DISCOVERY_HTTP_PORT` 自动跟随 `PORT`；默认还需放行 TCP `8000` 和 UDP `8137`。Skill 会验证 `/skill/discovery` 后才缓存发现的地址。局域网发现用于可信私网，公网部署应使用显式 HTTPS 域名。
+
 健康探针：
 
 ```bash

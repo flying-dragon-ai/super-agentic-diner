@@ -9,6 +9,7 @@ PROJECT_DIR="$(pwd)"
 PORT="${PORT:-8000}"
 HOST="${HOST:-0.0.0.0}"
 WORKERS="${WORKERS:-1}"
+export A2A_DISCOVERY_HTTP_PORT="${A2A_DISCOVERY_HTTP_PORT:-$PORT}"
 
 echo "============================================"
 echo "  Crossroads Agent Cafe - Linux Launcher"

@@ -6,6 +6,7 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+      - "8137:8137/udp"
     env_file:
       - .env.production
     environment:

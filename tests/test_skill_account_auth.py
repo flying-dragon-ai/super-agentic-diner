@@ -93,6 +93,17 @@ def test_device_login_me_menu_and_logout() -> None:
         assert client.get("/skill/me", headers=headers).status_code == 401
 
 
+def test_skill_discovery_is_anonymous_and_identifies_service() -> None:
+    with TestClient(app) as client:
+        response = client.get("/skill/discovery")
+    assert response.status_code == 200
+    assert response.json() == {
+        "service": "crossroads-agent-cafe",
+        "protocol_version": 1,
+        "name": "Crossroads Agent Café",
+    }
+
+
 def test_skill_order_debits_cny_once() -> None:
     product_name = f"测试咖啡-{uuid4().hex[:6]}"
     with SessionLocal() as db:

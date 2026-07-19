@@ -8,10 +8,12 @@
 - 账号绑定：`evomap_consumer.local_user_id` 指向真实登录账号的 `user.user_id`。
 - 余额：`GET /skill/me` 返回 `UserWallet(CNY)`；新订单调用 CNY 钱包和商品库存事务。
 - 支付：新订单 `payment_status=paid`、`amount_credits=0`、`free_orders_remaining=0`。历史 EvoMap/free 流程仅用于旧 ledger 对账。
+- 服务定位：CLI 启动验证 `/skill/discovery`；缓存失效时尝试本机和 UDP `8137` 局域网发现，验证成功后更新本地地址缓存。
 
 ## 关键接口
 
 - `POST /skill/auth/device/start`
+- `GET /skill/discovery`（匿名服务身份探针，不返回账号或凭证）
 - `POST /skill/auth/device/token`
 - `POST /skill/auth/device/approve`、`/deny`、`/unbind`
 - `GET /skill/me`、`GET /skill/menu`
@@ -30,6 +32,7 @@
 - 新 Skill 订单必须原子检查 CNY 余额、扣库存并写订单/钱包流水；重试复用 `request_id`。
 - 不迁移或重写旧订单归属、免费额度、EvoMap 支付 ledger。
 - 数据模型变更同时更新 `scripts/migrate_order_sources.py`，并保持 SQLite/MySQL 幂等。
+- UDP 发现只用于可信私网，不能替代 HTTPS 的密码学服务认证；公网使用显式 HTTPS 地址。
 
 运行验证：
 

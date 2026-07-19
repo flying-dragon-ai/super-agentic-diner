@@ -99,6 +99,7 @@ from app.services.visualization_service import (
 )
 from app.services import staff_service
 from app.services import skill_auth_service
+from app.services import lan_discovery_service
 from app.auth import service as auth_service
 from app.rate_limit import enforce_rate_limit
 from app.release_integrity import validate_3d_release
@@ -185,6 +186,13 @@ async def _startup_colyseus() -> None:
         _evomap_heartbeat_stop.clear()
         _evomap_heartbeat_thread = threading.Thread(target=_evomap_heartbeat_loop, daemon=True)
         _evomap_heartbeat_thread.start()
+    # Advertise only after the application has completed its startup checks.
+    lan_discovery_service.start_listener(
+        enabled=settings.a2a_discovery_enabled,
+        udp_port=settings.a2a_discovery_udp_port,
+        http_port=settings.a2a_discovery_http_port,
+        scheme=settings.a2a_discovery_http_scheme,
+    )
 
 
 def _preload_jieba() -> None:
@@ -228,6 +236,7 @@ def _warm_llm_connection() -> None:
 
 @app.on_event("shutdown")
 async def _shutdown_colyseus() -> None:
+    lan_discovery_service.stop_listener()
     stop_colyseus_server()
     await visualization_event_bus.stop()
     _evomap_heartbeat_stop.set()
@@ -1602,6 +1611,12 @@ def _require_bound_skill_agent(
     except skill_auth_service.SkillAuthError as exc:
         raise _skill_auth_error(exc) from exc
     return agent, consumer, account
+
+
+@app.get("/skill/discovery")
+def get_skill_discovery():
+    """Anonymous, non-secret identity probe used before a Skill trusts a URL."""
+    return lan_discovery_service.discovery_document()
 
 
 @app.post("/skill/auth/device/start")

@@ -2,6 +2,20 @@
 
 All Skill business APIs require a browser-linked project account. Passwords are accepted only by the existing web `/auth/login` and `/auth/register` endpoints.
 
+## Service discovery
+
+`GET /skill/discovery` is anonymous and returns a non-secret service identity document:
+
+```json
+{
+  "service": "crossroads-agent-cafe",
+  "protocol_version": 1,
+  "name": "Crossroads Agent Café"
+}
+```
+
+When enabled, the backend also listens on UDP `A2A_DISCOVERY_UDP_PORT` (default `8137`) for protocol-versioned discovery messages and returns its HTTP scheme/port. The CLI accepts offers only from private or loopback IPv4 addresses and verifies the HTTP identity document before caching an address. This is trusted-LAN discovery, not cryptographic authentication.
+
 ## Device authorization
 
 ### `POST /skill/auth/device/start`

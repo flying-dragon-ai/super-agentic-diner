@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import ipaddress
 import json
 import os
 import platform
 import re
+import socket
 import sys
 import time
 import urllib.error
@@ -14,9 +16,15 @@ import uuid
 import webbrowser
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 
-DEFAULT_BASE_URL = "http://192.168.110.87:8001"
+SERVICE_ID = "crossroads-agent-cafe"
+DISCOVERY_PROTOCOL_VERSION = 1
+DISCOVERY_REQUEST_TYPE = "crossroads-cafe-discover"
+DISCOVERY_OFFER_TYPE = "crossroads-cafe-offer"
+DEFAULT_DISCOVERY_UDP_PORT = 8137
+LOCAL_BASE_URLS = ("http://127.0.0.1:8000", "http://127.0.0.1:8001")
 # Use `os.getenv(KEY) or default` (not `os.getenv(KEY, default)`) so that an
 # empty-string env var falls back to the default instead of writing state to cwd.
 STATE_PATH = Path(os.getenv("A2A_SUPER_ORDER_STATE") or str(Path.home() / ".a2a-super-order" / "state.json"))
@@ -126,6 +134,153 @@ def request_get_json(url: str, token: str | None = None) -> Any:
         raise SystemExit(f"Unable to connect to {url}: {exc.reason}") from exc
 
 
+def normalize_base_url(value: str) -> str:
+    candidate = value.strip().rstrip("/")
+    try:
+        parsed = urlsplit(candidate)
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError(f"invalid backend URL: {exc}") from exc
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("backend URL must be an absolute http(s) URL")
+    if parsed.username or parsed.password:
+        raise ValueError("backend URL must not contain credentials")
+    if parsed.query or parsed.fragment:
+        raise ValueError("backend URL must not contain a query or fragment")
+    return candidate
+
+
+def probe_cafe_service(base_url: str, timeout: float = 2.0) -> bool:
+    """Verify that a URL is this café, without sending account credentials."""
+    request = urllib.request.Request(
+        base_url.rstrip("/") + "/skill/discovery",
+        headers={"Accept": "application/json"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            document = json.loads(response.read().decode("utf-8"))
+    except (OSError, ValueError, urllib.error.URLError, urllib.error.HTTPError):
+        return False
+    return bool(
+        isinstance(document, dict)
+        and document.get("service") == SERVICE_ID
+        and document.get("protocol_version") == DISCOVERY_PROTOCOL_VERSION
+    )
+
+
+def _discovery_udp_port() -> int:
+    raw = os.getenv("A2A_SUPER_ORDER_DISCOVERY_PORT", str(DEFAULT_DISCOVERY_UDP_PORT))
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise SystemExit("A2A_SUPER_ORDER_DISCOVERY_PORT must be an integer") from exc
+    if value < 1 or value > 65535:
+        raise SystemExit("A2A_SUPER_ORDER_DISCOVERY_PORT must be between 1 and 65535")
+    return value
+
+
+def discover_lan_base_url(udp_port: int, timeout: float = 1.5) -> str | None:
+    """Find and verify the first café offer from a private IPv4 network."""
+    nonce = uuid.uuid4().hex
+    payload = json.dumps(
+        {
+            "type": DISCOVERY_REQUEST_TYPE,
+            "version": DISCOVERY_PROTOCOL_VERSION,
+            "nonce": nonce,
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    deadline = time.monotonic() + timeout
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.bind(("", 0))
+        sock.sendto(payload, ("255.255.255.255", udp_port))
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            sock.settimeout(remaining)
+            try:
+                raw, peer = sock.recvfrom(2048)
+            except socket.timeout:
+                return None
+            try:
+                address = ipaddress.ip_address(peer[0])
+                offer = json.loads(raw.decode("utf-8"))
+                if not isinstance(offer, dict):
+                    continue
+                port = int(offer.get("http_port"))
+                scheme = offer.get("scheme")
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if not (address.is_private or address.is_loopback):
+                continue
+            if (
+                offer.get("type") != DISCOVERY_OFFER_TYPE
+                or offer.get("version") != DISCOVERY_PROTOCOL_VERSION
+                or offer.get("service") != SERVICE_ID
+                or offer.get("nonce") != nonce
+                or scheme not in {"http", "https"}
+                or port < 1
+                or port > 65535
+            ):
+                continue
+            candidate = f"{scheme}://{peer[0]}:{port}"
+            if probe_cafe_service(candidate):
+                return candidate
+    except OSError:
+        return None
+    finally:
+        sock.close()
+
+
+def resolve_base_url(
+    *,
+    explicit: str | None,
+    environment: str | None,
+    cached: dict[str, Any],
+    force_discovery: bool = False,
+) -> tuple[str, str]:
+    """Validate intentional URLs, then recover stale cache through discovery."""
+    for raw, source in ((explicit, "argument"), (environment, "environment")):
+        if not raw:
+            continue
+        try:
+            candidate = normalize_base_url(raw)
+        except ValueError as exc:
+            raise SystemExit(f"{source} backend address is invalid: {exc}") from exc
+        if not probe_cafe_service(candidate):
+            raise SystemExit(
+                f"无法验证 {source} 指定的咖啡厅服务：{candidate}。"
+                "请确认服务已启动并检查 /skill/discovery。"
+            )
+        return candidate, source
+
+    if not force_discovery:
+        raw_cached = cached.get("base_url") if isinstance(cached, dict) else None
+        if isinstance(raw_cached, str) and raw_cached.strip():
+            try:
+                candidate = normalize_base_url(raw_cached)
+            except ValueError:
+                candidate = ""
+            if candidate and probe_cafe_service(candidate):
+                return candidate, "cache"
+
+    for candidate in LOCAL_BASE_URLS:
+        if probe_cafe_service(candidate):
+            return candidate, "localhost"
+
+    discovered = discover_lan_base_url(_discovery_udp_port())
+    if discovered:
+        return discovered, "lan"
+    raise SystemExit(
+        "未找到 Crossroads Agent Café 后端。请启动服务（局域网访问需绑定 0.0.0.0），"
+        "或使用 --base-url / RESTAURANT_API_BASE 指定地址。"
+    )
+
+
 def fetch_menu(base_url: str, token: str) -> tuple[bool, Any, str]:
     """GET {base_url}/menu. Read-only reachability + menu probe.
 
@@ -159,10 +314,8 @@ def cmd_ping(args: argparse.Namespace, registration: dict[str, Any]) -> int:
             "status": "unreachable",
             "error": err,
             "hint": (
-                "If the café backend runs on another machine, set "
-                "RESTAURANT_API_BASE=http://192.168.110.87:8001 and retry. "
-                "Also confirm `uvicorn app.main:app` is running on the server "
-                "and port 8001 is open."
+                "Run --discover to refresh a stale cached address, or set "
+                "--base-url / RESTAURANT_API_BASE explicitly."
             ),
         }, ensure_ascii=False, indent=2))
         return 1
@@ -500,7 +653,8 @@ def main() -> int:
             pass
 
     parser = argparse.ArgumentParser(description="Order coffee through the A2A super order Skill.")
-    parser.add_argument("--base-url", default=None, help="Backend URL. Saved on first explicit use; later commands auto-read it. Precedence: --base-url > RESTAURANT_API_BASE env > saved config > http://192.168.110.87:8001.")
+    parser.add_argument("--base-url", default=None, help="Backend URL. Validated before use and saved after a successful probe.")
+    parser.add_argument("--discover", action="store_true", help="Ignore a saved address, discover the café on localhost/LAN, validate it, and cache it.")
     parser.add_argument("--tool-name", default=os.getenv("RESTAURANT_TOOL_NAME", "codex"))
     parser.add_argument("--display-name", default=os.getenv("RESTAURANT_AGENT_NAME") or detect_username())
     parser.add_argument("--evomap-node-id", default=os.getenv("EVOMAP_NODE_ID") or os.getenv("A2A_NODE_ID"))
@@ -542,22 +696,6 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    # Resolve base_url: explicit --base-url > RESTAURANT_API_BASE env > persisted
-    # config > default. An explicit --base-url is persisted so later commands
-    # auto-use it — the backend address may change between deploys (IP/domain).
-    cached_config = read_json(CONFIG_PATH, {})
-    base_url = (
-        args.base_url
-        or os.getenv("RESTAURANT_API_BASE")
-        or (cached_config.get("base_url") if isinstance(cached_config, dict) else None)
-        or DEFAULT_BASE_URL
-    )
-    if args.base_url:
-        cached_config = cached_config if isinstance(cached_config, dict) else {}
-        cached_config["base_url"] = args.base_url.rstrip("/")
-        write_json(CONFIG_PATH, cached_config)
-    args.base_url = base_url.rstrip("/")
-
     if args.check_evomap:
         install = detect_evomap_install()
         creds = load_evomap_credentials()
@@ -568,6 +706,32 @@ def main() -> int:
             "evomap_home": install["evomap_home"],
             "credentials_loaded": creds is not None,
             "username": detect_username(),
+        }, ensure_ascii=False, indent=2))
+        return 0
+
+    cached_config = read_json(CONFIG_PATH, {})
+    cached_config = cached_config if isinstance(cached_config, dict) else {}
+    args.base_url, address_source = resolve_base_url(
+        explicit=args.base_url,
+        environment=os.getenv("RESTAURANT_API_BASE"),
+        cached=cached_config,
+        force_discovery=args.discover,
+    )
+    if address_source != "cache":
+        cached_config.update(
+            {
+                "base_url": args.base_url,
+                "source": address_source,
+                "validated_at": int(time.time()),
+            }
+        )
+        write_json(CONFIG_PATH, cached_config)
+    if args.discover:
+        print(json.dumps({
+            "ok": True,
+            "base_url": args.base_url,
+            "source": address_source,
+            "status": "validated",
         }, ensure_ascii=False, indent=2))
         return 0
 
@@ -602,7 +766,7 @@ def main() -> int:
             print(json.dumps(output, ensure_ascii=False, indent=2))
             return 0
         if not args.message:
-            raise SystemExit("Use --login, --me, --ping, --menu, --logout, or --message")
+            raise SystemExit("Use --discover, --login, --me, --ping, --menu, --logout, or --message")
         result = submit_order(args, registration)
     except ApiError as exc:
         print(f"请求失败: HTTP {exc.status}", file=sys.stderr)

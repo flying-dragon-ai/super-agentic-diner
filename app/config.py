@@ -113,6 +113,12 @@ class Settings(BaseSettings):
     skill_reconcile_interval_seconds: int = 60
     skill_reconcile_batch_size: int = 10
     skill_reconcile_claim_timeout_seconds: int = 300
+    # Trusted-LAN discovery for the cross-platform A2A Skill client. The HTTP
+    # port must match the port exposed by uvicorn/reverse proxy on the LAN.
+    a2a_discovery_enabled: bool = True
+    a2a_discovery_udp_port: int = 8137
+    a2a_discovery_http_port: int = 8000
+    a2a_discovery_http_scheme: Literal["http", "https"] = "http"
     evomap_credit_rate: str = "1"
     evomap_atp_caps: str = "a2a_super_order,coffee_order"
 
@@ -180,6 +186,13 @@ class Settings(BaseSettings):
     def _validate_skill_reconcile_timeout(cls, value: int) -> int:
         if value < 60:
             raise ValueError("SKILL_RECONCILE_CLAIM_TIMEOUT_SECONDS must be at least 60")
+        return value
+
+    @field_validator("a2a_discovery_udp_port", "a2a_discovery_http_port")
+    @classmethod
+    def _validate_a2a_discovery_port(cls, value: int) -> int:
+        if value < 1 or value > 65535:
+            raise ValueError("A2A discovery ports must be between 1 and 65535")
         return value
 
     @field_validator("registration_bonus_cny")

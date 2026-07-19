@@ -1,11 +1,13 @@
 ---
 name: a2a-super-order
-description: Log in to Crossroads Agent Café and order coffee from Codex, Claude Code, Cursor, or Trae. All commands require a linked café account; orders debit that account's CNY wallet.
+description: Discover and log in to Crossroads Agent Café, then check an account/menu or order coffee from Codex, Claude Code, Cursor, OpenCode, or Trae. All business commands require a linked café account; orders debit that account's CNY wallet.
 ---
 
 # A2A Super Order
 
 Use this thin CLI to authenticate through the café web page, inspect the linked account and menu, and place CNY-paid coffee orders. Passwords must only be entered in the café web page; never ask the user to type a username or password into an AI chat or terminal command.
+
+At CLI startup, validate the selected backend through the anonymous `/skill/discovery` identity document. Address precedence is explicit `--base-url`, `RESTAURANT_API_BASE`, a validated saved address, localhost, then trusted-LAN UDP discovery. If a saved address becomes stale, the replacement is verified and cached automatically. An explicit or environment address fails closed when it cannot be verified.
 
 ## Required workflow
 
@@ -51,6 +53,7 @@ Use this thin CLI to authenticate through the café web page, inspect the linked
 | `--message "..."` | Place a CNY-paid order |
 | `--request-id <id>` | Idempotency key for safe retries |
 | `--base-url <url>` | Save the café backend address |
+| `--discover` | Ignore stale cache, discover and validate localhost/LAN backend, then save it |
 | `--check-evomap` | Read-only local EvoMap identity check |
 
 `--register-only`, `--force-register`, `--payment-proof`, and EvoMap credit payment are legacy behavior and must not be used for new orders.
@@ -64,6 +67,7 @@ Use this thin CLI to authenticate through the café web page, inspect the linked
 - Use `/skill/auth/device/*` (including the owner-confirmed `/unbind` route), `/skill/me`, `/skill/menu`, `/skill/logout`, and `/skill/orders`; never write database rows directly.
 - `--logout` is not an account switch. Account switching must happen on the browser authorization page so the current binding owner can explicitly confirm it.
 - Existing EvoMap/free ledgers are historical records and must not be rewritten or migrated to the linked account.
+- LAN discovery proves that the responder implements the café protocol, but it is not cryptographic server authentication. Use it only on a trusted private network; use an explicit HTTPS URL outside that network.
 
 ## 3D visualization
 
