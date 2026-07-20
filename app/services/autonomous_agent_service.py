@@ -27,6 +27,7 @@ from app.services.visualization_service import (
     hash_agent_token,
     publish_visualization_event,
 )
+from app.llm import client as llm_client
 
 AUTONOMOUS_TOOL_NAME: Final[str] = "evomap:autonomous_customer"
 AUTONOMOUS_DISPLAY_NAME: Final[str] = "数字顾客"
@@ -165,7 +166,191 @@ def sense(db: Session, agent: AgentProfile) -> AutonomousPerception:
     )
 
 
+# ============================================================
+# LLM 驱动的行走/行为决策（2026-07-17）
+# 把「数字顾客走到哪、做什么、说什么」从硬编码脚本升级为模型接管。
+# 模型感知场景布局 + 今日菜单，输出一段 JSON 行为流；后端规范化后
+# 逐 step 广播，前端 A* 寻路照常执行（前端只吃 action_type + 坐标）。
+# 无 key / LLM 失败 / 输出不合法时降级回下方硬编码 decide()，确保
+# 无模型环境也能跑。
+# ============================================================
+
+# 画布尺寸（与前端 roleMap.ts 注释一致：1800×720）。
+_CANVAS_SEAT_X_MIN, _CANVAS_SEAT_X_MAX = 480, 1180
+_CANVAS_SEAT_Y_MIN, _CANVAS_SEAT_Y_MAX = 300, 700
+_DEFAULT_SEAT_X, _DEFAULT_SEAT_Y = 755, 580
+
+# action 白名单：必须与前端 roleMap.ts 的 ACTION_BEHAVIOR 对齐，
+# 否则前端 resolveAction 会兜底成 walk_to_table，语义错位。
+_VALID_AUTONOMOUS_ACTIONS: Final[set[str]] = {
+    "enter_scene",
+    "walk_to_counter",
+    "walk_to_table",
+    "show_message",
+    "take_order",
+    "leave_scene",
+}
+
+AUTONOMOUS_DECIDE_PROMPT = """你是「Crossroads Agent Café」里一位由大模型驱动的自主数字顾客。请决定本次进店后的完整走路、动作与台词，让它像一位真实的咖啡馆顾客。
+
+【场景布局】画布 1800×720 像素，左上角为原点，x 向右增、y 向下增。
+- 门（入口/出口）：(60, 360)
+- 吧台区（点单/收银）：x 在 0~480；吧台收银位 (350, 300)，咖啡机位 (200, 300)
+- 座位区（圆桌、入座）：x 在 480~1180；常用座位 (755, 580)，圆桌之间 (755, 480)
+- 休闲区（lounge）：x 在 1200~1750
+
+【动作白名单（action 只能取以下值之一）】
+- "enter_scene"：进门入场，通常作为第一步
+- "walk_to_counter"：走向吧台收银位点单（无需坐标，前端自动定位到 350,300）
+- "walk_to_table"：走向某个座位，必须带 x、y（座位区坐标，如 755,580）
+- "show_message"：说一句话，必须带 message
+- "take_order"：在吧台点单，可带 message
+- "leave_scene"：走向出口离店
+
+【今日可用菜单（只能从中点单）】
+__MENU__
+
+【输出格式】只输出一个 JSON 对象，不要任何额外文字、不要 markdown 代码围栏：
+{
+  "intent": "browse_menu | order_coffee | sit_and_chat | just_leave 任选其一",
+  "reason": "一句话动机，20字以内",
+  "chosen_product": "你点的咖啡名（从菜单选，没点单则 null）",
+  "steps": [
+    {"action": "enter_scene", "message": "进店随口一句"},
+    {"action": "walk_to_counter"},
+    {"action": "show_message", "message": "今天想喝点…"},
+    {"action": "take_order", "message": "我要一杯XXX"},
+    {"action": "walk_to_table", "x": 755, "y": 580},
+    {"action": "show_message", "message": "坐下后的一句感想"},
+    {"action": "leave_scene"}
+  ]
+}
+
+【行为风格】
+1. 像真实顾客，带情绪/偏好（今天想提神 / 想坐窗边 / 赶时间看一眼就走 都可以）。
+2. 台词自然口语，20 字以内，可加 1 个表情。
+3. steps 以 enter_scene 开头、leave_scene 结尾，4~7 步为宜。
+4. walk_to_table 的坐标必须落在座位区（x:480~1180, y:300~700）。
+5. 只要 take_order，chosen_product 必须是菜单里出现过的名字。
+"""
+
+
+def _coerce_llm_step(raw: Any) -> AutonomousActionStep | None:
+    """把 LLM 输出的单个 step 规范化成 AutonomousActionStep。
+
+    丢弃非法 action；walk_to_table 缺坐标则用默认座位，坐标裁到座位区内。
+    返回 None 表示该 step 整段不可用、应由调用方过滤。
+    """
+    if not isinstance(raw, dict):
+        return None
+    action = str(raw.get("action", "")).strip()
+    if action not in _VALID_AUTONOMOUS_ACTIONS:
+        return None
+    message_raw = raw.get("message")
+    message: str | None
+    if message_raw in (None, ""):
+        message = None
+    else:
+        message = str(message_raw).strip()[:120] or None
+    payload: dict[str, Any] = {}
+    if action == "walk_to_table":
+        try:
+            tx = float(raw.get("x", _DEFAULT_SEAT_X))
+            ty = float(raw.get("y", _DEFAULT_SEAT_Y))
+        except (TypeError, ValueError):
+            tx, ty = float(_DEFAULT_SEAT_X), float(_DEFAULT_SEAT_Y)
+        # 裁到座位区，避免 LLM 给出画布外的坐标导致前端寻路失败。
+        tx = float(max(_CANVAS_SEAT_X_MIN, min(_CANVAS_SEAT_X_MAX, tx)))
+        ty = float(max(_CANVAS_SEAT_Y_MIN, min(_CANVAS_SEAT_Y_MAX, ty)))
+        payload = {"x": int(tx), "y": int(ty)}
+    return AutonomousActionStep(action, message=message, payload=payload)
+
+
+def _coerce_llm_decision(
+    data: Any,
+    *,
+    step_interval: float,
+) -> AutonomousDecision | None:
+    """把 LLM 的 JSON 输出规范化成一个可执行的 AutonomousDecision。
+
+    保证 steps 非空、以 enter_scene 开头、以 leave_scene 结尾，且每步都有
+    合理的 wait_seconds（避免人偶瞬移）。任何不合法都返回 None → 走硬编码兜底。
+    """
+    if not isinstance(data, dict):
+        return None
+    raw_steps = data.get("steps")
+    if not isinstance(raw_steps, list) or not raw_steps:
+        return None
+    steps = [s for s in (_coerce_llm_step(r) for r in raw_steps) if s is not None]
+    if not steps:
+        return None
+    # 补全进出场的 envelope（进店/离店是 3D 人偶生命周期的硬约定）。
+    if steps[0].action_type != "enter_scene":
+        steps.insert(0, AutonomousActionStep("enter_scene"))
+    if steps[-1].action_type != "leave_scene":
+        steps.append(
+            AutonomousActionStep("leave_scene", wait_seconds=step_interval)
+        )
+    # 每步给一个最小间隔，让前端有时间播放走动动画。
+    for step in steps:
+        if step.wait_seconds <= 0:
+            step.wait_seconds = step_interval
+    decision_id = uuid.uuid4().hex
+    chosen_raw = data.get("chosen_product")
+    chosen = str(chosen_raw).strip() if chosen_raw not in (None, "", [], {}) else None
+    return AutonomousDecision(
+        decision_id=decision_id,
+        correlation_id="auto-" + decision_id[:12],
+        intent=str(data.get("intent") or "order_coffee")[:40],
+        reason=str(data.get("reason") or "llm_decided")[:80],
+        chosen_product=chosen,
+        steps=steps,
+        created_at=_now().isoformat(),
+    )
+
+
+def _llm_decide(perception: AutonomousPerception) -> AutonomousDecision | None:
+    """模型驱动的行走/行为决策。返回 None 表示应降级到硬编码兜底。"""
+    if not llm_client.has_real_key():
+        return None
+    if perception.available_products:
+        menu_lines = [
+            f"- {p.name}（{p.base_price}元，库存{p.stock}"
+            + (f"，{p.tags}" if p.tags else "")
+            + "）"
+            for p in perception.available_products[:12]
+        ]
+        menu_text = "\n".join(menu_lines)
+    else:
+        menu_text = "（今日暂无可用菜单，只能 browse 或离开）"
+    system_prompt = AUTONOMOUS_DECIDE_PROMPT.replace("__MENU__", menu_text)
+    user_msg = (
+        f"当前场景：活跃 agent 数 {perception.active_agent_count}，"
+        f"最近事件类型 {perception.recent_event_types[-5:] or '无'}。"
+        "\n请输出你的行为 JSON。"
+    )
+    try:
+        raw = llm_client.chat_with_role(
+            system_prompt,
+            "",  # 菜单已融进 system prompt，无需额外 context
+            [],  # 自主决策无历史对话
+            user_msg,
+            timeout_seconds=settings.llm_generation_timeout_seconds,
+        )
+    except Exception:
+        return None
+    data = llm_client.parse_json_response(raw)
+    return _coerce_llm_decision(
+        data, step_interval=settings.autonomous_agent_step_interval_seconds
+    )
+
+
 def decide(perception: AutonomousPerception) -> AutonomousDecision:
+    # 有真实 LLM key 时，走路/行为/台词由模型接管。
+    llm_decision = _llm_decide(perception)
+    if llm_decision is not None:
+        return llm_decision
+    # 无 key / LLM 失败 / 输出不合法 → 硬编码兜底（保留原确定性脚本）。
     decision_id = uuid.uuid4().hex
     correlation_id = "auto-" + decision_id[:12]
     created_at = _now().isoformat()
@@ -339,7 +524,9 @@ async def run_one_cycle(
             db, tool_name=tool_name, display_name=display_name
         )
         perception = sense(db, agent)
-        decision = decide(perception)
+        # LLM 决策可能阻塞数秒（推理模型），放线程池跑避免卡住 asyncio 事件循环
+        # （WS 广播、presence 心跳等协程都依赖事件循环不能被阻塞）。
+        decision = await asyncio.to_thread(decide, perception)
         publish_decision(db, agent, decision, perception)
         await execute_decision(db, agent, decision)
         _last_decision = decision.public_dict()
