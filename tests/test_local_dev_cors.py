@@ -1,3 +1,5 @@
+import _test_env  # noqa: F401 - activate hermetic defaults before app imports
+
 from fastapi.testclient import TestClient
 
 from app.main import app

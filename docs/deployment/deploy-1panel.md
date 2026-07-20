@@ -83,12 +83,19 @@ cp .env.example .env
 vi .env
 ```
 
-**容器部署必须改这两行**（容器内不能写 `127.0.0.1` 或公网 IP 回环，用 docker 网关名）：
+**容器部署必须确认这些值**（容器内不能把宿主机 MySQL/Redis 写成 `127.0.0.1`，应使用 docker 网关名）：
 ```ini
+ENVIRONMENT=production
+DB_MODE=mysql
 MYSQL_HOST=host.docker.local
+USE_FAKEREDIS=false
 REDIS_HOST=host.docker.local
+AUTH_COOKIE_SECURE=true
+REGISTRATION_BONUS_CNY=0
 ```
-其余按实际填：`MYSQL_PASSWORD`（Step 1 设的）、`REDIS_PASSWORD`（若有）、`LLM_API_KEY`/`LLM_BASE_URL`/`LLM_MODEL`、`EVOMAP_NODE_ID`/`EVOMAP_NODE_SECRET`/`EVOMAP_SERVICE_LISTING_ID`、`AUTH_SECRET_KEY`（改成一串随机字符）。
+其余按实际填：`MYSQL_PASSWORD`（Step 1 设的）、`REDIS_PASSWORD`（若有）、`LLM_API_KEY`/`LLM_BASE_URL`/`LLM_MODEL`、`EVOMAP_NODE_ID`/`EVOMAP_NODE_SECRET`/`EVOMAP_SERVICE_LISTING_ID`、`AUTH_SECRET_KEY`（至少 32 个字符的随机值）。同源部署可将 `CORS_ALLOWED_ORIGINS` 留空；跨域时只填明确的 HTTPS origin，生产不能使用 `*`。
+
+`deploy/docker-compose.1panel.yml` 还会强制覆盖 `ENVIRONMENT=production`、`AUTH_COOKIE_SECURE=true`、`REGISTRATION_BONUS_CNY=0`。生产默认不发注册赠金，不要在未单独审核的情况下启用生产赠金开关。
 
 > `host.docker.local` 由 compose 的 `extra_hosts: host.docker.local:host-gateway` 映射到宿主机，容器经此访问宿主机的 MySQL/Redis 端口。
 
@@ -105,12 +112,22 @@ docker compose -f deploy/docker-compose.1panel.yml up -d --build
 ```bash
 docker compose -f deploy/docker-compose.1panel.yml logs -f   # 看启动日志
 docker ps | grep crossroads-agent-cafe                                # 确认运行
-curl -I http://127.0.0.1:8000/                                  # 本地验证（应返回 200 + 3D 页面）
+curl -fsS http://127.0.0.1:8000/health/live                     # 进程存活，应返回 200
+curl -fsS http://127.0.0.1:8000/health/ready                    # 可接流量，应返回 200
 ```
 
 容器随后会出现在 **1Panel「容器」→ 容器列表**，可直接在面板查看日志、重启、停止。
 
-> compose 的 `command` 已在 uvicorn 启动前自动跑 `init_db.py` + `migrate_order_sources.py`（幂等），**无需手动建表迁移**。
+> 镜像会在 uvicorn 启动前运行唯一的规范迁移 `scripts/migrate_order_sources.py`（幂等）。无需再串行运行 `init_db.py` 和第二个迁移命令；启动链路也不会隐式灌 demo 数据或创建固定管理员。
+
+首次确实需要管理员账号时，单独执行安全 bootstrap；密码交互输入，不要写进命令、日志或文档：
+
+```bash
+docker compose -f deploy/docker-compose.1panel.yml exec crossroads-agent-cafe \
+  python scripts/bootstrap_admin.py --username cafe-admin
+```
+
+已有普通账号只有在显式增加 `--promote-existing` 时才会被提升。
 
 ---
 
@@ -184,14 +201,22 @@ client_max_body_size 64m;
 ## Step 8. 验证（端到端）
 
 ```bash
-# 1) HTTPS 首页（应 200）
+# 1) Liveness：只检查应用进程（应 200）
+curl -fsS https://coffee.your-domain.com/health/live
+
+# 2) Readiness：检查 MySQL、Redis 和 3D 发布资源（应 200；失败为 503）
+curl -fsS https://coffee.your-domain.com/health/ready
+
+# 3) HTTPS 首页（应 200）
 curl -I https://coffee.your-domain.com/
 
-# 2) 聊天 API 可达
+# 4) 聊天 API 可达
 curl -X POST https://coffee.your-domain.com/chat \
   -H 'Content-Type: application/json' \
   -d '{"user_id":"smoke_test","message":"你好"}'
 ```
+
+只有 `/health/ready` 成功才应让反向代理或负载均衡继续送流量；`/health/live` 成功但 readiness 失败表示进程还在，但依赖或 3D 发布产物不可用。
 
 浏览器开 `https://coffee.your-domain.com/`，确认：
 - ✅ 3D 咖啡厅场景加载（人物、家具、贴图）
@@ -211,6 +236,7 @@ curl -X POST https://coffee.your-domain.com/chat \
 | 拉新代码 + 重启 | `cd /opt/crossroads-agent-cafe && git pull && docker compose -f deploy/docker-compose.1panel.yml up -d --build` |
 | **前端更新**（改了前端） | 本地 `cd frontend && npm run build` → 提交 `app/static/3d/` → push → 服务器 `git pull && docker compose ... up -d --build` |
 | 查看数据库 | 1Panel「数据库」→ coffee_ai → 在线管理 / phpMyAdmin |
+| 查看健康状态 | `curl -fsS http://127.0.0.1:8000/health/live && curl -fsS http://127.0.0.1:8000/health/ready`；或在容器详情查看 healthcheck |
 | 停止 / 卸载 | `docker compose -f deploy/docker-compose.1panel.yml down`（数据在 MySQL，不丢） |
 
 ---
@@ -221,11 +247,12 @@ curl -X POST https://coffee.your-domain.com/chat \
 |---|---|
 | 容器启动报 `Can't connect to MySQL` | `.env` 的 `MYSQL_HOST` 没改 `host.docker.local`；或 mysql `bind-address=127.0.0.1`（改 0.0.0.0）；或 `coffee` 用户主机限制（改 `%`） |
 | 容器启动报 `Access denied for user 'coffee'` | Step 1 的用户密码与 `.env MYSQL_PASSWORD` 不一致；或用户没授权 `coffee_ai` 库 |
+| `/health/live` 为 200、`/health/ready` 为 503 | 应用进程存活，但 MySQL、Redis 或 `app/static/3d` 发布资源至少一项失败；查看 readiness 响应中的 `checks` 和容器日志，修复前不要接流量 |
 | `curl 127.0.0.1:8000` 通但浏览器开域名 502 | 1Panel 反代代理地址写错（应为 `http://127.0.0.1:8000`）；或容器挂了（看日志） |
 | 页面打开但人偶/事件不刷新、背景音乐无 | nginx 缺 WebSocket upgrade 头（Step 6）；或浏览器拦混合内容（域名 HTTPS 但资源 HTTP） |
 | 申请 SSL 失败 | 域名没解析到本机 / 80 端口被防火墙拦 / 80 被占用 |
 | 3D 模型/音乐加载 404 | `client_max_body_size` 太小，或 nginx 配置未覆盖 `/3d/` 静态路径（一般 proxy_pass 全转发即可） |
-| 想用多 worker 提吞吐 | 当前 `--workers 1`。多 worker 会割裂 `/ws/visualization` 在线 presence；需先引 Redis pub/sub 同步再改 |
+| 想用多 worker 提吞吐 | 当前镜像固定 `--workers 1`。如需自定义多 worker，必须先保持 `USE_FAKEREDIS=false` 并确认真实 Redis/Pub/Sub readiness 正常；fakeredis 是进程内状态，不能跨 worker |
 
 ---
 

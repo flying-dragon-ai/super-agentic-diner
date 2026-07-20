@@ -1,17 +1,19 @@
-"""专项测试：网页/Skill 点单时顾客 enter_scene 事件产生并归属顾客 agent。
+"""专项测试：网页/Skill 顾客身份与 enter_scene 事件。
 
 覆盖修复路径（2026-06-21）：
-- /chat（匿名 user_id）→ ensure_web_customer_agent + customer_enter_scene
+- /chat 匿名 client user_id 不得伪造成持久化顾客 agent
 - /skill/orders → customer_enter_scene（即使订单 400/402 也应先广播 enter_scene）
 - restaurant.customer_entered 事件须携带顾客 agent_id（不再是 None）
 """
 from __future__ import annotations
 
+import _test_env  # noqa: F401 - activate hermetic defaults before app imports
 import json
 import unittest
 import uuid
 
 from fastapi.testclient import TestClient
+from unittest.mock import patch
 
 from app.db.database import SessionLocal
 from app.db.models import AgentProfile, VisualizationEvent
@@ -44,7 +46,7 @@ class CustomerEnterSceneTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.client = TestClient(app)
 
-    def test_chat_creates_customer_agent_and_broadcasts_enter_scene(self) -> None:
+    def test_anonymous_chat_does_not_create_spoofable_customer_agent(self) -> None:
         uid = 990000 + (uuid.uuid4().int % 9999)
         rid = "enter-web-" + uuid.uuid4().hex[:8]
         resp = self.client.post(
@@ -71,31 +73,27 @@ class CustomerEnterSceneTests(unittest.TestCase):
         finally:
             db.close()
 
-        self.assertIsNotNone(agent, "web customer agent must be created on /chat")
-        self.assertEqual(agent.role_type, "customer")
+        self.assertIsNone(agent, "anonymous client user_id must not create a persisted customer agent")
         self.assertIsNotNone(ce, "restaurant.customer_entered must be emitted")
-        self.assertEqual(
-            ce.agent_id,
-            agent.agent_id,
-            "customer_entered must carry the customer agent_id (not None)",
-        )
-        self.assertIsNotNone(
-            _latest_action(agent.agent_id, "enter_scene"),
-            "enter_scene agent.action must be broadcast for the customer",
-        )
+        self.assertIsNone(ce.agent_id)
 
-    def test_skill_order_broadcasts_enter_scene_even_when_order_fails(self) -> None:
+    def test_unlinked_skill_order_does_not_enter_scene(self) -> None:
         node = "enter-skill-" + uuid.uuid4().hex[:8]
-        reg = self.client.post(
-            "/skill/register",
-            json={
-                "tool_name": "codex",
-                "display_name": "EnterTest",
-                "evomap_node_id": node,
-                "role_type": "customer",
-                "capabilities": ["a2a_super_order"],
-            },
-        ).json()
+        with patch(
+            "app.main.evomap_evolution_service.verify_node_identity",
+            return_value=True,
+        ):
+            reg = self.client.post(
+                "/skill/register",
+                json={
+                    "tool_name": "codex",
+                    "display_name": "EnterTest",
+                    "evomap_node_id": node,
+                    "role_type": "customer",
+                    "capabilities": ["a2a_super_order"],
+                },
+                headers={"X-Evomap-Node-Secret": "test-secret"},
+            ).json()
         agent_id = reg["agent_id"]
         # 裸"拿铁"短名 → coffee_not_resolved (400)，但 enter_scene 在解析之前已广播。
         self.client.post(
@@ -107,11 +105,14 @@ class CustomerEnterSceneTests(unittest.TestCase):
                 "message": "拿铁",
                 "request_id": "enter-skill-" + uuid.uuid4().hex[:8],
             },
-            headers={"X-Agent-Token": reg["api_token"]},
+            headers={
+                "X-Agent-Token": reg["api_token"],
+                "X-Evomap-Node-Secret": "test-secret",
+            },
         )
-        self.assertIsNotNone(
+        self.assertIsNone(
             _latest_action(agent_id, "enter_scene"),
-            "enter_scene must fire even when the order later fails to resolve",
+            "an unlinked legacy Skill token must be rejected before entering the scene",
         )
 
 

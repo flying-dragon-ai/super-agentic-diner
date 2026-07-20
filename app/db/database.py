@@ -8,7 +8,10 @@ if settings.db_mode == "sqlite":
     # check_same_thread=False 让 FastAPI(异步框架) 多线程共享同一连接。
     engine = create_engine(
         settings.database_url,
-        connect_args={"check_same_thread": False},
+        connect_args={
+            "check_same_thread": False,
+            "timeout": settings.sqlite_busy_timeout_ms / 1000,
+        },
         echo=False,
     )
 
@@ -18,6 +21,8 @@ if settings.db_mode == "sqlite":
     @event.listens_for(engine, "connect")
     def _set_sqlite_pragma(dbapi_conn, _conn_record):
         cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute(f"PRAGMA busy_timeout={settings.sqlite_busy_timeout_ms}")
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.execute("PRAGMA cache_size=-65536")

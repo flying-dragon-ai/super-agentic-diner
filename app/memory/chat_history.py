@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import logging
 
-from redis.exceptions import RedisError
+from redis.exceptions import RedisError, ResponseError
 
 from app.config import settings
 from app.memory._redis_client import get_redis_client
@@ -28,14 +28,14 @@ def _client():
     return get_redis_client()
 
 
-def _key(user_id: int) -> str:
+def _key(user_id: int | str) -> str:
     """【任务一·Redis】每个用户的对话历史用一个独立的 List 存储
     key 格式：chat:history:{user_id}，如 chat:history:1
     """
     return f"chat:history:{user_id}"
 
 
-def add_message(user_id: int, role: str, content: str) -> None:
+def add_message(user_id: int | str, role: str, content: str) -> None:
     """【任务一·Redis】写入一条消息到 Redis List
 
     三步操作（原子性由 Redis 单线程保证）：
@@ -51,10 +51,18 @@ def add_message(user_id: int, role: str, content: str) -> None:
     try:
         r = _client()
         key = _key(user_id)
-        r.lpush(key, json.dumps({"role": role, "content": content}, ensure_ascii=False))
         keep = settings.chat_history_rounds * 2  # 5轮 × 每轮2条 = 保留10条
-        r.ltrim(key, 0, keep - 1)                # 裁剪：只留前10条
-        r.expire(key, settings.chat_history_ttl)  # 30分钟后自动过期
+        payload = json.dumps({"role": role, "content": content}, ensure_ascii=False)
+        if hasattr(r, "pipeline"):
+            with r.pipeline(transaction=True) as pipe:
+                pipe.lpush(key, payload)
+                pipe.ltrim(key, 0, keep - 1)  # 裁剪：只留前10条
+                pipe.expire(key, settings.chat_history_ttl)  # 30分钟后自动过期
+                pipe.execute()
+        else:  # Lightweight test doubles; real Redis clients always use pipeline.
+            r.lpush(key, payload)
+            r.ltrim(key, 0, keep - 1)
+            r.expire(key, settings.chat_history_ttl)
     except RedisError:
         # 对话历史写不进不影响下单/支付；Redis 恢复后自愈。
         logger.warning(
@@ -62,6 +70,12 @@ def add_message(user_id: int, role: str, content: str) -> None:
         )
 
     # 2. 写 SQL（长期归档，供用户画像增量总结）
+    # Anonymous chat identities are represented by non-positive IDs and remain
+    # Redis-only. This prevents FK-orphaned SQL archive rows while preserving
+    # short-term conversation memory for guests.
+    if not isinstance(user_id, int) or user_id <= 0:
+        return
+
     try:
         from app.db.database import SessionLocal
         from app.db.models import ChatMessage
@@ -79,7 +93,7 @@ def add_message(user_id: int, role: str, content: str) -> None:
         )
 
 
-def get_history(user_id: int) -> list[dict]:
+def get_history(user_id: int | str) -> list[dict]:
     """【任务一·Redis】读取用户最近 5 轮对话历史
 
     LRANGE 取全部后 reversed 转为时间正序（最早的在前），
@@ -103,7 +117,7 @@ def get_history(user_id: int) -> list[dict]:
     return messages
 
 
-def clear_history(user_id: int) -> None:
+def clear_history(user_id: int | str) -> None:
     try:
         _client().delete(_key(user_id))
     except RedisError:
@@ -119,7 +133,7 @@ def clear_history(user_id: int) -> None:
 _PENDING_KEY = "chat:pending:{}"  # .format(user_id)
 
 
-def set_pending_order(user_id: int, data: dict) -> None:
+def set_pending_order(user_id: int | str, data: dict) -> None:
     """存储待确认的订单（JSON），等用户回复「确认」后执行扣款
 
     Redis 不可用时 best-effort 吞掉异常：调用方随后在 get_pending_order
@@ -127,13 +141,18 @@ def set_pending_order(user_id: int, data: dict) -> None:
     """
     try:
         r = _client()
-        r.set(_PENDING_KEY.format(user_id), json.dumps(data, ensure_ascii=False))
-        r.expire(_PENDING_KEY.format(user_id), settings.chat_history_ttl)
+        key = _PENDING_KEY.format(user_id)
+        payload = json.dumps(data, ensure_ascii=False)
+        try:
+            r.set(key, payload, ex=settings.chat_history_ttl)
+        except TypeError:  # Lightweight test doubles without SET options.
+            r.set(key, payload)
+            r.expire(key, settings.chat_history_ttl)
     except RedisError:
         logger.warning("Redis 写待确认订单失败（已降级）user_id=%s", user_id, exc_info=True)
 
 
-def get_pending_order(user_id: int) -> dict | None:
+def get_pending_order(user_id: int | str) -> dict | None:
     """读取待确认订单，无则返回 None。损坏的 JSON 会被丢弃并清理，避免反复报错。
 
     Redis 不可用时降级返回 None：按"无待确认订单"处理，正常下单流程继续。
@@ -160,7 +179,77 @@ def get_pending_order(user_id: int) -> dict | None:
     return None
 
 
-def clear_pending_order(user_id: int) -> None:
+def claim_pending_order(user_id: int | str) -> dict | None:
+    """Atomically fetch and remove a pending order for confirmation.
+
+    Concurrent confirmation requests can no longer both observe the same JSON
+    and charge twice. ``GETDEL`` is used when available; the Lua fallback keeps
+    the same atomic semantics on older Redis-compatible servers.
+    """
+    key = _PENDING_KEY.format(user_id)
+    try:
+        r = _client()
+        try:
+            raw = r.getdel(key)
+        except (AttributeError, NotImplementedError, ResponseError):
+            raw = r.eval(
+                "local v=redis.call('GET',KEYS[1]); "
+                "if v then redis.call('DEL',KEYS[1]); end; return v",
+                1,
+                key,
+            )
+    except RedisError:
+        logger.warning(
+            "Redis 原子领取待确认订单失败（已降级为无）user_id=%s",
+            user_id,
+            exc_info=True,
+        )
+        return None
+
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("丢弃损坏的已领取订单 user_id=%s: %r", user_id, raw[:80])
+        return None
+
+
+def migrate_pending_order(source_user_id: int | str, target_user_id: int | str) -> bool:
+    """Atomically move a guest checkout to an authenticated account.
+
+    ``RENAMENX`` preserves the source TTL and refuses to overwrite an existing
+    account checkout. This avoids the loss window in a GETDEL + SET sequence if
+    Redis becomes unavailable between the two commands.
+    """
+    if source_user_id == target_user_id:
+        return False
+    source_key = _PENDING_KEY.format(source_user_id)
+    target_key = _PENDING_KEY.format(target_user_id)
+    try:
+        return bool(_client().renamenx(source_key, target_key))
+    except ResponseError as exc:
+        # Redis reports a missing source as a command error rather than false.
+        if "no such key" in str(exc).lower():
+            return False
+        logger.warning(
+            "Redis 原子迁移待确认订单失败 source=%s target=%s",
+            source_user_id,
+            target_user_id,
+            exc_info=True,
+        )
+        return False
+    except (AttributeError, NotImplementedError, RedisError):
+        logger.warning(
+            "Redis 原子迁移待确认订单失败 source=%s target=%s",
+            source_user_id,
+            target_user_id,
+            exc_info=True,
+        )
+        return False
+
+
+def clear_pending_order(user_id: int | str) -> None:
     try:
         _client().delete(_PENDING_KEY.format(user_id))
     except RedisError:

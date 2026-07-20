@@ -1,5 +1,9 @@
-"""Integration tests against the configured MySQL for the catalog/order/wallet
-refactor. Skipped automatically when MySQL is not reachable.
+"""Integration tests against an explicitly selected disposable MySQL database.
+
+Normal discovery never probes MySQL.  To run this file, set
+``RUN_MYSQL_INTEGRATION=1``, ``DB_MODE=mysql``, and an explicit
+``MYSQL_DATABASE`` ending in ``_test`` before starting a separate test process.
+The remaining ``MYSQL_*`` settings must point to that disposable instance.
 
 Covers:
 - migration scripts are idempotent (re-run is a no-op for inserts)
@@ -9,6 +13,7 @@ Covers:
 """
 from __future__ import annotations
 
+import _test_env  # activate gates before importing configured DB modules
 import os
 import subprocess
 import sys
@@ -36,6 +41,9 @@ from app.domain_constants import (
 from app.services import order_service, wallet_service
 
 
+MYSQL_CONFIG = _test_env.mysql_test_config()
+
+
 def _mysql_reachable() -> bool:
     try:
         import pymysql
@@ -53,8 +61,23 @@ def _mysql_reachable() -> bool:
         return False
 
 
-@unittest.skipUnless(_mysql_reachable(), "MySQL not reachable")
-class MysqlRefactorIntegrationTests(unittest.TestCase):
+class _MysqlIntegrationTestCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        config = _test_env.require_mysql_test_config()
+        if settings.db_mode != "mysql" or settings.mysql_database != config.database:
+            raise _test_env.UnsafeTestEnvironmentError(
+                "loaded application settings do not match the guarded MySQL test database"
+            )
+        if not _mysql_reachable():
+            raise unittest.SkipTest(
+                f"disposable MySQL test database {config.database!r} is not reachable"
+            )
+
+
+@unittest.skipUnless(MYSQL_CONFIG.enabled, MYSQL_CONFIG.reason)
+class MysqlRefactorIntegrationTests(_MysqlIntegrationTestCase):
     """Runs against the real configured MySQL; each test owns + cleans its data."""
 
     TEST_SKU = "TEST-INTEGRATION-LATTE"
@@ -231,8 +254,8 @@ class MysqlRefactorIntegrationTests(unittest.TestCase):
         self.assertEqual(Decimal(total), Decimal(wallet.balance))
 
 
-@unittest.skipUnless(_mysql_reachable(), "MySQL not reachable")
-class MigrationIdempotencyTests(unittest.TestCase):
+@unittest.skipUnless(MYSQL_CONFIG.enabled, MYSQL_CONFIG.reason)
+class MigrationIdempotencyTests(_MysqlIntegrationTestCase):
     """Re-running each migration must not duplicate rows or fail."""
 
     def _run(self, module: str) -> int:

@@ -30,7 +30,13 @@ def _is_configured() -> bool:
     return bool(settings.evomap_node_id and settings.evomap_node_secret)
 
 
-def _post_json(url: str, body: dict[str, Any], *, auth: bool = True) -> dict[str, Any] | None:
+def _post_json(
+    url: str,
+    body: dict[str, Any],
+    *,
+    auth: bool = True,
+    bearer_token: str | None = None,
+) -> dict[str, Any] | None:
     """POST JSON 到 EvoMap Hub，返回响应 dict；失败返回 None（不抛异常）。"""
     headers = {
         "Content-Type": "application/json",
@@ -38,7 +44,9 @@ def _post_json(url: str, body: dict[str, Any], *, auth: bool = True) -> dict[str
         # Cloudflare(防火墙) 会封锁 Python-urllib(标准库默认 UA)，必须伪装成浏览器
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
     }
-    if auth:
+    if bearer_token:
+        headers["Authorization"] = f"Bearer {bearer_token}"
+    elif auth:
         headers["Authorization"] = f"Bearer {settings.evomap_node_secret}"
     payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
     req = Request(url, data=payload, method="POST", headers=headers)
@@ -93,9 +101,32 @@ def heartbeat() -> dict[str, Any] | None:
     if not _is_configured():
         return None
     return _post_json(
-        f"{_HUB}/a2a/heartbeat",
+        f"{settings.evomap_hub_url.rstrip('/')}/a2a/heartbeat",
         {"node_id": settings.evomap_node_id},
     )
+
+
+def verify_node_identity(node_id: str, node_secret: str) -> bool:
+    """Fail-closed verification that a secret is accepted for a claimed node.
+
+    The secret is sent only in the Authorization header and is never logged or
+    persisted.  A response that explicitly identifies a different node is
+    rejected; otherwise a successful authenticated heartbeat is sufficient.
+    """
+    claimed = (node_id or "").strip()
+    secret = (node_secret or "").strip()
+    if not claimed or not secret:
+        return False
+    response = _post_json(
+        f"{settings.evomap_hub_url.rstrip('/')}/a2a/heartbeat",
+        {"node_id": claimed},
+        auth=False,
+        bearer_token=secret,
+    )
+    if not isinstance(response, dict):
+        return False
+    response_node = response.get("node_id") or response.get("sender_id")
+    return response_node in (None, "", claimed)
 
 
 def get_node_status() -> dict[str, Any]:

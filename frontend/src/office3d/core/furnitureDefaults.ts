@@ -178,3 +178,28 @@ export const resolveFurnitureLayout = (
 
 export const materializeDefaults = (): FurnitureItem[] =>
   DEFAULT_FURNITURE.map((item, index) => ({ ...item, _uid: `office_${index}` }));
+
+// Exact canonical signature used only for safe duplicate cleanup. Unlike the
+// historical 12px distance heuristic, nearby chairs/cups remain distinct. A
+// duplicate must either reuse the same stable _uid or match every persisted
+// furniture field except _uid byte-for-byte after key ordering.
+export const createExactFurnitureSignature = (item: FurnitureItem): string =>
+  JSON.stringify(
+    Object.entries(item)
+      .filter(([key, value]) => key !== "_uid" && value !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
+
+export const deduplicateFurniture = (items: FurnitureItem[]): FurnitureItem[] => {
+  const seenUids = new Set<string>();
+  const seenSignatures = new Set<string>();
+  return items.filter((item) => {
+    const uid = typeof item._uid === "string" ? item._uid.trim() : "";
+    if (uid && seenUids.has(uid)) return false;
+    const signature = createExactFurnitureSignature(item);
+    if (seenSignatures.has(signature)) return false;
+    if (uid) seenUids.add(uid);
+    seenSignatures.add(signature);
+    return true;
+  });
+};

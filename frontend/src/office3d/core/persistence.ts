@@ -5,8 +5,26 @@ import { LAYOUT_MIGRATION_KEY, STORAGE_KEY, STORAGE_META_KEY } from "./constants
 import type { FurnitureItem } from "./types";
 import { getOfficeLayout, saveOfficeLayout } from "../../net/api";
 
+const LEGACY_STORAGE_KEY = "coffee-office-furniture-v1";
+const LEGACY_STORAGE_META_KEY = "coffee-office-furniture-meta-v1";
+
 const resolveStorageKey = (key: string, namespace = "default") =>
   namespace === "default" ? key : `${key}:${namespace}`;
+
+const loadStoredArray = (key: string, namespace: string): FurnitureItem[] | null => {
+  const raw = localStorage.getItem(resolveStorageKey(key, namespace));
+  if (!raw) return null;
+  const parsed = JSON.parse(raw);
+  // An empty array is intentional: a user may delete every scene item.
+  return Array.isArray(parsed) ? (parsed as FurnitureItem[]) : null;
+};
+
+const loadStoredSavedAt = (key: string, namespace: string): string | null => {
+  const raw = localStorage.getItem(resolveStorageKey(key, namespace));
+  if (!raw) return null;
+  const parsed = JSON.parse(raw);
+  return typeof parsed?.savedAt === "string" ? parsed.savedAt : null;
+};
 
 export const saveFurniture = (items: FurnitureItem[], namespace = "default") => {
   try {
@@ -25,25 +43,39 @@ export const saveFurniture = (items: FurnitureItem[], namespace = "default") => 
 
 export const loadFurnitureSavedAt = (namespace = "default"): string | null => {
   try {
-    const raw = localStorage.getItem(resolveStorageKey(STORAGE_META_KEY, namespace));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return typeof parsed?.savedAt === "string" ? parsed.savedAt : null;
+    const currentItems = loadStoredArray(STORAGE_KEY, namespace);
+    if (currentItems !== null) {
+      try {
+        return loadStoredSavedAt(STORAGE_META_KEY, namespace);
+      } catch {
+        return null;
+      }
+    }
+    return loadStoredSavedAt(LEGACY_STORAGE_META_KEY, namespace);
   } catch {
-    return null;
+    try {
+      return loadStoredSavedAt(LEGACY_STORAGE_META_KEY, namespace);
+    } catch {
+      return null;
+    }
   }
 };
 
 export const loadFurniture = (namespace = "default"): FurnitureItem[] | null => {
   try {
-    const raw = localStorage.getItem(resolveStorageKey(STORAGE_KEY, namespace));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    // B3: accept an empty array — a user who deliberately deleted every piece
-    // should stay empty on refresh, not be restored to the default layout.
-    return Array.isArray(parsed) ? (parsed as FurnitureItem[]) : null;
+    const current = loadStoredArray(STORAGE_KEY, namespace);
+    if (current !== null) return current;
+    // Safe v1 -> v2 migration: read legacy data only when v2 is absent/corrupt.
+    // The caller compares this legacy timestamp with the server layout, then
+    // saveFurniture() writes the selected winner to v2. v1 is deliberately kept
+    // for a compatibility window instead of being deleted during hydration.
+    return loadStoredArray(LEGACY_STORAGE_KEY, namespace);
   } catch {
-    return null;
+    try {
+      return loadStoredArray(LEGACY_STORAGE_KEY, namespace);
+    } catch {
+      return null;
+    }
   }
 };
 
@@ -79,13 +111,21 @@ export const markLayoutMigrationApplied = (namespace = "default") => {
 export type ServerLayout = {
   items: FurnitureItem[];
   updatedAt: string | null;
+  version: number | null;
 };
+
+let lastServerVersion: number | null = null;
 
 export async function fetchServerLayout(): Promise<ServerLayout | null> {
   try {
     const res = await getOfficeLayout();
+    lastServerVersion = typeof res.version === "number" ? res.version : null;
     return Array.isArray(res.items) && (res.items.length > 0 || res.updated_at)
-      ? { items: res.items as FurnitureItem[], updatedAt: res.updated_at ?? null }
+      ? {
+          items: res.items as FurnitureItem[],
+          updatedAt: res.updated_at ?? null,
+          version: lastServerVersion,
+        }
       : null;
   } catch (e) {
     console.warn("[layout] server fetch failed, using local fallback", e);
@@ -95,7 +135,8 @@ export async function fetchServerLayout(): Promise<ServerLayout | null> {
 
 export async function pushServerLayout(items: FurnitureItem[]): Promise<boolean> {
   try {
-    await saveOfficeLayout(items);
+    const result = await saveOfficeLayout(items, lastServerVersion);
+    lastServerVersion = result.version;
     return true;
   } catch (e) {
     console.warn("[layout] server push failed (kept locally only)", e);

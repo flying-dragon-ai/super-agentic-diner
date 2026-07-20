@@ -14,6 +14,8 @@ the chat flow asks the user to specify instead of charging the wrong cup.
 """
 from __future__ import annotations
 
+import _test_env  # noqa: F401 - activate hermetic defaults before app imports
+
 import unittest
 from decimal import Decimal
 
@@ -25,6 +27,7 @@ from app.services.catalog_service import (
     AmbiguousProductError,
     get_product_by_name,
 )
+from app.services.chat_service import get_all_products
 from app.services.order_service import OrderError, resolve_line
 
 
@@ -133,6 +136,28 @@ class CatalogDisambiguationTests(unittest.TestCase):
         line = resolve_line(self.db, f"{self.PREFIX}美式")
         self.assertEqual(line.product.product_id, self.p_unique.product_id)
         self.assertEqual(line.unit_price, Decimal("22.00"))
+
+    def test_get_all_products_reflects_new_commits_without_global_orm_cache(self):
+        first_names = {product.name for product in get_all_products(self.db)}
+        late_name = f"{self.PREFIX}稍后上架"
+        self.assertNotIn(late_name, first_names)
+
+        self.db.add(
+            Product(
+                sku=f"{self.PREFIX}-LATE",
+                name=late_name,
+                category="咖啡",
+                description="late catalog visibility regression",
+                base_price=Decimal("31.00"),
+                tags="测试",
+                status="available",
+                stock=1,
+            )
+        )
+        self.db.commit()
+
+        second_names = {product.name for product in get_all_products(self.db)}
+        self.assertIn(late_name, second_names)
 
 
 if __name__ == "__main__":

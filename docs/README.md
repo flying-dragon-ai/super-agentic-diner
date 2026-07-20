@@ -27,6 +27,8 @@ nearest matching subdirectory instead of adding more top-level files.
 
 ## Audits
 
+- [Bug Optimization Ledger](bug-optimization-ledger.md): prioritized defect
+  register, safe test gates, evidence status, and close-out criteria.
 - [EvoMap Skill Payment Check Plan](audits/evomap-skill-payment-check-plan.md):
   Skill payment chain verification plan.
 

@@ -1,15 +1,34 @@
 // Auth context: holds the logged-in account. /auth/me is checked on mount via
 // the signed httpOnly cookie set by the backend on login/register.
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { getJson, postJson } from "../net/api";
+import { getJson, postJson, putJson } from "../net/api";
 
-export type Account = { user_id: number; username: string; nickname: string | null };
+export type Account = {
+  user_id: number;
+  username: string;
+  nickname: string | null;
+  gender?: string | null;
+  specialty?: string | null;
+  profession?: string | null;
+  role?: "user" | "admin";
+};
 
 type AuthState = {
   account: Account | null;
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
-  register: (username: string, password: string, nickname?: string) => Promise<void>;
+  register: (
+    username: string,
+    password: string,
+    nickname?: string,
+    extra?: { gender?: string; specialty?: string; profession?: string },
+  ) => Promise<void>;
+  updateProfile: (patch: {
+    nickname?: string;
+    gender?: string;
+    specialty?: string;
+    profession?: string;
+  }) => Promise<void>;
   logout: () => Promise<void>;
 };
 
@@ -29,15 +48,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (username: string, password: string) => {
     setAccount(await postJson<Account>("/auth/login", { username, password }));
   };
-  const register = async (username: string, password: string, nickname?: string) => {
-    setAccount(await postJson<Account>("/auth/register", { username, password, nickname }));
+  const register = async (
+    username: string,
+    password: string,
+    nickname?: string,
+    extra?: { gender?: string; specialty?: string; profession?: string },
+  ) => {
+    setAccount(
+      await postJson<Account>("/auth/register", {
+        username,
+        password,
+        nickname,
+        ...extra,
+      }),
+    );
+  };
+  const updateProfile = async (patch: {
+    nickname?: string;
+    gender?: string;
+    specialty?: string;
+    profession?: string;
+  }) => {
+    const updated = await putJson<Account>("/auth/profile", patch);
+    setAccount(updated);
   };
   const logout = async () => {
     await postJson<{ ok: boolean }>("/auth/logout", {});
     setAccount(null);
   };
 
-  return <Ctx.Provider value={{ account, loading, login, register, logout }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ account, loading, login, register, updateProfile, logout }}>{children}</Ctx.Provider>;
 }
 
 export function useAuth() {

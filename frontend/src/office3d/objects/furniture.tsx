@@ -164,10 +164,19 @@ export type FurnitureModelProps = {
 // wildly inconsistent unit scales (ppCoffeeCup ~3mm, ppEspresso ~104m, a
 // ~35000x mismatch) so no single FURNITURE_SCALE could fit both. Drawing the
 // cup procedurally makes the size exact and predictable.
-function CupProp({ item }: { item: FurnitureItem }) {
+function CupProp({
+  item,
+  isSelected = false,
+  isHovered = false,
+  editMode = false,
+  onPointerDown,
+  onPointerOver,
+  onPointerOut,
+}: FurnitureModelProps) {
   const [wx, , wz] = toWorld(item.x, item.y);
   const elev = (FURNITURE_Y_OFFSET[item.type] ?? 0) + (item.elevation ?? 0);
   const isEspresso = item.type === "espresso";
+  const active = isSelected || (editMode && isHovered);
   const radius = isEspresso ? 0.028 : 0.04;
   const height = isEspresso ? 0.06 : 0.09;
   const ceramic = isEspresso ? "#efe8dc" : "#fafafa";
@@ -207,10 +216,21 @@ function CupProp({ item }: { item: FurnitureItem }) {
     return () => clearTimeout(t);
   }, [scene]);
   return (
-    <group position={[wx, elev, wz]}>
+    <group
+      position={[wx, elev, wz]}
+      onPointerDown={onPointerDown}
+      onPointerOver={onPointerOver}
+      onPointerOut={onPointerOut}
+    >
       <mesh position={[0, height / 2, 0]} castShadow receiveShadow>
         <cylinderGeometry args={[radius, radius * 0.88, height, 18]} />
-        <meshStandardMaterial color={ceramic} roughness={0.35} metalness={0.05} />
+        <meshStandardMaterial
+          color={ceramic}
+          emissive="#fbbf24"
+          emissiveIntensity={active ? 0.3 : 0}
+          roughness={0.35}
+          metalness={0.05}
+        />
       </mesh>
       <mesh position={[0, height - 0.005, 0]}>
         <cylinderGeometry args={[radius * 0.92, radius * 0.92, 0.006, 18]} />
@@ -304,7 +324,17 @@ export function FurnitureModel({
   onPointerOut,
 }: FurnitureModelProps) {
   if (item.type === "coffee_cup" || item.type === "espresso") {
-    return <CupProp item={item} />;
+    return (
+      <CupProp
+        item={item}
+        isSelected={isSelected}
+        isHovered={isHovered}
+        editMode={editMode}
+        onPointerDown={onPointerDown}
+        onPointerOver={onPointerOver}
+        onPointerOut={onPointerOut}
+      />
+    );
   }
   if (item.type === "evomap_terminal") {
     return (

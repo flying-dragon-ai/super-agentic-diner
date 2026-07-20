@@ -1,214 +1,94 @@
 # A2A Super Order API
 
-Base URL resolution: explicit `--base-url` > `RESTAURANT_API_BASE` env > saved `~/.a2a-super-order/config.json` > default `http://192.168.110.87:8001`. An explicit `--base-url` is **persisted** to config.json, so set it once and every later command auto-reads it. **For remote/production backends prefer a domain** (e.g. `https://cafe.example.com`) over a raw IP — the address can change between deploys; when it does, re-run `--base-url <new-address> --ping` once. `127.0.0.1` only reaches the machine the script runs on, so commands fail with "connection refused" until you point at the real backend.
+All Skill business APIs require a browser-linked project account. Passwords are accepted only by the existing web `/auth/login` and `/auth/register` endpoints.
 
-## Ping & Menu (read-only — run these first)
+## Service discovery
 
-`--ping` and `--menu` both GET `/menu` (anonymous, read-only). Use `--ping` to confirm the backend is reachable before ordering, and `--menu` to list available coffees and their exact names.
-
-```bash
-python .agents/skills/a2a-super-order/scripts/order.py --ping
-python .agents/skills/a2a-super-order/scripts/order.py --menu
-```
-
-`--ping` success:
+`GET /skill/discovery` is anonymous and returns a non-secret service identity document:
 
 ```json
 {
-  "ok": true,
-  "base_url": "http://192.168.110.87:8001",
-  "status": "reachable",
-  "menu_count": 5,
-  "sample": ["拿铁", "美式咖啡", "生椰拿铁", "橘子冷萃", "燕麦拿铁"]
+  "service": "crossroads-agent-cafe",
+  "protocol_version": 1,
+  "name": "Crossroads Agent Café"
 }
 ```
 
-`--ping` failure:
+When enabled, the backend also listens on UDP `A2A_DISCOVERY_UDP_PORT` (default `8137`) for protocol-versioned discovery messages and returns its HTTP scheme/port. The CLI accepts offers only from private or loopback IPv4 addresses and verifies the HTTP identity document before caching an address. This is trusted-LAN discovery, not cryptographic authentication.
 
-```json
-{
-  "ok": false,
-  "base_url": "http://192.168.110.87:8001",
-  "status": "unreachable",
-  "error": "[Errno 111] Connection refused",
-  "hint": "If the café backend runs on another machine, set RESTAURANT_API_BASE=http://192.168.110.87:8001 and retry. Also confirm `uvicorn app.main:app` is running on the server and port 8001 is open."
-}
-```
+## Device authorization
 
-`--menu` returns `items[]` with `name` / `price` / `tags` / `category` / `stock`. Use the exact `name` in `--message` for the highest recognition rate; `stock: 0` means sold out.
+### `POST /skill/auth/device/start`
 
-## Check EvoMap Install (local script, read-only)
+Header: `X-Evomap-Node-Secret` when the backend requires remote EvoMap verification.
 
-```bash
-python .agents/skills/a2a-super-order/scripts/order.py --check-evomap
-```
+Request fields: `tool_name`, `display_name`, `evomap_node_id`, optional `evomap_did`.
 
-No network call; reads `~/.evomap/{node_id,node_secret}` only. Response:
+Response fields: `device_code`, `user_code`, `verification_uri`, `verification_uri_complete`, `expires_in=600`, `interval=2`. The device code is secret and must remain in CLI memory only.
 
-```json
-{
-  "installed": true,
-  "has_node_id": true,
-  "has_node_secret": true,
-  "evomap_home": "/home/user/.evomap",
-  "credentials_loaded": true,
-  "username": "john"
-}
-```
+### Browser approval
 
-`username` is the OS login account name (via `getpass.getuser()`), NOT the hostname. When `installed=true`, the order script auto-loads node_id + node_secret (priority: `~/.evomap/` files > `A2A_NODE_SECRET` env > `EVOMAP_NODE_SECRET` env), so `--evomap-node-secret` is optional.
+Open `verification_uri_complete`. The page checks the existing httpOnly café session. A logged-out user is sent to `/3d/login?next=...`, which uses the normal `/auth/login` or `/auth/register` backend and returns to the approval page.
 
-## Register Skill Consumer
+- `POST /skill/auth/device/approve` with `{ "user_code": "ABCD-EFGH" }`
+- `POST /skill/auth/device/deny` with the same body
+- `POST /skill/auth/device/unbind` with the same body. Only the account currently bound to the node may use it. It revokes active node tokens and clears the current account link while retaining historical orders and ledgers.
 
-`POST /skill/register`
+Both require the signed project account cookie.
 
-Request:
+The authorization page's “切换其他账号” action calls `/unbind`, then the existing `/auth/logout`, and returns to `/3d/login` with the same safe authorization target. An unbound first-time node may switch the browser account without an ownership check.
 
-```json
-{
-  "tool_name": "codex",
-  "display_name": "User A",
-  "evomap_node_id": "node_xxx",
-  "evomap_did": "did:evomap:node_xxx",
-  "role_type": "customer",
-  "capabilities": ["a2a_super_order", "evomap_credit_payment"],
-  "metadata": {"workspace": "crossroads-agent-cafe"},
-  "evomap_capability_status": "detected"
-}
-```
+### `POST /skill/auth/device/token`
 
-Response:
+Request: `{ "device_code": "opaque-secret" }`.
 
-```json
-{
-  "consumer_id": 1,
-  "agent_id": 1,
-  "api_token": "pa_...",
-  "role_type": "customer",
-  "sprite_seed": 123456,
-  "free_orders_remaining": 2,
-  "evomap_node_id": "node_xxx"
-}
-```
+- `202 authorization_pending`: wait the returned interval and retry.
+- `200 authorized`: returns the Agent `api_token` once plus `consumer_id`, `agent_id`, account profile and CNY balance.
+- `403 authorization_denied`, `409 device_code_consumed`, or `410 authorization_expired`: stop polling.
 
-Store `consumer_id`, `agent_id`, and `api_token`. The token is shown only once.
+## Authenticated account operations
 
-## Place Skill Order
+All use `Authorization: Bearer <api_token>`.
+
+- `GET /skill/me`: username, nickname, display name, CNY balance, IDs, node and scopes.
+- `GET /skill/menu`: product menu; unlike the web `/menu`, this Skill route requires login.
+- `POST /skill/logout`: marks the current Agent token inactive. The node/account link remains.
+
+Skill logout does not clear the browser cookie. It is intentionally separate from the owner-confirmed account-switch flow.
+
+Missing, legacy-unlinked or revoked tokens return HTTP 401 with `code=account_login_required`.
+
+## CNY order
 
 `POST /skill/orders`
 
-Headers:
-
-```text
-Authorization: Bearer <api_token>
-X-Evomap-Node-Secret: <node secret for paid server-side payment>
-```
-
-Request:
-
 ```json
 {
   "consumer_id": 1,
-  "agent_id": 1,
-  "message": "coffee order",
+  "agent_id": 2,
+  "message": "一杯拿铁",
   "request_id": "req-a2a-001",
-  "auto_confirm": true,
-  "payment_proof": null
+  "auto_confirm": true
 }
 ```
 
-`payment_proof` must be `null` for normal operation. The backend does not accept client-submitted proofs as paid-order evidence because it cannot verify that credits were deducted for this order.
-
-Free-order success:
+Success:
 
 ```json
 {
   "ok": true,
   "status": "completed",
-  "reply": "Skill order completed",
-  "request_id": "req-a2a-001",
-  "consumer_id": 1,
-  "ledger_id": 1,
-  "order_ids": [10],
-  "coffee_names": ["Hazelnut Latte"],
-  "amount_credits": 1,
-  "payment_status": "free",
-  "free_orders_remaining": 1,
-  "evomap_order_id": null,
-  "payment_request": null
+  "coffee_names": ["拿铁"],
+  "amount_cny": 18.0,
+  "currency": "CNY",
+  "balance_after": 32.0,
+  "amount_credits": 0,
+  "free_orders_remaining": 0,
+  "payment_status": "paid",
+  "request_id": "req-a2a-001"
 }
 ```
 
-Paid-order block when the node secret is missing:
+The server atomically checks/debits the linked `UserWallet(CNY)`, decrements stock and creates the Skill-source order. Reusing `request_id` returns the existing order without a second debit. Insufficient funds return HTTP 402 with `code=insufficient_balance`.
 
-```json
-{
-  "detail": {
-    "ok": false,
-    "status": "payment_required",
-    "reply": "This order requires EvoMap Credits. Provide the node secret for a server-side service order.",
-    "request_id": "req-a2a-003",
-    "amount_credits": 1,
-    "payment_request": null,
-    "payment_method": "evomap_service_order",
-    "service_order_request": {
-      "sender_id": "node_xxx",
-      "listing_id": "your-evomap-service-listing-id",
-      "question": "Coffee order payment request_id=req-a2a-003; ..."
-    }
-  }
-}
-```
-
-Retry the same `/skill/orders` request with `X-Evomap-Node-Secret` after the user has authorized spending EvoMap credits. If the backend has `EVOMAP_SERVICE_LISTING_ID`, it creates the EvoMap service order through `/a2a/service/order`; only then is the local order marked `paid`.
-
-## EvoMap Service Order
-
-The backend sends:
-
-```json
-{
-  "sender_id": "node_xxx",
-  "listing_id": "your-evomap-service-listing-id",
-  "question": "Coffee order payment request_id=req-a2a-003; consumer_node_id=node_xxx; coffees=Hazelnut Latte; credits=1"
-}
-```
-
-The EvoMap Hub charges the service listing price from the sender node/account. `amount_credits` in Crossroads Agent Café is local ledger metadata and should match the configured listing price operationally.
-
-## Visualization
-
-The browser page subscribes to:
-
-```text
-ws://192.168.110.87:8001/ws/visualization
-```
-
-Event history:
-
-```text
-GET /visualization/events?limit=50
-```
-
-Important event types:
-
-- `agent.registered`
-- `agent.heartbeat`
-- `agent.action`
-- `message.received`
-- `order.intent_detected`
-- `order.pending_confirmation`
-- `order.payment_required`
-- `order.paid`
-- `order.failed`
-- `order.reply`
-
-## Advanced Agent Actions
-
-Legacy visual action endpoints remain available for custom roles:
-
-- `POST /agents/register`
-- `POST /agents/{agent_id}/heartbeat`
-- `POST /agents/{agent_id}/actions`
-
-Use these only for visual progress events; do not use them to create orders or alter balances.
+`POST /skill/register`, free-order quota, client payment proofs and EvoMap credit payment are legacy-only. Historical ledgers remain available for audit/reconciliation but new CLI traffic must use device authorization and CNY payment.

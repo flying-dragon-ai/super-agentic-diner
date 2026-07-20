@@ -2,19 +2,29 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import ipaddress
 import json
 import os
 import platform
 import re
+import socket
 import sys
+import time
 import urllib.error
 import urllib.request
 import uuid
+import webbrowser
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 
-DEFAULT_BASE_URL = "http://192.168.110.87:8001"
+SERVICE_ID = "crossroads-agent-cafe"
+DISCOVERY_PROTOCOL_VERSION = 1
+DISCOVERY_REQUEST_TYPE = "crossroads-cafe-discover"
+DISCOVERY_OFFER_TYPE = "crossroads-cafe-offer"
+DEFAULT_DISCOVERY_UDP_PORT = 8137
+LOCAL_BASE_URLS = ("http://127.0.0.1:8000", "http://127.0.0.1:8001")
 # Use `os.getenv(KEY) or default` (not `os.getenv(KEY, default)`) so that an
 # empty-string env var falls back to the default instead of writing state to cwd.
 STATE_PATH = Path(os.getenv("A2A_SUPER_ORDER_STATE") or str(Path.home() / ".a2a-super-order" / "state.json"))
@@ -39,7 +49,25 @@ def read_json(path: Path, fallback: Any) -> Any:
 
 def write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_path = path.with_name(
+        f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+    )
+    try:
+        temp_path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        try:
+            temp_path.chmod(0o600)
+        except OSError:
+            pass
+        temp_path.replace(path)
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 
 def redact_for_stdout(value: Any) -> Any:
@@ -87,15 +115,183 @@ def request_json(
         raise SystemExit(f"无法连接服务器 {url}: {exc.reason}") from exc
 
 
-def fetch_menu(base_url: str) -> tuple[bool, Any, str]:
+def request_get_json(url: str, token: str | None = None) -> Any:
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        try:
+            body = json.loads(raw)
+        except json.JSONDecodeError:
+            body = raw
+        raise ApiError(exc.code, body) from exc
+    except urllib.error.URLError as exc:
+        raise SystemExit(f"Unable to connect to {url}: {exc.reason}") from exc
+
+
+def normalize_base_url(value: str) -> str:
+    candidate = value.strip().rstrip("/")
+    try:
+        parsed = urlsplit(candidate)
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError(f"invalid backend URL: {exc}") from exc
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("backend URL must be an absolute http(s) URL")
+    if parsed.username or parsed.password:
+        raise ValueError("backend URL must not contain credentials")
+    if parsed.query or parsed.fragment:
+        raise ValueError("backend URL must not contain a query or fragment")
+    return candidate
+
+
+def probe_cafe_service(base_url: str, timeout: float = 2.0) -> bool:
+    """Verify that a URL is this café, without sending account credentials."""
+    request = urllib.request.Request(
+        base_url.rstrip("/") + "/skill/discovery",
+        headers={"Accept": "application/json"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            document = json.loads(response.read().decode("utf-8"))
+    except (OSError, ValueError, urllib.error.URLError, urllib.error.HTTPError):
+        return False
+    return bool(
+        isinstance(document, dict)
+        and document.get("service") == SERVICE_ID
+        and document.get("protocol_version") == DISCOVERY_PROTOCOL_VERSION
+    )
+
+
+def _discovery_udp_port() -> int:
+    raw = os.getenv("A2A_SUPER_ORDER_DISCOVERY_PORT", str(DEFAULT_DISCOVERY_UDP_PORT))
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise SystemExit("A2A_SUPER_ORDER_DISCOVERY_PORT must be an integer") from exc
+    if value < 1 or value > 65535:
+        raise SystemExit("A2A_SUPER_ORDER_DISCOVERY_PORT must be between 1 and 65535")
+    return value
+
+
+def discover_lan_base_url(udp_port: int, timeout: float = 1.5) -> str | None:
+    """Find and verify the first café offer from a private IPv4 network."""
+    nonce = uuid.uuid4().hex
+    payload = json.dumps(
+        {
+            "type": DISCOVERY_REQUEST_TYPE,
+            "version": DISCOVERY_PROTOCOL_VERSION,
+            "nonce": nonce,
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    deadline = time.monotonic() + timeout
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.bind(("", 0))
+        sock.sendto(payload, ("255.255.255.255", udp_port))
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            sock.settimeout(remaining)
+            try:
+                raw, peer = sock.recvfrom(2048)
+            except socket.timeout:
+                return None
+            try:
+                address = ipaddress.ip_address(peer[0])
+                offer = json.loads(raw.decode("utf-8"))
+                if not isinstance(offer, dict):
+                    continue
+                port = int(offer.get("http_port"))
+                scheme = offer.get("scheme")
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if not (address.is_private or address.is_loopback):
+                continue
+            if (
+                offer.get("type") != DISCOVERY_OFFER_TYPE
+                or offer.get("version") != DISCOVERY_PROTOCOL_VERSION
+                or offer.get("service") != SERVICE_ID
+                or offer.get("nonce") != nonce
+                or scheme not in {"http", "https"}
+                or port < 1
+                or port > 65535
+            ):
+                continue
+            candidate = f"{scheme}://{peer[0]}:{port}"
+            if probe_cafe_service(candidate):
+                return candidate
+    except OSError:
+        return None
+    finally:
+        sock.close()
+
+
+def resolve_base_url(
+    *,
+    explicit: str | None,
+    environment: str | None,
+    cached: dict[str, Any],
+    force_discovery: bool = False,
+) -> tuple[str, str]:
+    """Validate intentional URLs, then recover stale cache through discovery."""
+    for raw, source in ((explicit, "argument"), (environment, "environment")):
+        if not raw:
+            continue
+        try:
+            candidate = normalize_base_url(raw)
+        except ValueError as exc:
+            raise SystemExit(f"{source} backend address is invalid: {exc}") from exc
+        if not probe_cafe_service(candidate):
+            raise SystemExit(
+                f"无法验证 {source} 指定的咖啡厅服务：{candidate}。"
+                "请确认服务已启动并检查 /skill/discovery。"
+            )
+        return candidate, source
+
+    if not force_discovery:
+        raw_cached = cached.get("base_url") if isinstance(cached, dict) else None
+        if isinstance(raw_cached, str) and raw_cached.strip():
+            try:
+                candidate = normalize_base_url(raw_cached)
+            except ValueError:
+                candidate = ""
+            if candidate and probe_cafe_service(candidate):
+                return candidate, "cache"
+
+    for candidate in LOCAL_BASE_URLS:
+        if probe_cafe_service(candidate):
+            return candidate, "localhost"
+
+    discovered = discover_lan_base_url(_discovery_udp_port())
+    if discovered:
+        return discovered, "lan"
+    raise SystemExit(
+        "未找到 Crossroads Agent Café 后端。请启动服务（局域网访问需绑定 0.0.0.0），"
+        "或使用 --base-url / RESTAURANT_API_BASE 指定地址。"
+    )
+
+
+def fetch_menu(base_url: str, token: str) -> tuple[bool, Any, str]:
     """GET {base_url}/menu. Read-only reachability + menu probe.
 
     ``/menu`` is anonymous and returns a list of products, so a 200 here also
     proves the backend is reachable for ordering. Used by ``--ping`` and
     ``--menu``. Returns ``(ok, data, error_message)``.
     """
-    url = base_url.rstrip("/") + "/menu"
-    request = urllib.request.Request(url, method="GET")
+    url = base_url.rstrip("/") + "/skill/menu"
+    request = urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {token}"}, method="GET"
+    )
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
             data = json.loads(response.read().decode("utf-8"))
@@ -108,9 +304,9 @@ def fetch_menu(base_url: str) -> tuple[bool, Any, str]:
         return False, None, str(exc)
 
 
-def cmd_ping(args: argparse.Namespace) -> int:
+def cmd_ping(args: argparse.Namespace, registration: dict[str, Any]) -> int:
     """Step-0 self-check: is the backend reachable? Prints a decision-friendly JSON."""
-    ok, data, err = fetch_menu(args.base_url)
+    ok, data, err = fetch_menu(args.base_url, registration["api_token"])
     if not ok:
         print(json.dumps({
             "ok": False,
@@ -118,10 +314,8 @@ def cmd_ping(args: argparse.Namespace) -> int:
             "status": "unreachable",
             "error": err,
             "hint": (
-                "If the café backend runs on another machine, set "
-                "RESTAURANT_API_BASE=http://192.168.110.87:8001 and retry. "
-                "Also confirm `uvicorn app.main:app` is running on the server "
-                "and port 8001 is open."
+                "Run --discover to refresh a stale cached address, or set "
+                "--base-url / RESTAURANT_API_BASE explicitly."
             ),
         }, ensure_ascii=False, indent=2))
         return 1
@@ -137,9 +331,9 @@ def cmd_ping(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_menu(args: argparse.Namespace) -> int:
+def cmd_menu(args: argparse.Namespace, registration: dict[str, Any]) -> int:
     """List available coffees so the caller knows exactly what to put in --message."""
-    ok, data, err = fetch_menu(args.base_url)
+    ok, data, err = fetch_menu(args.base_url, registration["api_token"])
     if not ok:
         print(json.dumps({
             "ok": False,
@@ -285,11 +479,130 @@ def register_if_needed(args: argparse.Namespace, root: Path, state: dict[str, An
         "metadata": {"workspace": str(root), "source": "a2a-super-order-skill"},
         "evomap_capability_status": "detected" if (evomap_creds or args.evomap_node_id or os.getenv("A2A_HUB_URL")) else "unknown",
     }
-    result = request_json(base_url + "/skill/register", payload)
+    if not args.evomap_node_secret:
+        raise SystemExit(
+            "Skill registration requires verified EvoMap credentials. "
+            "Run --check-evomap and install/bind the node before ordering."
+        )
+    result = request_json(
+        base_url + "/skill/register",
+        payload,
+        extra_headers={"X-Evomap-Node-Secret": args.evomap_node_secret},
+    )
     result["evomap_node_id"] = node_id
     state[base_url] = result
     write_json(STATE_PATH, state)
     return result
+
+
+def require_logged_in(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]:
+    base_url = args.base_url.rstrip("/")
+    registration = state.get(base_url) if isinstance(state, dict) else None
+    if not isinstance(registration, dict) or not registration.get("api_token"):
+        raise SystemExit(
+            "account_login_required: run this Skill with --login, complete login in the browser, then retry"
+        )
+    try:
+        profile = request_get_json(
+            base_url + "/skill/me", token=registration["api_token"]
+        )
+    except ApiError as exc:
+        if exc.status == 401:
+            state.pop(base_url, None)
+            write_json(STATE_PATH, state)
+            raise SystemExit(
+                "account_login_required: the saved login is invalid; run --login again"
+            ) from exc
+        raise
+    for key in (
+        "consumer_id", "agent_id", "evomap_node_id", "username", "nickname",
+        "display_name", "currency", "balance", "scopes",
+    ):
+        if key in profile:
+            registration[key] = profile[key]
+    state[base_url] = registration
+    write_json(STATE_PATH, state)
+    return registration
+
+
+def login_account(
+    args: argparse.Namespace, root: Path, state: dict[str, Any]
+) -> dict[str, Any]:
+    base_url = args.base_url.rstrip("/")
+    evomap_creds = load_evomap_credentials()
+    node_id = (
+        evomap_creds["node_id"]
+        if evomap_creds
+        else detect_node_id(root, args.evomap_node_id)
+    )
+    node_secret = args.evomap_node_secret or (
+        evomap_creds["node_secret"] if evomap_creds else None
+    )
+    started = request_json(
+        base_url + "/skill/auth/device/start",
+        {
+            "tool_name": args.tool_name,
+            "display_name": args.display_name,
+            "evomap_node_id": node_id,
+            "evomap_did": args.evomap_did,
+        },
+        extra_headers={"X-Evomap-Node-Secret": node_secret or ""},
+    )
+    verification_url = str(started["verification_uri_complete"])
+    user_code = str(started["user_code"])
+    print(
+        f"请在浏览器完成咖啡厅账号登录与授权：{verification_url}\n授权码：{user_code}",
+        file=sys.stderr,
+    )
+    try:
+        webbrowser.open(verification_url, new=2)
+    except Exception:
+        pass
+
+    deadline = time.monotonic() + int(started.get("expires_in") or 600)
+    interval = max(2, int(started.get("interval") or 2))
+    device_code = str(started["device_code"])
+    while time.monotonic() < deadline:
+        result = request_json(
+            base_url + "/skill/auth/device/token", {"device_code": device_code}
+        )
+        if result.get("status") == "authorization_pending":
+            time.sleep(interval)
+            continue
+        if result.get("status") != "authorized" or not result.get("api_token"):
+            raise SystemExit("Skill login failed: invalid authorization response")
+        registration = {
+            key: value
+            for key, value in result.items()
+            if key not in {"status", "authenticated"}
+        }
+        state[base_url] = registration
+        write_json(STATE_PATH, state)
+        return registration
+    raise SystemExit("Skill login expired; run --login and try again")
+
+
+def logout_account(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]:
+    base_url = args.base_url.rstrip("/")
+    registration = state.get(base_url) if isinstance(state, dict) else None
+    if isinstance(registration, dict) and registration.get("api_token"):
+        try:
+            request_json(
+                base_url + "/skill/logout",
+                {},
+                token=registration["api_token"],
+            )
+        except ApiError as exc:
+            if exc.status != 401:
+                raise
+    state.pop(base_url, None)
+    write_json(STATE_PATH, state)
+    return {
+        "ok": True,
+        "status": "skill_logged_out",
+        "web_session": "unchanged",
+        "account_binding": "retained",
+    }
 
 
 def submit_order(args: argparse.Namespace, registration: dict[str, Any]) -> dict[str, Any]:
@@ -340,7 +653,8 @@ def main() -> int:
             pass
 
     parser = argparse.ArgumentParser(description="Order coffee through the A2A super order Skill.")
-    parser.add_argument("--base-url", default=None, help="Backend URL. Saved on first explicit use; later commands auto-read it. Precedence: --base-url > RESTAURANT_API_BASE env > saved config > http://192.168.110.87:8001.")
+    parser.add_argument("--base-url", default=None, help="Backend URL. Validated before use and saved after a successful probe.")
+    parser.add_argument("--discover", action="store_true", help="Ignore a saved address, discover the café on localhost/LAN, validate it, and cache it.")
     parser.add_argument("--tool-name", default=os.getenv("RESTAURANT_TOOL_NAME", "codex"))
     parser.add_argument("--display-name", default=os.getenv("RESTAURANT_AGENT_NAME") or detect_username())
     parser.add_argument("--evomap-node-id", default=os.getenv("EVOMAP_NODE_ID") or os.getenv("A2A_NODE_ID"))
@@ -358,6 +672,13 @@ def main() -> int:
     )
     parser.add_argument("--force-register", action="store_true")
     parser.add_argument("--register-only", action="store_true")
+    parser.add_argument("--login", action="store_true", help="Log in through the cafe web page and bind this Skill.")
+    parser.add_argument("--me", action="store_true", help="Show the linked cafe account and CNY balance.")
+    parser.add_argument(
+        "--logout",
+        action="store_true",
+        help="Revoke this Skill login and clear local state; the browser session and node binding remain.",
+    )
     parser.add_argument(
         "--check-evomap",
         action="store_true",
@@ -375,22 +696,6 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    # Resolve base_url: explicit --base-url > RESTAURANT_API_BASE env > persisted
-    # config > default. An explicit --base-url is persisted so later commands
-    # auto-use it — the backend address may change between deploys (IP/domain).
-    cached_config = read_json(CONFIG_PATH, {})
-    base_url = (
-        args.base_url
-        or os.getenv("RESTAURANT_API_BASE")
-        or (cached_config.get("base_url") if isinstance(cached_config, dict) else None)
-        or DEFAULT_BASE_URL
-    )
-    if args.base_url:
-        cached_config = cached_config if isinstance(cached_config, dict) else {}
-        cached_config["base_url"] = args.base_url.rstrip("/")
-        write_json(CONFIG_PATH, cached_config)
-    args.base_url = base_url.rstrip("/")
-
     if args.check_evomap:
         install = detect_evomap_install()
         creds = load_evomap_credentials()
@@ -404,10 +709,31 @@ def main() -> int:
         }, ensure_ascii=False, indent=2))
         return 0
 
-    if args.ping:
-        return cmd_ping(args)
-    if args.menu:
-        return cmd_menu(args)
+    cached_config = read_json(CONFIG_PATH, {})
+    cached_config = cached_config if isinstance(cached_config, dict) else {}
+    args.base_url, address_source = resolve_base_url(
+        explicit=args.base_url,
+        environment=os.getenv("RESTAURANT_API_BASE"),
+        cached=cached_config,
+        force_discovery=args.discover,
+    )
+    if address_source != "cache":
+        cached_config.update(
+            {
+                "base_url": args.base_url,
+                "source": address_source,
+                "validated_at": int(time.time()),
+            }
+        )
+        write_json(CONFIG_PATH, cached_config)
+    if args.discover:
+        print(json.dumps({
+            "ok": True,
+            "base_url": args.base_url,
+            "source": address_source,
+            "status": "validated",
+        }, ensure_ascii=False, indent=2))
+        return 0
 
     if args.payment_proof:
         print(
@@ -418,14 +744,29 @@ def main() -> int:
     root = Path.cwd()
     state = read_json(STATE_PATH, {})
     try:
-        registration = register_if_needed(args, root, state)
+        if args.login:
+            registration = login_account(args, root, state)
+            print(json.dumps(redact_for_stdout(registration), ensure_ascii=False, indent=2))
+            return 0
+        if args.logout:
+            print(json.dumps(logout_account(args, state), ensure_ascii=False, indent=2))
+            return 0
+        registration = require_logged_in(args, state)
+        if args.ping:
+            return cmd_ping(args, registration)
+        if args.menu:
+            return cmd_menu(args, registration)
+        if args.me:
+            print(json.dumps(redact_for_stdout(registration), ensure_ascii=False, indent=2))
+            return 0
         if args.register_only:
+            print("--register-only is deprecated; the Skill is already linked through web login.", file=sys.stderr)
             output = redact_for_stdout(registration)
             output["state_path"] = str(STATE_PATH)
             print(json.dumps(output, ensure_ascii=False, indent=2))
             return 0
         if not args.message:
-            raise SystemExit("--message is required unless --register-only is used")
+            raise SystemExit("Use --discover, --login, --me, --ping, --menu, --logout, or --message")
         result = submit_order(args, registration)
     except ApiError as exc:
         print(f"请求失败: HTTP {exc.status}", file=sys.stderr)

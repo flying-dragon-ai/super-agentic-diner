@@ -12,15 +12,22 @@ const path = require('path');
 const scriptPath = path.join(__dirname, '..', 'scripts', 'order.py');
 const orderArgs = [scriptPath, ...process.argv.slice(2)];
 
-// Windows typically exposes `python` (and sometimes `python3`); Unix usually
-// exposes `python3`. Try candidates in order.
+// Probe interpreters before running order.py. The CLI uses Python 3.10+
+// syntax, and Windows often has an old `python` alongside a current `py -3`.
 const candidates = process.platform === 'win32'
-  ? ['python', 'python3']
-  : ['python3', 'python'];
+  ? [
+      { command: 'py', prefix: ['-3'] },
+      { command: 'python', prefix: [] },
+      { command: 'python3', prefix: [] },
+    ]
+  : [
+      { command: 'python3', prefix: [] },
+      { command: 'python', prefix: [] },
+    ];
 
 function reportPythonMissing() {
   console.error('');
-  console.error('✗ 未找到 Python 3。本 Skill 的核心脚本是 Python，请先安装：');
+  console.error('✗ 未找到 Python 3.10+。本 Skill 的核心脚本是 Python，请先安装：');
   console.error('  • Windows: https://www.python.org/downloads/  (安装时勾选 “Add to PATH”)');
   console.error('  • macOS:   brew install python3');
   console.error('  • Linux:   sudo apt install python3  (或你的发行版对应的包管理器)');
@@ -35,18 +42,35 @@ function tryPython(idx) {
     reportPythonMissing();
     return;
   }
-  const child = spawn(candidates[idx], orderArgs, { stdio: 'inherit' });
-  child.on('error', (err) => {
-    if (err.code === 'ENOENT') {
-      // This interpreter isn't installed — try the next candidate.
+  const candidate = candidates[idx];
+  const versionProbe = spawn(
+    candidate.command,
+    [...candidate.prefix, '-c', 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)'],
+    { stdio: 'ignore' },
+  );
+  let probeErrored = false;
+  versionProbe.once('error', () => {
+    probeErrored = true;
+    tryPython(idx + 1);
+  });
+  versionProbe.once('close', (code) => {
+    if (probeErrored) return;
+    if (code !== 0) {
       tryPython(idx + 1);
-    } else {
+      return;
+    }
+    const child = spawn(
+      candidate.command,
+      [...candidate.prefix, ...orderArgs],
+      { stdio: 'inherit' },
+    );
+    child.once('error', (err) => {
       console.error('启动 Python 失败:', err.message);
       process.exit(1);
-    }
-  });
-  child.on('close', (code) => {
-    process.exit(typeof code === 'number' ? code : 1);
+    });
+    child.once('close', (childCode) => {
+      process.exit(typeof childCode === 'number' ? childCode : 1);
+    });
   });
 }
 

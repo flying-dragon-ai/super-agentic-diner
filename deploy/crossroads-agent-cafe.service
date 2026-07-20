@@ -1,10 +1,7 @@
 [Unit]
-Description=Crossroads Agent Café (FastAPI / uvicorn)
+Description=Crossroads Agent Cafe (FastAPI / uvicorn)
 Documentation=https://github.com/flying-dragon-ai/crossroads-agent-cafe
 After=network.target
-# 若 MySQL / Redis 也在本机用 systemd 管理，取消下两行注释以强制启动顺序：
-# Wants=mysql.service redis-server.service
-# After=mysql.service redis-server.service
 
 [Service]
 Type=simple
@@ -12,15 +9,13 @@ User=coffee
 Group=coffee
 WorkingDirectory=/opt/crossroads-agent-cafe
 EnvironmentFile=/opt/crossroads-agent-cafe/.env
-# 启动前确保 schema 最新（脚本幂等：建表 IF NOT EXISTS + 种子 + 订单来源迁移）。
-# 即便已在 start.sh 阶段跑过，重启时再跑一次也是安全的，保证 schema 始终最新。
-ExecStartPre=/opt/crossroads-agent-cafe/.venv/bin/python /opt/crossroads-agent-cafe/scripts/init_db.py
+Environment=ENVIRONMENT=production
+Environment=AUTH_COOKIE_SECURE=true
 ExecStartPre=/opt/crossroads-agent-cafe/.venv/bin/python /opt/crossroads-agent-cafe/scripts/migrate_order_sources.py
-ExecStart=/opt/crossroads-agent-cafe/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+ExecStart=/opt/crossroads-agent-cafe/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --ws-max-size 16384
 Restart=always
 RestartSec=3
 KillSignal=SIGINT
-# 日志走 journald，用 `journalctl -u crossroads-agent-cafe -f` 查看
 StandardOutput=journal
 StandardError=journal
 

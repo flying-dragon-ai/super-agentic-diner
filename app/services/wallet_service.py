@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import BalanceTransaction, UserWallet
@@ -37,11 +38,21 @@ def _get_wallet_for_update(db: Session, user_id: int, currency: str) -> UserWall
         .with_for_update()
     ).scalar_one_or_none()
     if wallet is None:
-        # Materialize the wallet row before taking the lock; re-query under
-        # FOR UPDATE so concurrent callers serialize on the same row.
-        wallet = UserWallet(user_id=user_id, currency=currency, balance=Decimal("0.0000"))
-        db.add(wallet)
-        db.flush()
+        # Materialize through a savepoint.  A concurrent creator may win the
+        # composite primary-key race; in that case roll back only the savepoint
+        # and re-read the canonical row under the normal lock.
+        try:
+            with db.begin_nested():
+                db.add(
+                    UserWallet(
+                        user_id=user_id,
+                        currency=currency,
+                        balance=Decimal("0.0000"),
+                    )
+                )
+                db.flush()
+        except IntegrityError:
+            pass
         wallet = db.execute(
             select(UserWallet)
             .where(
@@ -101,13 +112,39 @@ def apply_transaction(
     if currency not in WALLET_CURRENCIES:
         raise WalletError(f"unsupported currency: {currency}")
 
-    wallet = _get_wallet_for_update(db, user_id, currency)
-    new_balance = Decimal(wallet.balance) + amount
-    if not allow_negative and new_balance < 0:
+    _get_wallet_for_update(db, user_id, currency)
+    new_balance_expression = UserWallet.balance + amount
+    conditions = [
+        UserWallet.user_id == user_id,
+        UserWallet.currency == currency,
+    ]
+    if not allow_negative:
+        conditions.append(new_balance_expression >= 0)
+    result = db.execute(
+        update(UserWallet)
+        .where(*conditions)
+        .values(balance=new_balance_expression)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        db.expire_all()
+        wallet = db.execute(
+            select(UserWallet).where(
+                UserWallet.user_id == user_id,
+                UserWallet.currency == currency,
+            )
+        ).scalar_one()
         raise InsufficientBalanceError(
             f"余额不足：当前 ¥{wallet.balance}（{currency}），本次需 ¥{abs(amount)}"
         )
-    wallet.balance = new_balance
+    db.expire_all()
+    wallet = db.execute(
+        select(UserWallet).where(
+            UserWallet.user_id == user_id,
+            UserWallet.currency == currency,
+        )
+    ).scalar_one()
+    new_balance = Decimal(wallet.balance)
     txn = BalanceTransaction(
         user_id=user_id,
         currency=currency,

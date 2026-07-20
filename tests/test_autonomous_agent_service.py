@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import _test_env  # noqa: F401 - activate hermetic defaults before app imports
+
 import asyncio
 import json
 import unittest
@@ -213,8 +215,12 @@ class AutonomousCycleTests(unittest.TestCase):
             "next_run_after": None,
             "last_error": None,
         }
-        with patch.object(app_main.autonomous_agent_service, "status_snapshot", return_value=expected):
-            response = TestClient(app_main.app).get("/admin/autonomous-agent/status")
+        app_main.app.dependency_overrides[app_main.require_admin] = lambda: object()
+        try:
+            with patch.object(app_main.autonomous_agent_service, "status_snapshot", return_value=expected):
+                response = TestClient(app_main.app).get("/admin/autonomous-agent/status")
+        finally:
+            app_main.app.dependency_overrides.pop(app_main.require_admin, None)
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), expected)

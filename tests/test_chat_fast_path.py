@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import _test_env  # noqa: F401 - activate hermetic defaults before app imports
+
 import unittest
 from decimal import Decimal
 from types import SimpleNamespace
@@ -80,7 +82,6 @@ class ChatFastPathTests(unittest.TestCase):
     def test_exact_product_order_skips_llm_intent_call(self):
         from app import main as app_main
         from app.memory import chat_history
-        from app.services import chat_service
 
         product = SimpleNamespace(name="美式咖啡", base_price=Decimal("22.00"))
         fake_session = _FakeSession([product])
@@ -96,8 +97,6 @@ class ChatFastPathTests(unittest.TestCase):
             patch.object(app_main, "_publish_web_restaurant_event", lambda *a, **k: None),
             patch.object(app_main, "_try_publish_visualization_event", lambda *a, **k: None),
         ):
-            chat_service._PRODUCT_CACHE["data"] = None
-            chat_service._PRODUCT_CACHE["ts"] = 0.0
             app_main.app.dependency_overrides[app_main.get_db] = _fake_get_db
             try:
                 client = TestClient(app_main.app)
@@ -107,12 +106,10 @@ class ChatFastPathTests(unittest.TestCase):
                         "user_id": 1,
                         "message": "我要一杯美式咖啡",
                         "request_id": "req-fast-1",
-                        "consumer_url": "http://127.0.0.1:8000/",
+                        "consumer_url": "https://consumer.invalid/",
                     },
                 )
             finally:
-                chat_service._PRODUCT_CACHE["data"] = None
-                chat_service._PRODUCT_CACHE["ts"] = 0.0
                 app_main.app.dependency_overrides.pop(app_main.get_db, None)
 
         self.assertEqual(resp.status_code, 200, resp.text)

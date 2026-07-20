@@ -1,4 +1,11 @@
+from pathlib import Path
+from decimal import Decimal
+from typing import Literal
+from urllib.parse import quote
+
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import URL
 
 
 _PLACEHOLDER_SECRETS = {
@@ -6,6 +13,19 @@ _PLACEHOLDER_SECRETS = {
     "your-openai-api-key",
     "your-deepseek-api-key",
 }
+
+_PLACEHOLDER_AUTH_SECRETS = {
+    "dev-only-change-me-in-prod",
+    "change-me-to-a-random-long-string-in-production",
+    "change-me-in-production",
+}
+
+_LOCAL_CORS_ORIGINS = (
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5175",
+)
 
 
 def _clean_secret(value: str | None) -> str:
@@ -20,10 +40,16 @@ def _is_real_secret(value: str | None) -> bool:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
+    environment: Literal["local", "test", "production"] = "local"
+    # Comma-separated explicit origins. Empty means local development defaults
+    # in local/test and same-origin only (no CORS origins) in production.
+    cors_allowed_origins: str = ""
+
     # DB_MODE(数据库模式)：决定数据存到哪里。sqlite=本地文件运行，mysql=远程服务器。
     # 默认 sqlite(本地文件数据库)，本地开发零配置即可跑。
-    db_mode: str = "sqlite"
+    db_mode: Literal["sqlite", "mysql"] = "sqlite"
     sqlite_path: str = "coffee_ai.db"
+    sqlite_busy_timeout_ms: int = 5000
 
     # MySQL 连接信息（仅 DB_MODE=mysql 时使用）。
     mysql_host: str = "localhost"
@@ -82,6 +108,17 @@ class Settings(BaseSettings):
     evomap_service_listing_id: str = ""
     evomap_order_credits: int = 1
     evomap_request_timeout_seconds: float = 15.0
+    skill_payment_processing_timeout_seconds: int = 120
+    skill_reconcile_enabled: bool = True
+    skill_reconcile_interval_seconds: int = 60
+    skill_reconcile_batch_size: int = 10
+    skill_reconcile_claim_timeout_seconds: int = 300
+    # Trusted-LAN discovery for the cross-platform A2A Skill client. The HTTP
+    # port must match the port exposed by uvicorn/reverse proxy on the LAN.
+    a2a_discovery_enabled: bool = True
+    a2a_discovery_udp_port: int = 8137
+    a2a_discovery_http_port: int = 8000
+    a2a_discovery_http_scheme: Literal["http", "https"] = "http"
     evomap_credit_rate: str = "1"
     evomap_atp_caps: str = "a2a_super_order,coffee_order"
 
@@ -95,19 +132,130 @@ class Settings(BaseSettings):
     auth_secret_key: str = "dev-only-change-me-in-prod"
     auth_cookie_name: str = "coffee_session"
     auth_cookie_max_age_seconds: int = 7 * 24 * 3600
+    auth_cookie_secure: bool = False
+    admin_bootstrap_username: str = ""
+    registration_bonus_cny: Decimal = Decimal("50.00")
+    allow_registration_bonus_in_production: bool = False
+
+    @field_validator("environment", mode="before")
+    @classmethod
+    def _validate_environment(cls, value: object) -> str:
+        normalized = str(value).strip().lower()
+        if normalized not in {"local", "test", "production"}:
+            raise ValueError("ENVIRONMENT must be 'local', 'test', or 'production'")
+        return normalized
+
+    @field_validator("db_mode", mode="before")
+    @classmethod
+    def _validate_db_mode(cls, value: object) -> str:
+        normalized = str(value).strip().lower()
+        if normalized not in {"sqlite", "mysql"}:
+            raise ValueError("DB_MODE must be either 'sqlite' or 'mysql'")
+        return normalized
+
+    @field_validator("sqlite_busy_timeout_ms")
+    @classmethod
+    def _validate_sqlite_busy_timeout(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("SQLITE_BUSY_TIMEOUT_MS must be non-negative")
+        return value
+
+    @field_validator("skill_payment_processing_timeout_seconds")
+    @classmethod
+    def _validate_skill_payment_processing_timeout(cls, value: int) -> int:
+        if value < 30:
+            raise ValueError("SKILL_PAYMENT_PROCESSING_TIMEOUT_SECONDS must be at least 30")
+        return value
+
+    @field_validator("skill_reconcile_interval_seconds")
+    @classmethod
+    def _validate_skill_reconcile_interval(cls, value: int) -> int:
+        if value < 10:
+            raise ValueError("SKILL_RECONCILE_INTERVAL_SECONDS must be at least 10")
+        return value
+
+    @field_validator("skill_reconcile_batch_size")
+    @classmethod
+    def _validate_skill_reconcile_batch(cls, value: int) -> int:
+        if value < 1 or value > 100:
+            raise ValueError("SKILL_RECONCILE_BATCH_SIZE must be between 1 and 100")
+        return value
+
+    @field_validator("skill_reconcile_claim_timeout_seconds")
+    @classmethod
+    def _validate_skill_reconcile_timeout(cls, value: int) -> int:
+        if value < 60:
+            raise ValueError("SKILL_RECONCILE_CLAIM_TIMEOUT_SECONDS must be at least 60")
+        return value
+
+    @field_validator("a2a_discovery_udp_port", "a2a_discovery_http_port")
+    @classmethod
+    def _validate_a2a_discovery_port(cls, value: int) -> int:
+        if value < 1 or value > 65535:
+            raise ValueError("A2A discovery ports must be between 1 and 65535")
+        return value
+
+    @field_validator("registration_bonus_cny")
+    @classmethod
+    def _validate_registration_bonus(cls, value: Decimal) -> Decimal:
+        if value < 0:
+            raise ValueError("REGISTRATION_BONUS_CNY must be non-negative")
+        return value.quantize(Decimal("0.01"))
+
+    @model_validator(mode="after")
+    def _validate_production_security(self) -> "Settings":
+        if self.environment != "production":
+            return self
+        if (
+            self.auth_secret_key.strip().lower() in _PLACEHOLDER_AUTH_SECRETS
+            or len(self.auth_secret_key.strip()) < 32
+        ):
+            raise ValueError(
+                "Production requires a non-default AUTH_SECRET_KEY of at least 32 characters"
+            )
+        if not self.auth_cookie_secure:
+            raise ValueError("Production requires AUTH_COOKIE_SECURE=true")
+        if (
+            self.registration_bonus_cny > 0
+            and not self.allow_registration_bonus_in_production
+        ):
+            raise ValueError(
+                "Production registration bonus is disabled by default; set "
+                "REGISTRATION_BONUS_CNY=0 or explicitly opt in"
+            )
+        if "*" in self.cors_allowed_origin_list:
+            raise ValueError("Production CORS_ALLOWED_ORIGINS must not contain '*'")
+        return self
 
     @property
-    def database_url(self) -> str:
+    def cors_allowed_origin_list(self) -> list[str]:
+        raw = [origin.strip() for origin in self.cors_allowed_origins.split(",")]
+        configured = [origin for origin in raw if origin]
+        if not configured and self.environment in {"local", "test"}:
+            configured = list(_LOCAL_CORS_ORIGINS)
+        return list(dict.fromkeys(configured))
+
+    @property
+    def database_url(self) -> URL:
         if self.db_mode == "sqlite":
-            return f"sqlite:///./{self.sqlite_path}"
-        return (
-            f"mysql+pymysql://{self.mysql_user}:{self.mysql_password}"
-            f"@{self.mysql_host}:{self.mysql_port}/{self.mysql_database}?charset=utf8mb4"
+            sqlite_path = self.sqlite_path.strip()
+            if not sqlite_path:
+                raise ValueError("SQLITE_PATH must not be empty")
+            database = ":memory:" if sqlite_path == ":memory:" else str(Path(sqlite_path).expanduser())
+            return URL.create("sqlite+pysqlite", database=database)
+        return URL.create(
+            "mysql+pymysql",
+            username=self.mysql_user,
+            password=self.mysql_password,
+            host=self.mysql_host,
+            port=self.mysql_port,
+            database=self.mysql_database,
+            query={"charset": "utf8mb4"},
         )
 
     @property
     def redis_url(self) -> str:
-        auth = f":{self.redis_password}@" if self.redis_password else ""
+        auth = f":{quote(self.redis_password, safe='')}@" if self.redis_password else ""
         return f"redis://{auth}{self.redis_host}:{self.redis_port}/{self.redis_db}"
 
     @property

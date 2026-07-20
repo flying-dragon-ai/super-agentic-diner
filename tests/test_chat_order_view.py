@@ -1,8 +1,10 @@
 ﻿from __future__ import annotations
 
+import _test_env  # noqa: F401 - activate hermetic defaults before app imports
 import unittest
 from datetime import datetime
 from decimal import Decimal
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from unittest.mock import patch
@@ -167,6 +169,11 @@ class OrderViewIntentTests(unittest.TestCase):
 
         with (
             patch.object(chat_history, "_client", lambda: fake_redis),
+            patch.object(
+                app_main,
+                "current_account",
+                return_value=SimpleNamespace(user_id=1, account_id=1, role="user"),
+            ),
         ):
             app_main.app.dependency_overrides[app_main.get_db] = _fake_get_db
             try:

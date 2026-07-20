@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+from sqlalchemy import func, or_, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -25,14 +27,26 @@ from app.domain_constants import (
     PAYMENT_STATUS_NEEDS_RECONCILE,
     PAYMENT_STATUS_PAID,
     PAYMENT_STATUS_PAYMENT_FAILED,
+    PAYMENT_STATUS_PAYMENT_PROCESSING,
     PAYMENT_STATUS_PAYMENT_PENDING,
     PAYMENT_STATUS_PAYMENT_REQUIRED,
     PAYMENT_STATUS_PENDING,
+    PAYMENT_STATUS_RECONCILING,
+    PRODUCT_STATUS_AVAILABLE,
+    STOCK_RESERVATION_CONSUMED,
+    STOCK_RESERVATION_RELEASED,
+    STOCK_RESERVATION_RESERVING,
+    STOCK_RESERVATION_RESERVED,
 )
 from app.llm import client as llm
 from app.rag.keywords import extract_keywords
 from app.rag.retrieval import retrieve
 from app.services.chat_service import extract_price, match_by_price
+from app.services.order_service import (
+    InsufficientBalanceError,
+    OrderError,
+    place_orders,
+)
 from app.services.evomap_payment_service import (
     EvomapPaymentError,
     build_service_order_request,
@@ -48,11 +62,15 @@ from app.services.visualization_service import (
 )
 from app.db.models import Product
 from app.domain_constants import WALLET_CURRENCY_CREDITS
+from app.domain_constants import WALLET_CURRENCY_CNY
 from app.services import wallet_service
 from app.services.catalog_service import (
     AmbiguousProductError,
+    CatalogError,
+    OutOfStockError,
     decrement_stock,
     get_product_by_name,
+    restore_stock,
 )
 from app.services.staff_service import (
     customer_enter_scene,
@@ -477,6 +495,285 @@ def ensure_consumer(
     return consumer
 
 
+def _reserve_free_order_slot(
+    db: Session,
+    consumer: EvomapConsumer,
+) -> int | None:
+    """Atomically reserve one free-order slot inside the order transaction.
+
+    The update is intentionally not committed here: the quota increment, stock
+    decrement, order rows, and wallet mirror are committed together by
+    ``_complete_order``. A failure rolls all of them back, so a transient error
+    cannot consume a user's free quota without creating an order.
+    """
+    limit = max(int(settings.skill_free_order_limit), 0)
+    if limit == 0:
+        return None
+
+    result = db.execute(
+        update(EvomapConsumer)
+        .where(
+            EvomapConsumer.consumer_id == consumer.consumer_id,
+            EvomapConsumer.free_orders_used < limit,
+        )
+        .values(
+            free_orders_used=EvomapConsumer.free_orders_used + 1,
+            last_seen_at=datetime.utcnow(),
+        )
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        db.refresh(consumer)
+        return None
+
+    db.refresh(consumer)
+    return int(consumer.free_orders_used)
+
+
+def _claim_payment_attempt(
+    db: Session,
+    ledger: SkillOrderLedger,
+) -> tuple[SkillOrderLedger, bool]:
+    """Claim the right to make the external EvoMap payment exactly once.
+
+    A conditional UPDATE is used instead of a Python-side status check so it is
+    safe on both MySQL and SQLite. A stuck ``payment_processing`` claim may be
+    reclaimed only after the configured timeout; an active claim causes the
+    concurrent request to return a retryable conflict instead of double-paying.
+    """
+    now = datetime.utcnow()
+    timeout_seconds = max(
+        int(getattr(settings, "skill_payment_processing_timeout_seconds", 120)),
+        30,
+    )
+    stale_before = now - timedelta(seconds=timeout_seconds)
+    claim_values = {
+        "payment_status": PAYMENT_STATUS_PAYMENT_PROCESSING,
+        "payment_attempts": func.coalesce(SkillOrderLedger.payment_attempts, 0) + 1,
+        "version": func.coalesce(SkillOrderLedger.version, 0) + 1,
+        "updated_at": now,
+    }
+
+    result = db.execute(
+        update(SkillOrderLedger)
+        .where(
+            SkillOrderLedger.ledger_id == ledger.ledger_id,
+            SkillOrderLedger.payment_status.in_(
+                {
+                    PAYMENT_STATUS_PAYMENT_REQUIRED,
+                    PAYMENT_STATUS_PAYMENT_FAILED,
+                    PAYMENT_STATUS_PAYMENT_PENDING,
+                }
+            ),
+        )
+        .values(**claim_values)
+    )
+    if result.rowcount != 1:
+        result = db.execute(
+            update(SkillOrderLedger)
+            .where(
+                SkillOrderLedger.ledger_id == ledger.ledger_id,
+                SkillOrderLedger.payment_status == PAYMENT_STATUS_PAYMENT_PROCESSING,
+                or_(
+                    SkillOrderLedger.updated_at.is_(None),
+                    SkillOrderLedger.updated_at <= stale_before,
+                ),
+            )
+            .values(**claim_values)
+        )
+
+    claimed = result.rowcount == 1
+    if claimed:
+        # Commit the claim before making a non-transactional external payment.
+        db.commit()
+    else:
+        db.rollback()
+
+    current = db.get(SkillOrderLedger, ledger.ledger_id)
+    if current is None:
+        raise SkillOrderError(
+            "订单账本不存在",
+            code="ledger_not_found",
+            http_status=404,
+        )
+    return current, claimed
+
+
+def _require_payment_claim(
+    consumer: EvomapConsumer,
+    ledger: SkillOrderLedger,
+    claimed: bool,
+) -> dict[str, Any] | None:
+    """Translate a lost payment claim into an idempotent result or safe error."""
+    if claimed:
+        return None
+    if ledger.payment_status in {PAYMENT_STATUS_FREE, PAYMENT_STATUS_PAID}:
+        return _success_response(consumer, ledger, "幂等重试：订单已完成")
+    if ledger.payment_status == PAYMENT_STATUS_PAYMENT_PROCESSING:
+        raise SkillOrderError(
+            "该订单正在支付处理中，请稍后使用相同 request_id 查询结果",
+            code="payment_processing",
+            http_status=409,
+        )
+    if ledger.payment_status == PAYMENT_STATUS_NEEDS_RECONCILE:
+        raise SkillOrderError(
+            "该订单已扣款但本地落单待对账，请勿重复支付",
+            code="payment_reconcile_required",
+            http_status=409,
+        )
+    raise SkillOrderError(
+        "未能取得支付处理权，请稍后重试",
+        code="payment_claim_conflict",
+        http_status=409,
+    )
+
+
+def _assert_items_available(db: Session, items: list[dict[str, Any]]) -> None:
+    """Best-effort stock preflight before an irreversible external payment."""
+    required: dict[str, int] = {}
+    for item in items:
+        name = str(item.get("name") or "").strip()
+        if not name:
+            raise CatalogError("订单商品名称为空")
+        required[name] = required.get(name, 0) + 1
+
+    products = {
+        product.name: product
+        for product in db.query(Product).filter(Product.name.in_(required)).all()
+    }
+    for name, quantity in required.items():
+        product = products.get(name)
+        if product is None:
+            raise CatalogError(f"商品不存在：{name}")
+        if product.status != PRODUCT_STATUS_AVAILABLE:
+            raise OutOfStockError(f"{name} 当前不可售")
+        if product.stock is None or product.stock < quantity:
+            raise OutOfStockError(
+                f"{name} 库存不足：剩余 {product.stock or 0}，需要 {quantity}"
+            )
+
+
+def _stock_reservation_entries(ledger: SkillOrderLedger) -> list[dict[str, Any]]:
+    entries = decode_json(ledger.stock_reservation_json, [])
+    return entries if isinstance(entries, list) else []
+
+
+def _reserve_stock_for_ledger(
+    db: Session,
+    ledger: SkillOrderLedger,
+    items: list[dict[str, Any]],
+) -> None:
+    """Commit stock before the irreversible external credit payment."""
+    if ledger.stock_reservation_status in {
+        STOCK_RESERVATION_RESERVED,
+        STOCK_RESERVATION_CONSUMED,
+    }:
+        return
+    now = datetime.utcnow()
+    stale_before = now - timedelta(
+        seconds=max(
+            int(getattr(settings, "skill_reconcile_claim_timeout_seconds", 300)),
+            60,
+        )
+    )
+    claim = db.execute(
+        update(SkillOrderLedger)
+        .where(
+            SkillOrderLedger.ledger_id == ledger.ledger_id,
+            or_(
+                SkillOrderLedger.stock_reservation_status.is_(None),
+                SkillOrderLedger.stock_reservation_status == STOCK_RESERVATION_RELEASED,
+                (
+                    (SkillOrderLedger.stock_reservation_status == STOCK_RESERVATION_RESERVING)
+                    & or_(
+                        SkillOrderLedger.updated_at.is_(None),
+                        SkillOrderLedger.updated_at <= stale_before,
+                    )
+                ),
+            ),
+        )
+        .values(
+            stock_reservation_status=STOCK_RESERVATION_RESERVING,
+            version=func.coalesce(SkillOrderLedger.version, 0) + 1,
+            updated_at=now,
+        )
+    )
+    if claim.rowcount != 1:
+        db.rollback()
+        current = db.get(SkillOrderLedger, ledger.ledger_id)
+        if current is not None and current.stock_reservation_status in {
+            STOCK_RESERVATION_RESERVED,
+            STOCK_RESERVATION_CONSUMED,
+        }:
+            ledger.stock_reservation_json = current.stock_reservation_json
+            ledger.stock_reservation_status = current.stock_reservation_status
+            return
+        raise SkillOrderError(
+            "该订单正在预留库存，请稍后使用相同 request_id 重试",
+            code="stock_reservation_processing",
+            http_status=409,
+        )
+    db.commit()
+    ledger = db.get(SkillOrderLedger, ledger.ledger_id)
+    if ledger is None:
+        raise SkillOrderError("订单账本不存在", code="ledger_not_found", http_status=404)
+
+    required: dict[str, int] = {}
+    for item in items:
+        name = str(item["name"])
+        required[name] = required.get(name, 0) + 1
+
+    products = {
+        product.name: product
+        for product in db.query(Product).filter(Product.name.in_(required)).all()
+    }
+    entries: list[dict[str, Any]] = []
+    try:
+        _assert_items_available(db, items)
+        for name, quantity in required.items():
+            product = products.get(name)
+            if product is None:
+                raise CatalogError(f"商品不存在：{name}")
+            decrement_stock(db, product.product_id, quantity)
+            entries.append(
+                {
+                    "product_id": product.product_id,
+                    "name": name,
+                    "quantity": quantity,
+                }
+            )
+        ledger.stock_reservation_json = encode_json(entries)
+        ledger.stock_reservation_status = STOCK_RESERVATION_RESERVED
+        ledger.updated_at = datetime.utcnow()
+        db.add(ledger)
+        db.commit()
+        db.refresh(ledger)
+    except Exception:
+        db.rollback()
+        current = db.get(SkillOrderLedger, ledger.ledger_id)
+        if current is not None:
+            current.stock_reservation_status = STOCK_RESERVATION_RELEASED
+            current.updated_at = datetime.utcnow()
+            db.commit()
+        raise
+
+
+def _release_stock_reservation(
+    db: Session,
+    ledger: SkillOrderLedger,
+) -> None:
+    """Return a committed reservation after an external payment failure."""
+    if ledger.stock_reservation_status != STOCK_RESERVATION_RESERVED:
+        return
+    for entry in _stock_reservation_entries(ledger):
+        product_id = entry.get("product_id")
+        quantity = int(entry.get("quantity") or 0)
+        if product_id is not None and quantity > 0:
+            restore_stock(db, int(product_id), quantity)
+    ledger.stock_reservation_status = STOCK_RESERVATION_RELEASED
+    ledger.updated_at = datetime.utcnow()
+
+
 def process_skill_order(
     db: Session,
     *,
@@ -520,9 +817,12 @@ def process_skill_order(
         .first()
     )
     if existing:
-        if existing.consumer_id != consumer.consumer_id:
+        if (
+            existing.consumer_id != consumer.consumer_id
+            or existing.agent_id != agent.agent_id
+        ):
             raise SkillOrderError(
-                "request_id 已被其他 EvoMap 消费者使用",
+                "request_id 已被其他 EvoMap 消费者或 Agent 使用",
                 code="request_id_conflict",
                 http_status=409,
             )
@@ -567,8 +867,8 @@ def process_skill_order(
 
     amount = sum((item["price"] for item in items), Decimal("0.00"))
     amount_credits = credits_for_order(amount)
-    free_sequence = consumer.free_orders_used + 1
-    is_free = free_sequence <= settings.skill_free_order_limit
+    provisional_free_sequence = consumer.free_orders_used + 1
+    is_free = provisional_free_sequence <= settings.skill_free_order_limit
 
     _publish_skill_restaurant_event(
         db,
@@ -580,7 +880,7 @@ def process_skill_order(
         items=items,
         amount_credits=amount_credits,
         payment_status=PAYMENT_STATUS_FREE if is_free else PAYMENT_STATUS_PAYMENT_PENDING,
-        free_order_sequence=free_sequence if is_free else None,
+        free_order_sequence=provisional_free_sequence if is_free else None,
         patience=92,
         satisfaction=84,
     )
@@ -615,17 +915,50 @@ def process_skill_order(
         updated_at=datetime.utcnow(),
     )
 
-    if is_free:
-        return _complete_order(
-            db,
-            consumer=consumer,
-            agent=agent,
-            ledger=ledger,
-            items=items,
-            payment_status=PAYMENT_STATUS_FREE,
-            free_order_sequence=free_sequence,
-            payment_proof=None,
-        )
+    free_sequence = _reserve_free_order_slot(db, consumer)
+    if free_sequence is not None:
+        try:
+            return _complete_order(
+                db,
+                consumer=consumer,
+                agent=agent,
+                ledger=ledger,
+                items=items,
+                payment_status=PAYMENT_STATUS_FREE,
+                free_order_sequence=free_sequence,
+                payment_proof=None,
+            )
+        except OutOfStockError as exc:
+            db.rollback()
+            raise SkillOrderError(
+                str(exc), code="out_of_stock", http_status=409
+            ) from exc
+        except CatalogError as exc:
+            db.rollback()
+            raise SkillOrderError(
+                str(exc), code="product_unavailable", http_status=409
+            ) from exc
+        except IntegrityError as exc:
+            db.rollback()
+            concurrent = (
+                db.query(SkillOrderLedger)
+                .filter(SkillOrderLedger.request_id == correlation_id)
+                .first()
+            )
+            if concurrent and concurrent.consumer_id == consumer.consumer_id:
+                return _resume_existing_order(
+                    db,
+                    consumer=consumer,
+                    agent=agent,
+                    ledger=concurrent,
+                    evomap_node_secret=evomap_node_secret,
+                    payment_proof=payment_proof,
+                )
+            raise SkillOrderError(
+                "免费额度或幂等键发生并发冲突，请使用相同 request_id 重试",
+                code="quota_race_retry",
+                http_status=409,
+            ) from exc
 
     ledger.payment_status = PAYMENT_STATUS_PAYMENT_PENDING
     db.add(ledger)
@@ -669,6 +1002,25 @@ def process_skill_order(
         )
         raise SkillPaymentRequired(payload)
 
+    try:
+        _reserve_stock_for_ledger(db, ledger, items)
+    except OutOfStockError as exc:
+        ledger.payment_status = PAYMENT_STATUS_PAYMENT_FAILED
+        ledger.updated_at = datetime.utcnow()
+        db.commit()
+        raise SkillOrderError(str(exc), code="out_of_stock", http_status=409) from exc
+    except CatalogError as exc:
+        ledger.payment_status = PAYMENT_STATUS_PAYMENT_FAILED
+        ledger.updated_at = datetime.utcnow()
+        db.commit()
+        raise SkillOrderError(
+            str(exc), code="product_unavailable", http_status=409
+        ) from exc
+
+    ledger, claimed = _claim_payment_attempt(db, ledger)
+    completed = _require_payment_claim(consumer, ledger, claimed)
+    if completed is not None:
+        return completed
     return _charge_evomap_and_complete(
         db,
         consumer=consumer,
@@ -691,11 +1043,21 @@ def _resume_existing_order(
     items = _ledger_items(ledger)
     if ledger.payment_status in {PAYMENT_STATUS_FREE, PAYMENT_STATUS_PAID}:
         return _success_response(consumer, ledger, "幂等重试：订单已完成")
+    if ledger.payment_status in {
+        PAYMENT_STATUS_NEEDS_RECONCILE,
+        PAYMENT_STATUS_RECONCILING,
+    }:
+        raise SkillOrderError(
+            "该订单已完成外部扣款，正在等待本地对账，请勿重复支付",
+            code="payment_reconcile_required",
+            http_status=409,
+        )
 
     if ledger.payment_status in {
         PAYMENT_STATUS_PAYMENT_REQUIRED,
         PAYMENT_STATUS_PAYMENT_FAILED,
         PAYMENT_STATUS_PAYMENT_PENDING,
+        PAYMENT_STATUS_PAYMENT_PROCESSING,
     }:
         if payment_proof:
             _reject_unverified_payment_proof(
@@ -706,6 +1068,12 @@ def _resume_existing_order(
                 items=[_private_item(item) for item in items],
             )
         if not evomap_node_secret:
+            if ledger.payment_status == PAYMENT_STATUS_PAYMENT_PROCESSING:
+                raise SkillOrderError(
+                    "该订单正在支付处理中，请稍后使用相同 request_id 查询结果",
+                    code="payment_processing",
+                    http_status=409,
+                )
             payload = _payment_required_payload(consumer, ledger, items)
             _publish_skill_restaurant_event(
                 db,
@@ -729,15 +1097,34 @@ def _resume_existing_order(
                 correlation_id=ledger.request_id,
             )
             raise SkillPaymentRequired(payload)
-        ledger.payment_status = PAYMENT_STATUS_PAYMENT_PENDING
-        ledger.updated_at = datetime.utcnow()
-        db.commit()
+        private_items = [_private_item(item) for item in items]
+        try:
+            _reserve_stock_for_ledger(db, ledger, private_items)
+        except OutOfStockError as exc:
+            ledger.payment_status = PAYMENT_STATUS_PAYMENT_FAILED
+            ledger.updated_at = datetime.utcnow()
+            db.commit()
+            raise SkillOrderError(
+                str(exc), code="out_of_stock", http_status=409
+            ) from exc
+        except CatalogError as exc:
+            ledger.payment_status = PAYMENT_STATUS_PAYMENT_FAILED
+            ledger.updated_at = datetime.utcnow()
+            db.commit()
+            raise SkillOrderError(
+                str(exc), code="product_unavailable", http_status=409
+            ) from exc
+
+        ledger, claimed = _claim_payment_attempt(db, ledger)
+        completed = _require_payment_claim(consumer, ledger, claimed)
+        if completed is not None:
+            return completed
         return _charge_evomap_and_complete(
             db,
             consumer=consumer,
             agent=agent,
             ledger=ledger,
-            items=[_private_item(item) for item in items],
+            items=private_items,
             evomap_node_secret=evomap_node_secret,
         )
 
@@ -764,7 +1151,7 @@ def _charge_evomap_and_complete(
         items=items,
         coffee_names=coffee_names,
         amount_credits=ledger.amount_credits,
-        payment_status=PAYMENT_STATUS_PAYMENT_PENDING,
+        payment_status=PAYMENT_STATUS_PAYMENT_PROCESSING,
         ledger=ledger,
         patience=70,
         satisfaction=76,
@@ -787,6 +1174,7 @@ def _charge_evomap_and_complete(
             }
         )
         ledger.updated_at = datetime.utcnow()
+        _release_stock_reservation(db, ledger)
         db.add(ledger)
         db.commit()
         _publish_skill_restaurant_event(
@@ -891,6 +1279,114 @@ def _charge_evomap_and_complete(
         ) from exc
 
 
+def reconcile_skill_ledger(db: Session, ledger_id: int) -> dict[str, Any]:
+    """Finish local persistence for a payment that already succeeded externally.
+
+    This path never calls EvoMap. A conditional ``needs_reconcile -> reconciling``
+    claim prevents two workers from creating duplicate local orders.
+    """
+    now = datetime.utcnow()
+    timeout_seconds = max(
+        int(getattr(settings, "skill_reconcile_claim_timeout_seconds", 300)),
+        60,
+    )
+    stale_before = now - timedelta(seconds=timeout_seconds)
+    result = db.execute(
+        update(SkillOrderLedger)
+        .where(
+            SkillOrderLedger.ledger_id == ledger_id,
+            or_(
+                SkillOrderLedger.payment_status == PAYMENT_STATUS_NEEDS_RECONCILE,
+                (
+                    (SkillOrderLedger.payment_status == PAYMENT_STATUS_RECONCILING)
+                    & or_(
+                        SkillOrderLedger.updated_at.is_(None),
+                        SkillOrderLedger.updated_at <= stale_before,
+                    )
+                ),
+            ),
+        )
+        .values(
+            payment_status=PAYMENT_STATUS_RECONCILING,
+            version=func.coalesce(SkillOrderLedger.version, 0) + 1,
+            updated_at=now,
+        )
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        current = db.get(SkillOrderLedger, ledger_id)
+        if current is None:
+            raise SkillOrderError(
+                "订单账本不存在", code="ledger_not_found", http_status=404
+            )
+        if current.payment_status in {PAYMENT_STATUS_FREE, PAYMENT_STATUS_PAID}:
+            consumer = db.get(EvomapConsumer, current.consumer_id)
+            if consumer is None:
+                raise SkillOrderError(
+                    "消费者不存在", code="consumer_not_found", http_status=404
+                )
+            return _success_response(consumer, current, "对账幂等重试：订单已完成")
+        raise SkillOrderError(
+            "该账本正在对账或当前状态不可对账",
+            code="reconcile_claim_conflict",
+            http_status=409,
+        )
+    db.commit()
+
+    ledger = db.get(SkillOrderLedger, ledger_id)
+    if ledger is None:
+        raise SkillOrderError("订单账本不存在", code="ledger_not_found", http_status=404)
+    consumer = db.get(EvomapConsumer, ledger.consumer_id)
+    agent = db.get(AgentProfile, ledger.agent_id)
+    if consumer is None or agent is None:
+        ledger.payment_status = PAYMENT_STATUS_NEEDS_RECONCILE
+        ledger.updated_at = datetime.utcnow()
+        db.commit()
+        raise SkillOrderError(
+            "对账所需消费者或 Agent 不存在",
+            code="reconcile_identity_missing",
+            http_status=409,
+        )
+
+    items = [_private_item(item) for item in _ledger_items(ledger)]
+    proof = decode_json(ledger.payment_proof_json, {})
+    try:
+        if ledger.stock_reservation_status != STOCK_RESERVATION_RESERVED:
+            _reserve_stock_for_ledger(db, ledger, items)
+        return _complete_order(
+            db,
+            consumer=consumer,
+            agent=agent,
+            ledger=ledger,
+            items=items,
+            payment_status=PAYMENT_STATUS_PAID,
+            free_order_sequence=None,
+            payment_proof=proof if isinstance(proof, dict) else None,
+        )
+    except Exception as exc:
+        db.rollback()
+        current = db.get(SkillOrderLedger, ledger_id)
+        if current is not None:
+            current.payment_status = PAYMENT_STATUS_NEEDS_RECONCILE
+            current.updated_at = datetime.utcnow()
+            db.commit()
+        if isinstance(exc, OutOfStockError):
+            raise SkillOrderError(
+                str(exc), code="out_of_stock", http_status=409
+            ) from exc
+        if isinstance(exc, CatalogError):
+            raise SkillOrderError(
+                str(exc), code="product_unavailable", http_status=409
+            ) from exc
+        if isinstance(exc, SkillOrderError):
+            raise
+        raise SkillOrderError(
+            "本地订单对账仍未完成",
+            code="local_order_reconcile_failed",
+            http_status=500,
+        ) from exc
+
+
 def _complete_order(
     db: Session,
     *,
@@ -904,6 +1400,10 @@ def _complete_order(
 ) -> dict[str, Any]:
     orders: list[Order] = []
     fresh_orders: list[tuple[Order, dict[str, Any]]] = []
+    stock_is_reserved = (
+        payment_status == PAYMENT_STATUS_PAID
+        and ledger.stock_reservation_status == STOCK_RESERVATION_RESERVED
+    )
     if ledger.ledger_id is None:
         db.add(ledger)
         db.flush()
@@ -951,12 +1451,14 @@ def _complete_order(
     for order, item in fresh_orders:
         product = resolved_products.get(item["name"])
         line_price = Decimal(str(item["price"]))
-        if product is not None:
+        if product is None:
+            raise CatalogError(f"商品不存在：{item['name']}")
+        if not stock_is_reserved:
             decrement_stock(db, product.product_id, 1)
         db.add(
             OrderItem(
                 order_id=order.order_id,
-                product_id=product.product_id if product else None,
+                product_id=product.product_id,
                 product_name_snapshot=item["name"],
                 unit_price=line_price,
                 quantity=1,
@@ -972,40 +1474,42 @@ def _complete_order(
     if payment_proof:
         ledger.payment_proof_json = encode_json(payment_proof)
         ledger.evomap_order_id = payment_proof.get("evomap_order_id")
+    if stock_is_reserved:
+        ledger.stock_reservation_status = STOCK_RESERVATION_CONSUMED
     db.add(ledger)
 
     if payment_status == PAYMENT_STATUS_FREE and free_order_sequence is not None:
         consumer.free_orders_used = max(consumer.free_orders_used, free_order_sequence)
         consumer.last_seen_at = datetime.utcnow()
-        for order, _item in fresh_orders:
-            if order.user_id is not None:
-                wallet_service.apply_transaction(
-                    db,
-                    user_id=order.user_id,
-                    currency=WALLET_CURRENCY_CREDITS,
-                    type_="free_order",
-                    amount=Decimal("0"),
-                    order_id=order.order_id,
-                    ledger_id=ledger.ledger_id,
-                    correlation_id=ledger.request_id,
-                    note=f"免费单 #{order.order_id}",
-                    allow_negative=True,
-                )
+        if fresh_orders and fresh_orders[0][0].user_id is not None:
+            order = fresh_orders[0][0]
+            wallet_service.apply_transaction(
+                db,
+                user_id=order.user_id,
+                currency=WALLET_CURRENCY_CREDITS,
+                type_="free_order",
+                amount=Decimal("0"),
+                order_id=order.order_id,
+                ledger_id=ledger.ledger_id,
+                correlation_id=ledger.request_id,
+                note=f"免费单账本 #{ledger.ledger_id}",
+                allow_negative=True,
+            )
     elif payment_status == PAYMENT_STATUS_PAID and ledger.amount_credits:
-        for order, _item in fresh_orders:
-            if order.user_id is not None:
-                wallet_service.apply_transaction(
-                    db,
-                    user_id=order.user_id,
-                    currency=WALLET_CURRENCY_CREDITS,
-                    type_="consume",
-                    amount=-Decimal(str(ledger.amount_credits)),
-                    order_id=order.order_id,
-                    ledger_id=ledger.ledger_id,
-                    correlation_id=ledger.request_id,
-                    note=f"EvoMap 扣款镜像 #{order.order_id}",
-                    allow_negative=True,
-                )
+        if fresh_orders and fresh_orders[0][0].user_id is not None:
+            order = fresh_orders[0][0]
+            wallet_service.apply_transaction(
+                db,
+                user_id=order.user_id,
+                currency=WALLET_CURRENCY_CREDITS,
+                type_="consume",
+                amount=-Decimal(str(ledger.amount_credits)),
+                order_id=order.order_id,
+                ledger_id=ledger.ledger_id,
+                correlation_id=ledger.request_id,
+                note=f"EvoMap 扣款镜像账本 #{ledger.ledger_id}",
+                allow_negative=True,
+            )
 
     # Refresh the Skill/CLI agent heartbeat so the snapshot's online window keeps
     # seeing them. Skill scripts can't hold a WebSocket, so last_seen_at is their
@@ -1158,6 +1662,187 @@ def _payment_required_payload(
         "payment_request": None,
         "payment_method": "evomap_service_order",
         "service_order_request": service_order_request,
+    }
+
+
+def process_skill_cny_order(
+    db: Session,
+    *,
+    consumer: EvomapConsumer,
+    agent: AgentProfile,
+    message: str,
+    request_id: str | None,
+) -> dict[str, Any]:
+    """Place a Skill order against the linked project's CNY wallet.
+
+    Historical EvoMap ledgers continue to use :func:`process_skill_order` for
+    reconciliation.  All newly authenticated Skill traffic enters here.
+    """
+    correlation_id = request_id or f"skill-{consumer.consumer_id}-{uuid.uuid4().hex}"
+    existing = db.query(SkillOrderLedger).filter(
+        SkillOrderLedger.request_id == correlation_id
+    ).first()
+    if existing is not None:
+        if existing.consumer_id != consumer.consumer_id or existing.agent_id != agent.agent_id:
+            raise SkillOrderError(
+                "request_id 已被其他账号使用",
+                code="request_id_conflict",
+                http_status=409,
+            )
+        orders = db.query(Order).filter(Order.ledger_id == existing.ledger_id).all()
+        if orders:
+            if existing.payment_status != PAYMENT_STATUS_PAID:
+                existing.payment_status = PAYMENT_STATUS_PAID
+                existing.order_ids_json = encode_json([order.order_id for order in orders])
+                existing.updated_at = datetime.utcnow()
+                db.commit()
+            return _cny_success_response(db, consumer, existing, orders)
+
+    items = _resolve_items(db, message)
+    if not items:
+        raise SkillOrderError(
+            "未能从 Skill 点单消息中识别咖啡",
+            code="coffee_not_resolved",
+            http_status=400,
+        )
+    total = sum((Decimal(str(item["price"])) for item in items), Decimal("0.00"))
+    conflicting = db.query(Order).filter(Order.request_id == correlation_id).first()
+    if conflicting is not None:
+        raise SkillOrderError(
+            "request_id 已被其他订单使用",
+            code="request_id_conflict",
+            http_status=409,
+        )
+
+    ledger = SkillOrderLedger(
+        consumer_id=consumer.consumer_id,
+        agent_id=agent.agent_id,
+        request_id=correlation_id,
+        coffee_items_json=encode_json(_public_items(items)),
+        amount_credits=0,
+        amount_cny=total,
+        payment_status=PAYMENT_STATUS_PENDING,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(ledger)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        concurrent = db.query(SkillOrderLedger).filter(
+            SkillOrderLedger.request_id == correlation_id
+        ).first()
+        if concurrent is not None:
+            if (
+                concurrent.consumer_id != consumer.consumer_id
+                or concurrent.agent_id != agent.agent_id
+            ):
+                raise SkillOrderError(
+                    "request_id 已被其他账号使用",
+                    code="request_id_conflict",
+                    http_status=409,
+                ) from exc
+            concurrent_orders = db.query(Order).filter(
+                Order.ledger_id == concurrent.ledger_id
+            ).all()
+            if concurrent_orders:
+                return _cny_success_response(
+                    db, consumer, concurrent, concurrent_orders
+                )
+        raise SkillOrderError(
+            "相同 request_id 正在处理中，请稍后使用原 request_id 重试",
+            code="request_race_retry",
+            http_status=409,
+        ) from exc
+    order_items = [
+        (item["name"], correlation_id if index == 0 else f"{correlation_id}:{index + 1}")
+        for index, item in enumerate(items)
+    ]
+    try:
+        orders = place_orders(
+            db,
+            consumer.local_user_id,
+            order_items,
+            source_type=ORDER_SOURCE_SKILL,
+            payment_status=PAYMENT_STATUS_PAID,
+            consumer_id=consumer.consumer_id,
+            agent_id=agent.agent_id,
+            ledger_id=ledger.ledger_id,
+            correlation_id=correlation_id,
+            commit=False,
+        )
+    except InsufficientBalanceError as exc:
+        db.rollback()
+        raise SkillOrderError(
+            str(exc), code="insufficient_balance", http_status=402
+        ) from exc
+    except OutOfStockError as exc:
+        db.rollback()
+        raise SkillOrderError(str(exc), code="out_of_stock", http_status=409) from exc
+    except (CatalogError, OrderError, ValueError) as exc:
+        db.rollback()
+        raise SkillOrderError(str(exc), code="order_failed", http_status=400) from exc
+
+    ledger = db.query(SkillOrderLedger).filter(
+        SkillOrderLedger.ledger_id == ledger.ledger_id
+    ).first()
+    if ledger is None:
+        raise SkillOrderError("订单账本写入失败", code="ledger_missing", http_status=500)
+    ledger.order_ids_json = encode_json([order.order_id for order in orders])
+    ledger.payment_status = PAYMENT_STATUS_PAID
+    ledger.updated_at = datetime.utcnow()
+    agent.last_seen_at = datetime.utcnow()
+    consumer.last_seen_at = datetime.utcnow()
+    db.commit()
+
+    try:
+        customer_enter_scene(db, agent, correlation_id=correlation_id)
+        _publish_skill_completion_flow(
+            db,
+            consumer=consumer,
+            agent=agent,
+            ledger=ledger,
+            orders=orders,
+            items=items,
+            payment_status=PAYMENT_STATUS_PAID,
+            free_order_sequence=None,
+        )
+    except Exception:
+        logger.warning("Skill CNY 订单可视化事件发布失败", exc_info=True)
+    return _cny_success_response(db, consumer, ledger, orders)
+
+
+def _cny_success_response(
+    db: Session,
+    consumer: EvomapConsumer,
+    ledger: SkillOrderLedger,
+    orders: list[Order],
+) -> dict[str, Any]:
+    amount_cny = ledger.amount_cny
+    if amount_cny is None:
+        amount_cny = sum(
+            (Decimal(str(order.total_amount or order.amount or 0)) for order in orders),
+            Decimal("0.00"),
+        )
+    balance = wallet_service.get_balance(db, consumer.local_user_id, WALLET_CURRENCY_CNY)
+    items = _ledger_items(ledger)
+    return {
+        "ok": True,
+        "status": "completed",
+        "reply": "Skill 点单完成，已从咖啡厅账户余额扣款",
+        "request_id": ledger.request_id,
+        "consumer_id": consumer.consumer_id,
+        "ledger_id": ledger.ledger_id,
+        "order_ids": [order.order_id for order in orders],
+        "coffee_names": [item["name"] for item in items],
+        "amount_credits": 0,
+        "amount_cny": float(amount_cny),
+        "currency": WALLET_CURRENCY_CNY,
+        "balance_after": float(balance),
+        "payment_status": PAYMENT_STATUS_PAID,
+        "free_orders_remaining": 0,
+        "evomap_order_id": None,
     }
 
 

@@ -1,50 +1,61 @@
 """FastAPI entrypoint for chat ordering and Agent visualization APIs."""
 import asyncio
+import hashlib
+import json
 import logging
 import threading
 import uuid
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Any, Optional
 
 import anyio
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db.database import SessionLocal, get_db, Base, engine
+from app.db.database import SessionLocal, get_db, engine
 from app.db.models import (
     AgentProfile,
     EvomapConsumer,
     Order,
     SkillOrderLedger,
     User,
+    UserAccount,
     VisualizationEvent,
 )
-from app.db.models import OrderItem, Product
+from app.db.models import Product
 from app.domain_constants import WALLET_CURRENCY_CNY
 from app.services import autonomous_agent_service, office_layout_service, wallet_service
 from app.domain_constants import (
+    ACCOUNT_ROLE_ADMIN,
     IDENTITY_STATUS_ACTIVE,
     ORDER_SOURCE_SKILL,
     ORDER_SOURCE_WEB_DIALOG,
     PAYMENT_STATUS_PAID,
+    PAYMENT_STATUS_FREE,
+    PAYMENT_STATUS_NEEDS_RECONCILE,
     PAYMENT_STATUS_PAYMENT_FAILED,
     PAYMENT_STATUS_PAYMENT_PENDING,
+    PAYMENT_STATUS_RECONCILING,
+    IDENTITY_STATUS_INACTIVE,
 )
 from app.llm import client as llm
 from app.memory.chat_history import (
     add_message,
+    claim_pending_order,
     clear_pending_order,
     get_history,
     get_pending_order,
+    migrate_pending_order,
     set_pending_order,
 )
 from app.memory._redis_client import get_redis_client
@@ -61,13 +72,15 @@ from app.rag.keywords import extract_keywords
 from app.rag.retrieval import retrieve
 from app.services.order_service import (
     InsufficientBalanceError,
+    OrderError,
     place_orders,
 )
+from app.services.catalog_service import CatalogError, OutOfStockError
 from app.services.skill_order_service import (
     SkillOrderError,
-    SkillPaymentRequired,
     ensure_consumer,
-    process_skill_order,
+    process_skill_cny_order,
+    reconcile_skill_ledger,
 )
 from app.services.visualization_service import (
     VALID_AGENT_ACTIONS,
@@ -85,23 +98,24 @@ from app.services.visualization_service import (
     visualization_hub,
 )
 from app.services import staff_service
+from app.services import skill_auth_service
+from app.services import lan_discovery_service
 from app.auth import service as auth_service
+from app.rate_limit import enforce_rate_limit
+from app.release_integrity import validate_3d_release
+from app.request_limits import RequestBodyLimitMiddleware
 from app.colyseus_bridge import start_colyseus_server, stop_colyseus_server
 
 app = FastAPI(title="Crossroads Agent Café")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "http://localhost:5175",
-        "http://127.0.0.1:5175",
-    ],
+    allow_origins=settings.cors_allowed_origin_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestBodyLimitMiddleware, max_body_size=262_144)
 
 logger = logging.getLogger(__name__)
 
@@ -111,11 +125,11 @@ _evomap_heartbeat_stop = threading.Event()
 
 # 自主数字顾客循环（P1：每 45-75s 跑一次模拟买咖啡会话，3D 人偶自主走动）
 _autonomous_task: asyncio.Task | None = None
+_skill_reconcile_task: asyncio.Task | None = None
 
 
 def _evomap_heartbeat_loop() -> None:
     """后台心跳线程：每 5 分钟发心跳 + 拉取社区经验缓存到 Redis。"""
-    import time as _time
     while not _evomap_heartbeat_stop.is_set():
         try:
             evomap_evolution_service.heartbeat()
@@ -145,8 +159,10 @@ def _ensure_staff_seeded() -> None:
 
 @app.on_event("startup")
 async def _startup_colyseus() -> None:
-    # SQLite/MySQL 双后端：首次启动自动建表（幂等，已有表不会重建）。
-    Base.metadata.create_all(bind=engine)
+    # One canonical, idempotent migration chain for both SQLite and MySQL.
+    from scripts.migrate_order_sources import run_migrations
+
+    run_migrations(engine)
     start_colyseus_server()
     await visualization_event_bus.start()
     _ensure_staff_seeded()
@@ -162,11 +178,21 @@ async def _startup_colyseus() -> None:
     global _autonomous_task
     if settings.autonomous_agent_enabled:
         _autonomous_task = asyncio.create_task(autonomous_agent_service.autonomous_loop())
+    global _skill_reconcile_task
+    if settings.skill_reconcile_enabled:
+        _skill_reconcile_task = asyncio.create_task(_skill_reconcile_loop())
     # 启动 EvoMap 心跳（仅当配置了节点身份）
     if settings.evomap_node_id and settings.evomap_node_secret:
         _evomap_heartbeat_stop.clear()
         _evomap_heartbeat_thread = threading.Thread(target=_evomap_heartbeat_loop, daemon=True)
         _evomap_heartbeat_thread.start()
+    # Advertise only after the application has completed its startup checks.
+    lan_discovery_service.start_listener(
+        enabled=settings.a2a_discovery_enabled,
+        udp_port=settings.a2a_discovery_udp_port,
+        http_port=settings.a2a_discovery_http_port,
+        scheme=settings.a2a_discovery_http_scheme,
+    )
 
 
 def _preload_jieba() -> None:
@@ -210,6 +236,7 @@ def _warm_llm_connection() -> None:
 
 @app.on_event("shutdown")
 async def _shutdown_colyseus() -> None:
+    lan_discovery_service.stop_listener()
     stop_colyseus_server()
     await visualization_event_bus.stop()
     _evomap_heartbeat_stop.set()
@@ -221,6 +248,10 @@ async def _shutdown_colyseus() -> None:
     if _autonomous_task is not None:
         _autonomous_task.cancel()
         _autonomous_task = None
+    global _skill_reconcile_task
+    if _skill_reconcile_task is not None:
+        _skill_reconcile_task.cancel()
+        _skill_reconcile_task = None
 
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -248,7 +279,44 @@ _IMAGES_DIR = Path(__file__).resolve().parent / "images"
 if _IMAGES_DIR.is_dir():
     app.mount("/images", StaticFiles(directory=_IMAGES_DIR), name="menu-images")
 
-from app.auth.router import router as auth_router  # noqa: E402
+from app.auth.router import (  # noqa: E402
+    current_account,
+    require_account,
+    require_admin,
+    router as auth_router,
+)
+
+
+@app.middleware("http")
+async def browser_security_middleware(request: Request, call_next):
+    """Reject cross-site cookie mutations and attach baseline browser headers."""
+    if request.method.upper() in {"POST", "PUT", "PATCH", "DELETE"}:
+        if request.cookies.get(settings.auth_cookie_name):
+            fetch_site = (request.headers.get("sec-fetch-site") or "").lower()
+            origin = request.headers.get("origin")
+            allowed_origins = {
+                value.rstrip("/") for value in settings.cors_allowed_origin_list
+            }
+            same_origin = f"{request.url.scheme}://{request.url.netloc}".rstrip("/")
+            if fetch_site == "cross-site" or (
+                origin
+                and origin.rstrip("/") != same_origin
+                and origin.rstrip("/") not in allowed_origins
+            ):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": {"code": "csrf_rejected"}},
+                )
+
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(), microphone=(), geolocation=()",
+    )
+    return response
 
 app.include_router(auth_router)
 
@@ -437,24 +505,67 @@ def _normalize_consumer_url(value: str | None) -> str | None:
     return text[:512]
 
 
+def _guest_numeric_id(guest_id: str) -> int:
+    """Map an opaque signed guest principal to a stable non-positive key."""
+    digest = hashlib.sha256(guest_id.encode("utf-8")).digest()
+    return -(int.from_bytes(digest[:8], "big") & ((1 << 62) - 1)) - 1
+
+
+def _resolve_guest_principal(
+    request: Request,
+    response: Response,
+    *,
+    create: bool,
+) -> tuple[str | None, int | None]:
+    cookie_name = f"{settings.auth_cookie_name}_guest"
+    token = request.cookies.get(cookie_name)
+    guest_id = auth_service.read_guest_token(token) if token else None
+    if guest_id is None and create:
+        guest_id = uuid.uuid4().hex
+        response.set_cookie(
+            key=cookie_name,
+            value=auth_service.make_guest_token(guest_id),
+            max_age=settings.auth_cookie_max_age_seconds,
+            httponly=True,
+            samesite="lax",
+            secure=bool(settings.auth_cookie_secure),
+            path="/",
+        )
+    return guest_id, _guest_numeric_id(guest_id) if guest_id else None
+
+
+def _require_self_or_admin(account, user_id: int) -> None:
+    if account.user_id == user_id:
+        return
+    if getattr(account, "role", None) == ACCOUNT_ROLE_ADMIN:
+        return
+    raise HTTPException(status_code=403, detail={"code": "forbidden"})
+
+
 class ChatRequest(BaseModel):
-    user_id: int
-    message: str
-    request_id: Optional[str] = None  # 可选，下单幂等键
-    consumer_url: Optional[str] = None
+    # Legacy client hint only. Authenticated identity comes from the signed
+    # session; anonymous identity comes from a signed server guest cookie.
+    user_id: Optional[int] = None
+    message: str = Field(min_length=1, max_length=2000)
+    request_id: Optional[str] = Field(default=None, max_length=128)
+    consumer_url: Optional[str] = Field(default=None, max_length=512)
 
 
 class ChatResponse(BaseModel):
     reply: str
     order_id: Optional[int] = None
     products: Optional[list[dict]] = None  # 推荐/菜单场景的产品卡片数据
+    code: Optional[str] = None
+    requires_login: bool = False
+    login_required: bool = False
+    checkout_id: Optional[str] = None
 
 
 class AgentRegisterRequest(BaseModel):
-    tool_name: str
-    display_name: str
+    tool_name: str = Field(min_length=1, max_length=64)
+    display_name: str = Field(min_length=1, max_length=128)
     role_type: str = "waiter"
-    capabilities: list[str] = Field(default_factory=list)
+    capabilities: list[str] = Field(default_factory=list, max_length=64)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -466,10 +577,10 @@ class AgentRegisterResponse(BaseModel):
 
 
 class AgentActionRequest(BaseModel):
-    action_type: str
-    target: Optional[str] = None
-    message: Optional[str] = None
-    correlation_id: Optional[str] = None
+    action_type: str = Field(min_length=1, max_length=64)
+    target: Optional[str] = Field(default=None, max_length=128)
+    message: Optional[str] = Field(default=None, max_length=1000)
+    correlation_id: Optional[str] = Field(default=None, max_length=128)
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -479,10 +590,10 @@ class AgentActionResponse(BaseModel):
 
 
 class SkillRegisterRequest(BaseModel):
-    tool_name: str = "codex"
-    display_name: str = "A2A Consumer"
-    evomap_node_id: str
-    evomap_did: Optional[str] = None
+    tool_name: str = Field(default="codex", min_length=1, max_length=64)
+    display_name: str = Field(default="A2A Consumer", min_length=1, max_length=128)
+    evomap_node_id: str = Field(min_length=1, max_length=128)
+    evomap_did: Optional[str] = Field(default=None, max_length=255)
     role_type: str = "customer"
     capabilities: list[str] = Field(default_factory=lambda: ["a2a_super_order"])
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -499,13 +610,27 @@ class SkillRegisterResponse(BaseModel):
     evomap_node_id: str
 
 
+class SkillDeviceStartRequest(BaseModel):
+    tool_name: str = Field(default="codex", min_length=1, max_length=64)
+    display_name: str = Field(default="A2A Consumer", min_length=1, max_length=128)
+    evomap_node_id: str = Field(min_length=1, max_length=128)
+    evomap_did: Optional[str] = Field(default=None, max_length=255)
+
+
+class SkillDeviceTokenRequest(BaseModel):
+    device_code: str = Field(min_length=20, max_length=256)
+
+
+class SkillDeviceApprovalRequest(BaseModel):
+    user_code: str = Field(min_length=8, max_length=16)
+
+
 class SkillOrderRequest(BaseModel):
     consumer_id: int
     agent_id: int
-    message: str
-    request_id: Optional[str] = None
+    message: str = Field(min_length=1, max_length=2000)
+    request_id: Optional[str] = Field(default=None, max_length=128)
     auto_confirm: bool = True
-    evomap_node_secret: Optional[str] = None
     payment_proof: Optional[dict[str, Any]] = None
 
 
@@ -519,6 +644,9 @@ class SkillOrderResponse(BaseModel):
     order_ids: list[int] = Field(default_factory=list)
     coffee_names: list[str] = Field(default_factory=list)
     amount_credits: Optional[int] = None
+    amount_cny: Optional[float] = None
+    currency: Optional[str] = None
+    balance_after: Optional[float] = None
     payment_status: Optional[str] = None
     free_orders_remaining: int = 0
     evomap_order_id: Optional[str] = None
@@ -873,8 +1001,34 @@ def _require_agent(
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(req: ChatRequest, db: Session = Depends(get_db)):
+def chat(
+    req: ChatRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
     """Handle chat, recommendation, pending confirmation, and paid order flows."""
+    enforce_rate_limit(request, scope="chat", limit=60)
+    account = current_account(request, db)
+    _guest_id, guest_user_id = _resolve_guest_principal(
+        request,
+        response,
+        create=account is None,
+    )
+    chat_user_id = account.user_id if account is not None else guest_user_id
+    if chat_user_id is None:
+        raise HTTPException(status_code=400, detail={"code": "guest_identity_failed"})
+
+    # Never trust the client-provided user_id. Shadow the request with the
+    # authenticated or signed-guest principal so all downstream events and
+    # memory keys consistently use the server-derived identity.
+    req = req.model_copy(update={"user_id": chat_user_id})
+
+    # A guest may prepare a checkout, log in, and then confirm it. Move that
+    # pending order exactly once from the signed guest principal to the account.
+    if account is not None and guest_user_id is not None:
+        migrate_pending_order(guest_user_id, chat_user_id)
+
     consumer_url = _normalize_consumer_url(req.consumer_url)
     web_source_payload = {
         "source_type": ORDER_SOURCE_WEB_DIALOG,
@@ -882,21 +1036,23 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
         "consumer_url": consumer_url,
         "correlation_id": req.request_id,
     }
-    # 建立网页顾客 agent（匿名 user_id 也建），让其人偶进入 3D 场景。
+    # Only authenticated users become persisted customer agents. Anonymous
+    # clients keep signed Redis memory but cannot spoof a real user/3D identity.
     # customer_enter_scene 刷 last_seen_at（落入 snapshot 心跳窗口）+ 广播
     # enter_scene（已连接客户端实时创建人偶）。best-effort：绝不阻断点单。
     customer_agent_id: int | None = None
-    try:
-        customer_agent = staff_service.ensure_web_customer_agent(db, req.user_id)
-        customer_agent_id = customer_agent.agent_id
-        staff_service.customer_enter_scene(
-            db, customer_agent, correlation_id=req.request_id
-        )
-    except Exception:
+    if account is not None:
         try:
-            db.rollback()
+            customer_agent = staff_service.ensure_web_customer_agent(db, req.user_id)
+            customer_agent_id = customer_agent.agent_id
+            staff_service.customer_enter_scene(
+                db, customer_agent, correlation_id=req.request_id
+            )
         except Exception:
-            pass
+            try:
+                db.rollback()
+            except Exception:
+                pass
     # 预取店长 agent（只读查询，不触发创建）；用于回复时广播 show_message 让 3D
     # 店长人偶气泡显示回复（3D 交互增强·第三步）。best-effort：未创建则为 None 跳过。
     _manager_agent = None
@@ -945,6 +1101,16 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     # ===== 查看订单意图：直接返回订单列表，避免被当成「求推荐」走 RAG =====
     # 放在 pending 检查之前，这样查看订单不会清掉待确认订单。
     if _is_order_view_query(req.message):
+        if account is None:
+            reply = "订单记录属于账户私有信息，请先登录后查看。"
+            add_message(req.user_id, "user", req.message)
+            add_message(req.user_id, "assistant", reply)
+            return ChatResponse(
+                reply=reply,
+                code="login_required",
+                requires_login=True,
+                login_required=True,
+            )
         reply = _format_order_history_reply(db, req.user_id)
         add_message(req.user_id, "user", req.message)
         add_message(req.user_id, "assistant", reply)
@@ -961,13 +1127,14 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     history = get_history(req.user_id)
 
     # 访客分析：记录今日访客（best-effort，不阻断主流程）
-    try:
-        visitor_analytics_service.record_visit(db, user_id=req.user_id, message=req.message)
-    except Exception:
+    if account is not None:
         try:
-            db.rollback()
+            visitor_analytics_service.record_visit(db, user_id=req.user_id, message=req.message)
         except Exception:
-            pass
+            try:
+                db.rollback()
+            except Exception:
+                pass
 
     # ===== 第0步：检查 Redis 是否有待确认订单（两段式下单）=====
     pending = get_pending_order(req.user_id)
@@ -975,6 +1142,23 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
     if pending:
         # --- 有待确认订单：判断用户是确认还是修改 ---
         if _is_confirming(req.message):
+            if account is None:
+                reply = "订单已为您保留。请先登录，登录后再回复「确认」即可安全结算。"
+                add_message(req.user_id, "user", req.message)
+                add_message(req.user_id, "assistant", reply)
+                return ChatResponse(
+                    reply=reply,
+                    code="login_required",
+                    requires_login=True,
+                    login_required=True,
+                    checkout_id=pending.get("checkout_id"),
+                )
+
+            claimed_pending = claim_pending_order(req.user_id)
+            if claimed_pending is None:
+                reply = "该订单正在处理或已被确认，请稍后查看订单记录。"
+                return ChatResponse(reply=reply, code="confirmation_already_claimed")
+            pending = claimed_pending
             # 用户明确回复了确认词（"确认"/"下单"/"好"等）→ 执行扣款
             try:
                 items = [(item["name"], req.request_id if i == 0 else None)
@@ -988,11 +1172,19 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                     consumer_url=consumer_url,
                     correlation_id=req.request_id,
                 )
-            except (InsufficientBalanceError, ValueError) as e:
+            except (
+                InsufficientBalanceError,
+                OutOfStockError,
+                CatalogError,
+                OrderError,
+                ValueError,
+            ) as e:
                 # InsufficientBalanceError：余额不足；
                 # ValueError：place_orders 对「用户不存在/参数非法」抛出，
                 # 不捕获会变成 HTTP 500，这里统一降级为友好提示。
-                clear_pending_order(req.user_id)
+                if isinstance(e, InsufficientBalanceError):
+                    # A balance top-up may make the same checkout valid later.
+                    set_pending_order(req.user_id, pending)
                 reply = f"下单失败：{e}。请稍后重试或联系店长~"
                 add_message(req.user_id, "user", req.message)
                 add_message(req.user_id, "assistant", reply)
@@ -1040,7 +1232,6 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                 _broadcast_reply_speech(reply)
                 return ChatResponse(reply=reply)
 
-            clear_pending_order(req.user_id)
             user = db.query(User).filter(User.user_id == req.user_id).first()
             balance = (
                 wallet_service.get_balance(db, req.user_id, WALLET_CURRENCY_CNY)
@@ -1234,7 +1425,16 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             p = _lookup_price_from_product(db, name)
             items.append({"name": name, "price": p})
         total = sum(i["price"] for i in items)
-        set_pending_order(req.user_id, {"coffees": items, "total": total})
+        checkout_id = f"checkout_{uuid.uuid4().hex}"
+        set_pending_order(
+            req.user_id,
+            {
+                "checkout_id": checkout_id,
+                "coffees": items,
+                "total": total,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
 
         lines = "\n".join(f"  • {i['name']}  ¥{i['price']:.2f}" for i in items)
         reply = (
@@ -1269,7 +1469,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             correlation_id=req.request_id,
         )
         _broadcast_reply_speech(reply)
-        return ChatResponse(reply=reply)
+        return ChatResponse(reply=reply, checkout_id=checkout_id)
 
     # ===== 非下单意图（recommend/chat）→ 多 Agent(智能体) 协作流程 =====
     # 编排器按序调用：店长(意图)→推荐(RAG+经验)→[纠正检测]→复盘→经验继承
@@ -1312,7 +1512,13 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
 
 
 @app.post("/agents/register", response_model=AgentRegisterResponse)
-def register_agent(req: AgentRegisterRequest, db: Session = Depends(get_db)):
+def register_agent(
+    req: AgentRegisterRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
+    enforce_rate_limit(request, scope="agent-register", limit=10, window_seconds=300)
     role_type = req.role_type.strip().lower()
     if role_type not in VALID_AGENT_ROLES:
         raise HTTPException(status_code=400, detail=f"不支持的角色类型：{req.role_type}")
@@ -1353,11 +1559,293 @@ def register_agent(req: AgentRegisterRequest, db: Session = Depends(get_db)):
     )
 
 
-@app.post("/skill/register", response_model=SkillRegisterResponse)
-def register_skill_consumer(req: SkillRegisterRequest, db: Session = Depends(get_db)):
+def _validate_skill_node_identity(node_id: str, node_secret: str | None) -> None:
+    """Apply the same EvoMap verification policy used by legacy registration."""
+    secret = (node_secret or "").strip()
+    is_local_mode = settings.db_mode == "sqlite" or settings.use_fakeredis
+    evomap_not_configured = not settings.evomap_node_id
+    if is_local_mode and (evomap_not_configured or secret == "local-dev"):
+        return
+    if not secret:
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "missing_evomap_node_secret", "message": "缺少 EvoMap 节点凭证"},
+        )
+    if not evomap_evolution_service.verify_node_identity(node_id, secret):
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "invalid_evomap_node_identity", "message": "EvoMap 节点身份验证失败"},
+        )
+
+
+def _skill_auth_error(exc: skill_auth_service.SkillAuthError) -> HTTPException:
+    return HTTPException(
+        status_code=exc.http_status,
+        detail={"code": exc.code, "message": str(exc)},
+    )
+
+
+def _require_bound_skill_agent(
+    db: Session,
+    authorization: str | None,
+    x_agent_token: str | None,
+) -> tuple[AgentProfile, EvomapConsumer, UserAccount]:
+    try:
+        token = _extract_agent_token(authorization, x_agent_token)
+    except HTTPException as exc:
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "account_login_required", "message": "请先登录咖啡厅账号"},
+        ) from exc
+    agent = db.query(AgentProfile).filter(
+        AgentProfile.api_token_hash == hash_agent_token(token),
+        AgentProfile.status == IDENTITY_STATUS_ACTIVE,
+    ).first()
+    if agent is None:
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "account_login_required", "message": "登录已失效，请重新授权"},
+        )
+    try:
+        consumer, account = skill_auth_service.account_for_agent(db, agent)
+    except skill_auth_service.SkillAuthError as exc:
+        raise _skill_auth_error(exc) from exc
+    return agent, consumer, account
+
+
+@app.get("/skill/discovery")
+def get_skill_discovery():
+    """Anonymous, non-secret identity probe used before a Skill trusts a URL."""
+    return lan_discovery_service.discovery_document()
+
+
+@app.post("/skill/auth/device/start")
+def start_skill_device_authorization(
+    req: SkillDeviceStartRequest,
+    request: Request,
+    x_evomap_node_secret: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    enforce_rate_limit(request, scope="skill-device-start", limit=10, window_seconds=300)
+    _validate_skill_node_identity(req.evomap_node_id, x_evomap_node_secret)
+    try:
+        _row, device_code, user_code = skill_auth_service.start_authorization(
+            db,
+            evomap_node_id=req.evomap_node_id,
+            evomap_did=req.evomap_did,
+            tool_name=req.tool_name,
+            display_name=req.display_name,
+        )
+    except skill_auth_service.SkillAuthError as exc:
+        raise _skill_auth_error(exc) from exc
+    verification_uri = str(request.base_url).rstrip("/") + "/skill/authorize"
+    return {
+        "status": "authorization_required",
+        "device_code": device_code,
+        "user_code": user_code,
+        "verification_uri": verification_uri,
+        "verification_uri_complete": verification_uri + "?code=" + user_code,
+        "expires_in": skill_auth_service.DEVICE_AUTH_TTL_SECONDS,
+        "interval": skill_auth_service.DEVICE_AUTH_POLL_INTERVAL_SECONDS,
+    }
+
+
+@app.post("/skill/auth/device/token")
+def exchange_skill_device_token(
+    req: SkillDeviceTokenRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    enforce_rate_limit(request, scope="skill-device-token", limit=320, window_seconds=600)
+    try:
+        result = skill_auth_service.exchange_device_code(db, device_code=req.device_code)
+    except skill_auth_service.SkillAuthError as exc:
+        raise _skill_auth_error(exc) from exc
+    if result is None:
+        return JSONResponse(
+            status_code=202,
+            content={"status": "authorization_pending", "interval": 2},
+        )
+    token, agent, consumer, account = result
+    profile = skill_auth_service.public_skill_account(
+        db, agent=agent, consumer=consumer, account=account
+    )
+    return {"status": "authorized", "api_token": token, **profile}
+
+
+@app.post("/skill/auth/device/approve")
+def approve_skill_device_authorization(
+    req: SkillDeviceApprovalRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    account=Depends(require_account),
+):
+    enforce_rate_limit(
+        request,
+        scope="skill-device-approve",
+        limit=20,
+        window_seconds=300,
+        identity=f"account:{account.account_id}",
+    )
+    try:
+        row = skill_auth_service.approve_authorization(
+            db, user_code=req.user_code, account=account
+        )
+    except skill_auth_service.SkillAuthError as exc:
+        raise _skill_auth_error(exc) from exc
+    return {"ok": True, "status": row.status}
+
+
+@app.post("/skill/auth/device/deny")
+def deny_skill_device_authorization(
+    req: SkillDeviceApprovalRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    account=Depends(require_account),
+):
+    enforce_rate_limit(request, scope="skill-device-deny", limit=20, window_seconds=300)
+    try:
+        row = skill_auth_service.deny_authorization(
+            db, user_code=req.user_code, account=account
+        )
+    except skill_auth_service.SkillAuthError as exc:
+        raise _skill_auth_error(exc) from exc
+    return {"ok": True, "status": row.status}
+
+
+@app.post("/skill/auth/device/unbind")
+def unbind_skill_device_account(
+    req: SkillDeviceApprovalRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    account=Depends(require_account),
+):
+    enforce_rate_limit(
+        request,
+        scope="skill-device-unbind",
+        limit=10,
+        window_seconds=300,
+        identity=f"account:{account.account_id}",
+    )
+    try:
+        _row, _consumer, unbound = skill_auth_service.unbind_authorization_account(
+            db, user_code=req.user_code, account=account
+        )
+    except skill_auth_service.SkillAuthError as exc:
+        raise _skill_auth_error(exc) from exc
+    return {
+        "ok": True,
+        "status": "unbound" if unbound else "not_bound",
+    }
+
+
+@app.get("/skill/authorize", response_class=HTMLResponse)
+def skill_authorize_page():
+    path = _STATIC_DIR / "skill-authorize.html"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Skill authorization page not found")
+    return FileResponse(path, headers={"Cache-Control": "no-store, max-age=0"})
+
+
+@app.get("/skill/me")
+def get_skill_account(
+    authorization: Optional[str] = Header(None),
+    x_agent_token: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    agent, consumer, account = _require_bound_skill_agent(
+        db, authorization, x_agent_token
+    )
+    return skill_auth_service.public_skill_account(
+        db, agent=agent, consumer=consumer, account=account
+    )
+
+
+@app.get("/skill/menu")
+def get_skill_menu(
+    authorization: Optional[str] = Header(None),
+    x_agent_token: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    _require_bound_skill_agent(db, authorization, x_agent_token)
+    products = get_all_products(db)
+    return [
+        {
+            "name": p.name,
+            "price": float(p.base_price),
+            "tags": p.tags or "",
+            "category": p.category or "",
+            "description": (p.description or "")[:120],
+            "image": resolve_image_path(p.name),
+            "stock": p.stock,
+        }
+        for p in products
+    ]
+
+
+@app.post("/skill/logout")
+def logout_skill_account(
+    authorization: Optional[str] = Header(None),
+    x_agent_token: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    agent, _consumer, _account = _require_bound_skill_agent(
+        db, authorization, x_agent_token
+    )
+    agent.status = IDENTITY_STATUS_INACTIVE
+    agent.updated_at = datetime.utcnow()
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/skill/register", response_model=SkillRegisterResponse, deprecated=True)
+def register_skill_consumer(
+    req: SkillRegisterRequest,
+    request: Request,
+    x_evomap_node_secret: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    enforce_rate_limit(request, scope="skill-register", limit=10, window_seconds=300)
     role_type = req.role_type.strip().lower()
     if role_type not in VALID_AGENT_ROLES:
         raise HTTPException(status_code=400, detail=f"不支持的角色类型：{req.role_type}")
+
+    node_secret = (x_evomap_node_secret or "").strip()
+
+    # 本地降级模式旁路：当 EvoMap 未配置或处于本地开发环境时，
+    # 允许使用本地开发密钥（local-dev）直接注册，无需连接远程 EvoMap Hub。
+    # 这让本地 Agent 能够“一次接入”而不被远程验证卡死。
+    is_local_mode = settings.db_mode == "sqlite" or settings.use_fakeredis
+    evomap_not_configured = not settings.evomap_node_id
+
+    LOCAL_DEV_SECRET = "local-dev"
+
+    if is_local_mode and (evomap_not_configured or node_secret == LOCAL_DEV_SECRET):
+        # 本地开发旁路：使用 local-dev 密钥或 EvoMap 未配置时直接通过
+        pass
+    else:
+        # 生产模式：必须提供密钥并通过 EvoMap 远程验证
+        if not node_secret:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "code": "missing_evomap_node_secret",
+                    "message": "缺少 X-Evomap-Node-Secret 请求头。本地开发可使用 'local-dev' 作为密钥。",
+                    "hint": "在请求头中添加: X-Evomap-Node-Secret: local-dev",
+                },
+            )
+        if not evomap_evolution_service.verify_node_identity(
+            req.evomap_node_id,
+            node_secret,
+        ):
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "code": "invalid_evomap_node_identity",
+                    "message": "EvoMap 节点身份验证失败。请检查 evomap_node_id 和 X-Evomap-Node-Secret 是否正确。",
+                    "hint": "本地开发环境可使用: X-Evomap-Node-Secret: local-dev",
+                },
+            )
 
     consumer = ensure_consumer(
         db,
@@ -1377,6 +1865,7 @@ def register_skill_consumer(req: SkillRegisterRequest, db: Session = Depends(get
         }
     )
     agent = AgentProfile(
+        consumer_id=consumer.consumer_id,
         tool_name=req.tool_name.strip(),
         display_name=req.display_name.strip() or consumer.display_name,
         role_type=role_type,
@@ -1422,6 +1911,7 @@ def register_skill_consumer(req: SkillRegisterRequest, db: Session = Depends(get
 @app.post("/skill/orders", response_model=SkillOrderResponse)
 def create_skill_order(
     req: SkillOrderRequest,
+    request: Request,
     authorization: Optional[str] = Header(None),
     x_agent_token: Optional[str] = Header(None),
     x_evomap_node_secret: Optional[str] = Header(None),
@@ -1431,26 +1921,31 @@ def create_skill_order(
         raise HTTPException(status_code=400, detail="Skill 点单当前要求 auto_confirm=true")
 
     agent = _require_agent(db, req.agent_id, authorization, x_agent_token)
-    metadata = decode_json(agent.metadata_json, {})
-    if metadata.get("consumer_id") and int(metadata["consumer_id"]) != req.consumer_id:
+    if agent.consumer_id != req.consumer_id:
         raise HTTPException(status_code=403, detail="Agent 与消费者身份不匹配")
+    try:
+        bound_consumer, _account = skill_auth_service.account_for_agent(db, agent)
+    except skill_auth_service.SkillAuthError as exc:
+        raise _skill_auth_error(exc) from exc
+    enforce_rate_limit(
+        request,
+        scope="skill-order",
+        limit=40,
+        identity=f"agent:{agent.agent_id}",
+    )
 
-    consumer = db.query(EvomapConsumer).filter(EvomapConsumer.consumer_id == req.consumer_id).first()
+    consumer = bound_consumer
     if not consumer or consumer.status != IDENTITY_STATUS_ACTIVE:
         raise HTTPException(status_code=404, detail="EvoMap 消费者不存在或已停用")
 
     try:
-        return process_skill_order(
+        return process_skill_cny_order(
             db,
             consumer=consumer,
             agent=agent,
             message=req.message,
             request_id=req.request_id,
-            evomap_node_secret=x_evomap_node_secret or req.evomap_node_secret,
-            payment_proof=req.payment_proof,
         )
-    except SkillPaymentRequired as exc:
-        raise HTTPException(status_code=402, detail=exc.payload) from exc
     except SkillOrderError as exc:
         _try_publish_visualization_event(
             db,
@@ -1474,7 +1969,17 @@ def create_skill_order(
 
 
 @app.get("/agents")
-def list_agents(db: Session = Depends(get_db)):
+def list_agents(
+    request: Request,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
+    enforce_rate_limit(
+        request,
+        scope="admin-agents",
+        limit=120,
+        identity=f"admin:{_admin.account_id}",
+    )
     rows = (
         db.query(AgentProfile)
         .filter(AgentProfile.status == IDENTITY_STATUS_ACTIVE)
@@ -1500,11 +2005,18 @@ def list_agents(db: Session = Depends(get_db)):
 @app.post("/agents/{agent_id}/heartbeat")
 def agent_heartbeat(
     agent_id: int,
+    request: Request,
     authorization: Optional[str] = Header(None),
     x_agent_token: Optional[str] = Header(None),
     db: Session = Depends(get_db),
 ):
     agent = _require_agent(db, agent_id, authorization, x_agent_token)
+    enforce_rate_limit(
+        request,
+        scope="agent-heartbeat",
+        limit=120,
+        identity=f"agent:{agent.agent_id}",
+    )
     agent.last_seen_at = datetime.utcnow()
     db.commit()
     event = _publish_visualization_event(
@@ -1524,11 +2036,18 @@ def agent_heartbeat(
 def post_agent_action(
     agent_id: int,
     req: AgentActionRequest,
+    request: Request,
     authorization: Optional[str] = Header(None),
     x_agent_token: Optional[str] = Header(None),
     db: Session = Depends(get_db),
 ):
     agent = _require_agent(db, agent_id, authorization, x_agent_token)
+    enforce_rate_limit(
+        request,
+        scope="agent-action",
+        limit=60,
+        identity=f"agent:{agent.agent_id}",
+    )
     action_type = req.action_type.strip()
     if action_type not in VALID_AGENT_ACTIONS:
         raise HTTPException(status_code=400, detail=f"不支持的动作类型：{req.action_type}")
@@ -1555,7 +2074,11 @@ def post_agent_action(
 
 
 @app.get("/visualization/events")
-def list_visualization_events(limit: int = 50, db: Session = Depends(get_db)):
+def list_visualization_events(
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
     safe_limit = min(max(limit, 1), 200)
     rows = (
         db.query(VisualizationEvent)
@@ -1567,13 +2090,20 @@ def list_visualization_events(limit: int = 50, db: Session = Depends(get_db)):
 
 
 @app.get("/admin/autonomous-agent/status")
-def autonomous_agent_status(db: Session = Depends(get_db)):
+def autonomous_agent_status(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
     """Read-only status for the backend-driven autonomous 3D customer."""
     return autonomous_agent_service.status_snapshot(db)
 
 
 @app.get("/admin/restaurant-state")
-def restaurant_state(limit: int = 50, db: Session = Depends(get_db)):
+def restaurant_state(
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
     """Read-only aggregate state for the restaurant visualization screen."""
     safe_limit = min(max(limit, 1), 200)
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -1678,7 +2208,10 @@ def restaurant_state(limit: int = 50, db: Session = Depends(get_db)):
 
 
 @app.get("/admin/agent-collaboration")
-def agent_collaboration_state(db: Session = Depends(get_db)):
+def agent_collaboration_state(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
     """多 Agent(智能体) 协作面板数据：最近经验记录 + 协作事件统计。"""
     experiences = list_recent_experiences(db, limit=20)
     # 统计最近 200 条事件中各 Agent 的协作次数
@@ -1712,19 +2245,25 @@ def agent_collaboration_state(db: Session = Depends(get_db)):
 
 
 @app.get("/admin/evomap/status")
-def evomap_status():
+def evomap_status(_admin=Depends(require_admin)):
     """EvoMap 群体进化节点状态（供大屏展示节点在线/积分/进化圈/社区经验）。"""
     return evomap_evolution_service.get_node_status()
 
 
 @app.get("/admin/visitor-analytics")
-def visitor_analytics(db: Session = Depends(get_db)):
+def visitor_analytics(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
     """访客分析面板：今日访客数、转化率、意图分布、访客列表。"""
     return visitor_analytics_service.get_daily_analytics(db)
 
 
 @app.get("/admin/churn-analysis")
-def churn_analysis(db: Session = Depends(get_db)):
+def churn_analysis(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
     """流失分析面板：流失原因分类、今日流失详情、自进化洞察。"""
     return visitor_analytics_service.get_churn_analysis(db)
 
@@ -1740,6 +2279,7 @@ _online_visitors: dict[int, dict[str, Any]] = {}
 # 最近的访客聊天消息缓存（最近100条，供新连接者回看）。
 _visitor_chat_buffer: list[dict[str, Any]] = []
 _VISITOR_CHAT_MAX = 100
+_visitor_chat_lock = threading.Lock()
 
 
 def _register_online_visitor(agent_id: int, display_name: str, user_id: int | None = None) -> None:
@@ -1756,33 +2296,62 @@ def _unregister_online_visitor(agent_id: int) -> None:
 
 
 def _add_visitor_chat(message: dict[str, Any]) -> None:
-    _visitor_chat_buffer.append(message)
-    if len(_visitor_chat_buffer) > _VISITOR_CHAT_MAX:
-        _visitor_chat_buffer.pop(0)
+    with _visitor_chat_lock:
+        _visitor_chat_buffer.append(message)
+        if len(_visitor_chat_buffer) > _VISITOR_CHAT_MAX:
+            del _visitor_chat_buffer[:-_VISITOR_CHAT_MAX]
+
+
+def _online_visitors_payload(*, include_user_ids: bool) -> dict[str, Any]:
+    visitors = []
+    for item in _online_visitors.values():
+        visitor = dict(item)
+        if not include_user_ids:
+            visitor["user_id"] = None
+        visitors.append(visitor)
+    return {
+        "count": len(visitors),
+        "visitors": visitors,
+    }
+
+
+@app.get("/api/online-visitors")
+def public_online_visitors():
+    """Public presence list without stable account identifiers."""
+    return _online_visitors_payload(include_user_ids=False)
 
 
 @app.get("/admin/online-visitors")
-def online_visitors():
-    """获取当前在线访客列表（供大屏和社交面板展示）。"""
-    return {
-        "count": len(_online_visitors),
-        "visitors": list(_online_visitors.values()),
-    }
+def online_visitors(_admin=Depends(require_admin)):
+    """Admin presence list including the server-side user association."""
+    return _online_visitors_payload(include_user_ids=True)
+
+
+def _visitor_chat_history_payload(limit: int, *, include_user_ids: bool) -> dict[str, Any]:
+    safe_limit = max(1, min(limit, _VISITOR_CHAT_MAX))
+    with _visitor_chat_lock:
+        messages = [dict(item) for item in _visitor_chat_buffer[-safe_limit:]]
+        total = len(_visitor_chat_buffer)
+    if not include_user_ids:
+        for message in messages:
+            message["user_id"] = None
+    return {"messages": messages, "total": total}
+
+
+@app.get("/api/visitor-chat/history")
+def public_visitor_chat_history(limit: int = 50):
+    """Public chat replay with stable account identifiers removed."""
+    return _visitor_chat_history_payload(limit, include_user_ids=False)
 
 
 @app.get("/admin/visitor-chat")
-def visitor_chat_history(limit: int = 50):
-    """获取最近的访客聊天记录（供新连接者回看历史消息）。"""
-    safe_limit = max(1, min(limit, _VISITOR_CHAT_MAX))
-    return {
-        "messages": _visitor_chat_buffer[-safe_limit:],
-        "total": len(_visitor_chat_buffer),
-    }
+def visitor_chat_history(limit: int = 50, _admin=Depends(require_admin)):
+    """Admin chat replay including the server-side user association."""
+    return _visitor_chat_history_payload(limit, include_user_ids=True)
 
 
-@app.get("/admin/today-topics")
-def today_topics(db: Session = Depends(get_db)):
-    """当天话题热度榜：聚合今日订单 + 访客聊天关键词，返回 TOP-N 热门话题。"""
+def _today_topics_payload(db: Session) -> dict[str, Any]:
+    """Aggregate today's public topic metrics without exposing raw records."""
     from collections import Counter
 
     today_start = datetime.now(timezone.utc).replace(
@@ -1865,31 +2434,97 @@ def today_topics(db: Session = Depends(get_db)):
     }
 
 
+@app.get("/api/today-topics")
+def public_today_topics(db: Session = Depends(get_db)):
+    return _today_topics_payload(db)
+
+
+@app.get("/admin/today-topics")
+def today_topics(
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
+    return _today_topics_payload(db)
+
+
 class VisitorChatRequest(BaseModel):
-    user_id: int
-    display_name: str = Field(default="匿名访客")
-    message: str
+    # Legacy hints are accepted for compatibility but never trusted as identity.
+    user_id: Optional[int] = None
+    display_name: Optional[str] = Field(default=None, max_length=64)
+    message: str = Field(min_length=1, max_length=500)
+    client_message_id: Optional[str] = Field(default=None, max_length=128)
 
 
 @app.post("/api/visitor-chat")
-def post_visitor_chat(req: VisitorChatRequest):
+def post_visitor_chat(
+    req: VisitorChatRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
     """访客发送社交聊天消息（通过 HTTP POST，服务端广播到所有 WebSocket 客户端）。"""
+    enforce_rate_limit(request, scope="visitor-chat", limit=60)
+    account = current_account(request, db)
+    guest_id, guest_user_id = _resolve_guest_principal(
+        request,
+        response,
+        create=account is None,
+    )
+    if account is not None:
+        user_id = account.user_id
+        display_name = account.nickname or account.username
+    else:
+        if guest_id is None or guest_user_id is None:
+            raise HTTPException(status_code=400, detail={"code": "guest_identity_failed"})
+        user_id = guest_user_id
+        display_name = f"Guest {guest_id[-6:].upper()}"
+
+    created_at = datetime.now(timezone.utc).isoformat()
+    message_id = f"visitor_{uuid.uuid4().hex}"
+    canonical_message = {
+        "message_id": message_id,
+        "client_message_id": req.client_message_id,
+        "user_id": user_id,
+        "display_name": display_name,
+        "message": req.message.strip(),
+        "created_at": created_at,
+    }
     msg = {
-        "event_id": None,
+        "event_id": message_id,
         "type": "visitor.chat",
         "agent_id": None,
-        "payload": {
-            "user_id": req.user_id,
-            "display_name": req.display_name,
-            "message": req.message[:500],
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        },
-        "correlation_id": None,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "payload": canonical_message,
+        "correlation_id": req.client_message_id or message_id,
+        "created_at": created_at,
     }
-    _add_visitor_chat(msg["payload"])
+    _add_visitor_chat(canonical_message)
     broadcast_visualization_message(msg, replay=True)
-    return {"ok": True}
+    return {
+        "ok": True,
+        "message": canonical_message,
+        "message_id": message_id,
+        "client_message_id": req.client_message_id,
+        "created_at": created_at,
+    }
+
+
+class SkillReconcileRequest(BaseModel):
+    ledger_id: int = Field(gt=0)
+
+
+@app.post("/admin/skill-orders/reconcile")
+def reconcile_skill_order_admin(
+    req: SkillReconcileRequest,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
+    try:
+        return reconcile_skill_ledger(db, req.ledger_id)
+    except SkillOrderError as exc:
+        raise HTTPException(
+            status_code=exc.http_status,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
 
 
 def _public_agent(agent: AgentProfile | None) -> dict[str, Any] | None:
@@ -1945,20 +2580,20 @@ def _presence_coordinate(value: Any, minimum: float, maximum: float) -> int:
     return int(max(minimum, min(maximum, number)))
 
 
-def _presence_message_from_client(message: dict[str, Any]) -> dict[str, Any] | None:
+def _presence_message_from_client(
+    message: dict[str, Any],
+    principal: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     event_type = _PRESENCE_CLIENT_EVENTS.get(str(message.get("type") or ""))
-    if not event_type:
+    if not event_type or principal is None:
         return None
     raw_payload = message.get("payload")
     if not isinstance(raw_payload, dict):
         return None
-    visitor_id = str(raw_payload.get("visitor_id") or "").strip()
-    if not visitor_id:
-        return None
-    visitor_id = visitor_id[:80]
-    display_name = str(raw_payload.get("display_name") or "").strip()[:40]
-    if not display_name:
-        display_name = f"Guest {visitor_id[-4:].upper()}"
+    # Identity and display name are server-derived from the signed login
+    # session. The client controls coordinates only.
+    visitor_id = f"user:{principal['user_id']}"
+    display_name = str(principal.get("display_name") or "访客")[:40]
     payload: dict[str, Any] = {
         "visitor_id": visitor_id,
         "display_name": display_name,
@@ -2093,6 +2728,7 @@ def _agent_snapshot_dict(agent: AgentProfile) -> dict[str, Any]:
         "role_type": agent.role_type,
         "sprite_seed": agent.sprite_seed,
         "status": agent.status,
+        "metadata": decode_json(agent.metadata_json, {}),
     }
 
 
@@ -2142,21 +2778,38 @@ def _register_web_customer_presence(websocket: WebSocket) -> dict[str, Any] | No
     token = websocket.cookies.get(settings.auth_cookie_name)
     if not token:
         return None
-    account_id = auth_service.read_session_token(token)
-    if account_id is None:
+    claims = auth_service.read_session_claims(token)
+    if claims is None:
         return None
+    account_id, session_version = claims
     db = SessionLocal()
     try:
         account = auth_service.get_account_by_id(db, account_id)
-        if account is None or account.status != IDENTITY_STATUS_ACTIVE:
+        if (
+            account is None
+            or account.status != IDENTITY_STATUS_ACTIVE
+            or int(getattr(account, "session_version", 0) or 0) != session_version
+        ):
             return None
         agent = staff_service.ensure_web_customer_agent(db, account.user_id)
         # Reflect the real login name (nickname/username), not the placeholder.
         agent.display_name = (account.nickname or account.username or agent.display_name)[:128]
+        # Carry profile info (specialty/profession/gender) into agent metadata
+        try:
+            meta = decode_json(agent.metadata_json, {}) if agent.metadata_json else {}
+        except Exception:
+            meta = {}
+        meta["source"] = meta.get("source", "web")
+        meta["specialty"] = getattr(account, "specialty", None)
+        meta["profession"] = getattr(account, "profession", None)
+        meta["gender"] = getattr(account, "gender", None)
+        agent.metadata_json = encode_json(meta)
         agent.last_seen_at = datetime.utcnow()
         db.commit()
         db.refresh(agent)
-        return _agent_snapshot_dict(agent)
+        snapshot = _agent_snapshot_dict(agent)
+        snapshot["user_id"] = account.user_id
+        return snapshot
     except Exception:
         try:
             db.rollback()
@@ -2165,6 +2818,17 @@ def _register_web_customer_presence(websocket: WebSocket) -> dict[str, Any] | No
         return None
     finally:
         db.close()
+
+
+def _websocket_origin_allowed(websocket: WebSocket) -> bool:
+    """Apply the explicit browser-origin policy to cookie-bearing WebSockets."""
+    origin = (websocket.headers.get("origin") or "").rstrip("/")
+    if not origin:
+        return True
+    allowed = {value.rstrip("/") for value in settings.cors_allowed_origin_list}
+    scheme = "https" if websocket.url.scheme == "wss" else "http"
+    same_origin = f"{scheme}://{websocket.headers.get('host', '')}".rstrip("/")
+    return origin == same_origin or origin in allowed
 
 
 def _build_snapshot_agents_for_connect() -> list[dict[str, Any]]:
@@ -2242,8 +2906,62 @@ async def _skill_presence_sweep_loop() -> None:
             pass
 
 
+def _reconcile_skill_ledgers_once() -> int:
+    lookup = SessionLocal()
+    try:
+        ledger_ids = [
+            row[0]
+            for row in (
+                lookup.query(SkillOrderLedger.ledger_id)
+                .filter(
+                    SkillOrderLedger.payment_status.in_(
+                        {
+                            PAYMENT_STATUS_NEEDS_RECONCILE,
+                            PAYMENT_STATUS_RECONCILING,
+                        }
+                    )
+                )
+                .order_by(SkillOrderLedger.updated_at.asc())
+                .limit(settings.skill_reconcile_batch_size)
+                .all()
+            )
+        ]
+    finally:
+        lookup.close()
+
+    completed = 0
+    for ledger_id in ledger_ids:
+        db = SessionLocal()
+        try:
+            reconcile_skill_ledger(db, int(ledger_id))
+            completed += 1
+        except SkillOrderError as exc:
+            logger.info(
+                "Skill ledger reconcile deferred ledger_id=%s code=%s",
+                ledger_id,
+                exc.code,
+            )
+        except Exception:
+            logger.exception("Skill ledger reconcile failed ledger_id=%s", ledger_id)
+        finally:
+            db.close()
+    return completed
+
+
+async def _skill_reconcile_loop() -> None:
+    while True:
+        try:
+            await anyio.to_thread.run_sync(_reconcile_skill_ledgers_once)
+        except Exception:
+            logger.exception("Skill reconciliation batch failed")
+        await asyncio.sleep(settings.skill_reconcile_interval_seconds)
+
+
 @app.websocket("/ws/visualization")
 async def visualization_websocket(websocket: WebSocket):
+    if not _websocket_origin_allowed(websocket):
+        await websocket.close(code=1008, reason="origin_not_allowed")
+        return
     # Identify the logged-in web user (login required) and register WS presence so the
     # snapshot includes them as an online customer. Anonymous visitors are skipped.
     # DB work runs off the event loop so concurrent connects don't block each other.
@@ -2252,7 +2970,11 @@ async def visualization_websocket(websocket: WebSocket):
     if customer is not None:
         visualization_hub.register_ws_presence(websocket, customer["agent_id"])
         _set_web_customer_presence(connection_id, customer)
-        _register_online_visitor(customer["agent_id"], customer["display_name"])
+        _register_online_visitor(
+            customer["agent_id"],
+            customer["display_name"],
+            customer.get("user_id"),
+        )
     agents = await anyio.to_thread.run_sync(_build_snapshot_agents_for_connect)
     await visualization_hub.connect(websocket, agents=agents)
     # Real-time appear: transient notice to OTHER clients (excludes self, not replayed).
@@ -2278,7 +3000,40 @@ async def visualization_websocket(websocket: WebSocket):
     presence_payload: dict[str, Any] | None = None
     try:
         while True:
-            message = await websocket.receive_json()
+            frame = await websocket.receive()
+            if frame["type"] == "websocket.disconnect":
+                raise WebSocketDisconnect(frame.get("code", 1000))
+            raw_message = frame.get("text")
+            if not isinstance(raw_message, str):
+                await websocket.close(code=1003, reason="text_json_required")
+                return
+            if len(raw_message.encode("utf-8")) > 16_384:
+                await websocket.close(code=1009, reason="message_too_large")
+                return
+            try:
+                enforce_rate_limit(
+                    websocket,
+                    scope="visualization-ws",
+                    limit=120,
+                    identity=(
+                        f"agent:{customer['agent_id']}" if customer is not None else None
+                    ),
+                )
+            except HTTPException:
+                await websocket.close(code=1008, reason="rate_limited")
+                return
+            try:
+                message = json.loads(raw_message)
+            except json.JSONDecodeError:
+                await websocket.send_json(
+                    {"type": "error", "payload": {"code": "invalid_json"}}
+                )
+                continue
+            if not isinstance(message, dict):
+                await websocket.send_json(
+                    {"type": "error", "payload": {"code": "invalid_message"}}
+                )
+                continue
             if customer is not None:
                 _set_web_customer_presence(connection_id, customer)
             if message.get("type") == "ping":
@@ -2293,26 +3048,34 @@ async def visualization_websocket(websocket: WebSocket):
                 continue
             # Visitor social chat: broadcast to all connected clients.
             if message.get("type") == "visitor.chat":
+                if customer is None:
+                    continue
+                created_at = datetime.now(timezone.utc).isoformat()
+                message_id = f"visitor_{uuid.uuid4().hex}"
                 chat_payload = {
-                    "user_id": message.get("user_id"),
-                    "display_name": message.get("display_name", "匿名访客"),
+                    "message_id": message_id,
+                    "client_message_id": str(message.get("client_message_id") or "")[:128] or None,
+                    "user_id": customer.get("user_id"),
+                    "display_name": customer["display_name"],
                     "message": str(message.get("message", ""))[:500],
-                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "created_at": created_at,
                 }
+                if not chat_payload["message"].strip():
+                    continue
                 _add_visitor_chat(chat_payload)
                 await visualization_event_bus.publish(
                     {
-                        "event_id": None,
+                        "event_id": message_id,
                         "type": "visitor.chat",
                         "agent_id": None,
                         "payload": chat_payload,
-                        "correlation_id": None,
-                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "correlation_id": chat_payload["client_message_id"] or message_id,
+                        "created_at": created_at,
                     },
                     replay=True,
                 )
                 continue
-            presence_message = _presence_message_from_client(message)
+            presence_message = _presence_message_from_client(message, customer)
             if presence_message:
                 if presence_message["type"] != "presence.customer_left":
                     presence_payload = presence_message["payload"]
@@ -2358,22 +3121,57 @@ async def visualization_websocket(websocket: WebSocket):
 
 
 class OfficeLayoutRequest(BaseModel):
-    items: list[Any]
-    namespace: Optional[str] = "default"
+    items: list[Any] = Field(max_length=2000)
+    namespace: str = Field(
+        default="default",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
+    version: Optional[int] = Field(default=None, ge=0)
 
 
 @app.get("/api/office/layout")
-def get_office_layout(namespace: str = "default", db: Session = Depends(get_db)):
+def get_office_layout(
+    namespace: str = Query(
+        default="default",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    ),
+    db: Session = Depends(get_db),
+):
     """3D 编辑器布局读取（匿名可读）。未保存时返回空列表，前端用默认/localStorage 兜底。"""
-    items, updated_at = office_layout_service.get_layout_record(db, namespace)
-    return {"items": items or [], "namespace": namespace, "updated_at": updated_at}
+    items, updated_at, version = office_layout_service.get_layout_state(db, namespace)
+    return {
+        "items": items or [],
+        "namespace": namespace,
+        "updated_at": updated_at,
+        "version": version,
+    }
 
 
 @app.put("/api/office/layout")
-def put_office_layout(req: OfficeLayoutRequest, db: Session = Depends(get_db)):
-    """3D 编辑器布局保存（匿名可写，遵循项目无登录门槛原则；单例 upsert）。"""
-    office_layout_service.save_layout(db, list(req.items), req.namespace or "default")
-    return {"ok": True, "namespace": req.namespace or "default"}
+def put_office_layout(
+    req: OfficeLayoutRequest,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
+    """3D 编辑器布局保存（管理员权限；单例 upsert）。"""
+    namespace = req.namespace
+    try:
+        version = office_layout_service.save_layout(
+            db,
+            list(req.items),
+            namespace,
+            expected_version=req.version,
+        )
+    except office_layout_service.LayoutConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "layout_version_conflict", "message": str(exc)},
+        ) from exc
+    return {"ok": True, "namespace": namespace, "version": version}
 
 
 @app.get("/menu")
@@ -2395,7 +3193,12 @@ def get_menu(db: Session = Depends(get_db)):
 
 
 @app.get("/user/{user_id}")
-def get_user(user_id: int, db: Session = Depends(get_db)):
+def get_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    account=Depends(require_account),
+):
+   _require_self_or_admin(account, user_id)
    user = db.query(User).filter(User.user_id == user_id).first()
    if not user:
        raise HTTPException(404, "用户不存在")
@@ -2408,12 +3211,14 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/history/{user_id}")
-def get_chat_history(user_id: int):
+def get_chat_history(user_id: int, account=Depends(require_account)):
+    _require_self_or_admin(account, user_id)
     return get_history(user_id)
 
 
 @app.delete("/history/{user_id}")
-def clear_chat_history(user_id: int):
+def clear_chat_history(user_id: int, account=Depends(require_account)):
+    _require_self_or_admin(account, user_id)
     from app.memory.chat_history import clear_history
 
     clear_history(user_id)
@@ -2421,8 +3226,13 @@ def clear_chat_history(user_id: int):
 
 
 @app.get("/orders/{user_id}")
-def list_orders(user_id: int, db: Session = Depends(get_db)):
+def list_orders(
+    user_id: int,
+    db: Session = Depends(get_db),
+    account=Depends(require_account),
+):
     """返回某用户的订单列表（最近 10 单），供网页侧栏展示"""
+    _require_self_or_admin(account, user_id)
     rows = (
         db.query(Order)
         .filter(Order.user_id == user_id)
@@ -2444,6 +3254,406 @@ def list_orders(user_id: int, db: Session = Depends(get_db)):
     ]
 
 
+# ---------------------------------------------------------------------------
+# Agent Services Marketplace + Economic Value Dashboard
+# ---------------------------------------------------------------------------
+
+_AGENT_SERVICE_DEFS = [
+    {
+        "sku": "SVC-CODE-REVIEW",
+        "name": "代码审查服务",
+        "category": "agent_service",
+        "description": "Agent 对你的 Pull Request 进行深度代码审查，覆盖安全漏洞、性能瓶颈、代码规范、架构合理性四个维度，输出结构化审查报告。适用于团队 CI/CD 流水线集成。",
+        "base_price": Decimal("50.00"),
+        "tags": "B端,代码审查,CI/CD,安全,质量保障",
+        "stock": 9999,
+        "icon": "🔍",
+        "target": "B端",
+        "unit": "次/PR",
+        "time_saved_hours": 2.0,
+    },
+    {
+        "sku": "SVC-DOC-WRITING",
+        "name": "技术文档撰写",
+        "category": "agent_service",
+        "description": "Agent 根据代码仓库自动生成 API 文档、架构设计文档、变更日志。支持 Markdown / OpenAPI / AsciiDoc 格式输出，可直接推送到文档站点。",
+        "base_price": Decimal("80.00"),
+        "tags": "B端,文档,API,自动化,技术写作",
+        "stock": 9999,
+        "icon": "📝",
+        "target": "B端",
+        "unit": "篇/仓库",
+        "time_saved_hours": 4.0,
+    },
+    {
+        "sku": "SVC-DATA-ANALYSIS",
+        "name": "数据洞察分析",
+        "category": "agent_service",
+        "description": "Agent 接入你的业务数据源，自动生成数据洞察报告：趋势分析、异常检测、用户分群、增长建议。支持 CSV / JSON / SQL 数据库输入。",
+        "base_price": Decimal("120.00"),
+        "tags": "B端,数据分析,BI,洞察,报表",
+        "stock": 9999,
+        "icon": "📊",
+        "target": "B端",
+        "unit": "份/数据集",
+        "time_saved_hours": 8.0,
+    },
+    {
+        "sku": "SVC-TRANSLATION",
+        "name": "多语言翻译",
+        "category": "agent_service",
+        "description": "Agent 提供高质量多语言翻译服务，支持技术文档、产品文案、用户反馈等场景。中英日韩四语互译，保留专业术语和上下文语义。",
+        "base_price": Decimal("30.00"),
+        "tags": "C端,翻译,多语言,本地化",
+        "stock": 9999,
+        "icon": "🌐",
+        "target": "C端",
+        "unit": "千字",
+        "time_saved_hours": 1.5,
+    },
+    {
+        "sku": "SVC-API-INTEGRATION",
+        "name": "API 集成方案",
+        "category": "agent_service",
+        "description": "Agent 分析你的系统集成需求，输出完整的 API 对接方案：接口选型、鉴权方案、错误处理、限流策略、代码示例。适用于企业级系统对接。",
+        "base_price": Decimal("200.00"),
+        "tags": "B端,API,集成,架构,企业级",
+        "stock": 9999,
+        "icon": "🔌",
+        "target": "B端",
+        "unit": "套/项目",
+        "time_saved_hours": 16.0,
+    },
+    {
+        "sku": "SVC-AUTO-SCRIPT",
+        "name": "自动化脚本生成",
+        "category": "agent_service",
+        "description": "Agent 根据你的重复性工作描述，自动生成 Python / Shell / TypeScript 自动化脚本。包含错误处理、日志记录、定时调度，开箱即用。",
+        "base_price": Decimal("100.00"),
+        "tags": "C端,自动化,脚本,效率,Python",
+        "stock": 9999,
+        "icon": "⚙️",
+        "target": "C端",
+        "unit": "个/需求",
+        "time_saved_hours": 6.0,
+    },
+    {
+        "sku": "SVC-BUG-FIX",
+        "name": "智能 Bug 定位",
+        "category": "agent_service",
+        "description": "Agent 分析 Bug 报告 + 错误日志 + 相关代码，精准定位根因并给出修复方案。支持 Java / Python / TypeScript / Go 等主流语言。",
+        "base_price": Decimal("60.00"),
+        "tags": "B端,C端,Bug,调试,修复",
+        "stock": 9999,
+        "icon": "🐛",
+        "target": "B+C",
+        "unit": "次/Bug",
+        "time_saved_hours": 3.0,
+    },
+    {
+        "sku": "SVC-TEST-GEN",
+        "name": "测试用例生成",
+        "category": "agent_service",
+        "description": "Agent 根据你的代码自动生成单元测试、集成测试用例。覆盖边界条件、异常路径、性能基准。支持 pytest / Jest / JUnit 框架。",
+        "base_price": Decimal("70.00"),
+        "tags": "B端,测试,质量,自动化,CI",
+        "stock": 9999,
+        "icon": "🧪",
+        "target": "B端",
+        "unit": "套/模块",
+        "time_saved_hours": 5.0,
+    },
+]
+
+
+@app.get("/api/services")
+def list_agent_services(db: Session = Depends(get_db)):
+    """List the service catalogue without mutating the database on a GET."""
+    rows = (
+        db.query(Product)
+        .filter(Product.category == "agent_service")
+        .order_by(Product.base_price.asc())
+        .all()
+    )
+    persisted = {row.sku: row for row in rows}
+    services = []
+    for definition in sorted(_AGENT_SERVICE_DEFS, key=lambda item: item["base_price"]):
+        row = persisted.pop(definition["sku"], None)
+        services.append({
+            "product_id": row.product_id if row is not None else None,
+            "sku": definition["sku"],
+            "name": row.name if row is not None else definition["name"],
+            "description": (
+                row.description if row is not None else definition["description"]
+            ),
+            "base_price": float(
+                row.base_price if row is not None else definition["base_price"]
+            ),
+            "tags": (row.tags or "") if row is not None else definition["tags"],
+            "icon": definition["icon"],
+            "target": definition["target"],
+            "unit": definition["unit"],
+            "time_saved_hours": definition["time_saved_hours"],
+            "stock": row.stock if row is not None else definition["stock"],
+        })
+    # Preserve explicitly managed database-only services without inventing
+    # presentation metadata or inserting hard-coded catalogue rows.
+    for row in sorted(persisted.values(), key=lambda item: item.base_price):
+        services.append({
+            "product_id": row.product_id,
+            "sku": row.sku,
+            "name": row.name,
+            "description": row.description,
+            "base_price": float(row.base_price),
+            "tags": row.tags or "",
+            "icon": "🤖",
+            "target": "B+C",
+            "unit": "次",
+            "time_saved_hours": 1.0,
+            "stock": row.stock,
+        })
+    return {"services": services, "total": len(services)}
+
+
+@app.get("/api/economy/metrics")
+def economy_metrics(db: Session = Depends(get_db)):
+    """Real economic metrics computed from persisted orders & transactions."""
+    from app.db.models import BalanceTransaction, EvomapConsumer as _Consumer
+
+    # Total orders (all sources).
+    total_orders = db.query(func.count(Order.order_id)).scalar() or 0
+
+    # Orders by source.
+    skill_orders = (
+        db.query(func.count(Order.order_id))
+        .filter(Order.source_type == ORDER_SOURCE_SKILL)
+        .scalar() or 0
+    )
+    web_orders = (
+        db.query(func.count(Order.order_id))
+        .filter(Order.source_type == ORDER_SOURCE_WEB_DIALOG)
+        .scalar() or 0
+    )
+
+    # Total revenue (CNY face value of all paid/free orders).
+    total_revenue = float(
+        db.query(func.coalesce(func.sum(Order.amount), 0))
+        .filter(Order.payment_status.in_([PAYMENT_STATUS_PAID, PAYMENT_STATUS_FREE]))
+        .scalar() or 0
+    )
+
+    # Credits consumed (mirror of EvoMap spending).
+    from app.domain_constants import WALLET_CURRENCY_CREDITS
+    credits_consumed = float(
+        db.query(func.coalesce(func.sum(func.abs(BalanceTransaction.amount)), 0))
+        .filter(BalanceTransaction.currency == WALLET_CURRENCY_CREDITS)
+        .filter(BalanceTransaction.type == "consume")
+        .scalar() or 0
+    )
+
+    # Free orders count.
+    free_orders = (
+        db.query(func.count(Order.order_id))
+        .filter(Order.payment_status == PAYMENT_STATUS_FREE)
+        .scalar() or 0
+    )
+    paid_orders = (
+        db.query(func.count(Order.order_id))
+        .filter(Order.payment_status == PAYMENT_STATUS_PAID)
+        .scalar() or 0
+    )
+
+    # Active agents.
+    active_agents = (
+        db.query(func.count(AgentProfile.agent_id))
+        .filter(AgentProfile.status == IDENTITY_STATUS_ACTIVE)
+        .scalar() or 0
+    )
+
+    # Unique consumers.
+    unique_consumers = db.query(func.count(_Consumer.consumer_id)).scalar() or 0
+
+    # Agent services available. The built-in catalogue is read-only; persisted
+    # custom services extend it instead of being implicitly seeded by a GET.
+    persisted_service_skus = {
+        sku
+        for (sku,) in db.query(Product.sku)
+        .filter(Product.category == "agent_service")
+        .all()
+    }
+    service_count = len(
+        persisted_service_skus | {item["sku"] for item in _AGENT_SERVICE_DEFS}
+    )
+
+    # Estimate time saved (sum of service time_saved * assumed uptake).
+    # Conservative: assume 20% of paid orders are service-type.
+    estimated_hours_saved = round(paid_orders * 2.5 + skill_orders * 1.0, 1)
+
+    # Estimated CNY value created (time_saved * ¥80/hr developer rate).
+    estimated_value_cny = round(estimated_hours_saved * 80, 0)
+
+    return {
+        "total_orders": total_orders,
+        "skill_orders": skill_orders,
+        "web_orders": web_orders,
+        "total_revenue": total_revenue,
+        "credits_consumed": credits_consumed,
+        "free_orders": free_orders,
+        "paid_orders": paid_orders,
+        "active_agents": active_agents,
+        "unique_consumers": unique_consumers,
+        "service_count": service_count,
+        "estimated_hours_saved": estimated_hours_saved,
+        "estimated_value_cny": estimated_value_cny,
+        "conversion_rate": round(paid_orders / max(total_orders, 1) * 100, 1),
+    }
+
+
+@app.get("/api/economy/transactions")
+def economy_transactions(
+    db: Session = Depends(get_db),
+    limit: int = 20,
+    _admin=Depends(require_admin),
+):
+    """Recent transaction stream for the economy dashboard."""
+    safe_limit = min(max(limit, 1), 200)
+    rows = (
+        db.query(Order)
+        .order_by(Order.created_at.desc())
+        .limit(safe_limit)
+        .all()
+    )
+    items = []
+    for o in rows:
+        items.append({
+            "order_id": o.order_id,
+            "coffee_name": o.coffee_name or "—",
+            "amount": float(o.amount) if o.amount else 0,
+            "source_type": o.source_type,
+            "payment_status": o.payment_status,
+            "created_at": o.created_at.strftime("%Y-%m-%d %H:%M:%S") if o.created_at else "",
+            "consumer_id": o.consumer_id,
+            "agent_id": o.agent_id,
+        })
+    return {"transactions": items, "total": len(items)}
+
+
+# ===== 商业咨询：用户与管理层 AI 私聊 =====
+
+
+class ConsultRequest(BaseModel):
+    """咨询请求体"""
+    message: str = Field(min_length=1, max_length=4000)
+
+
+@app.post("/api/consult")
+def consult_api(
+    req: ConsultRequest,
+    request: Request,
+    account=Depends(require_account),
+    db: Session = Depends(get_db),
+):
+    """用户向管理层发送商业咨询问题，返回 AI 回复。
+
+    需要登录。对话历史存储在独立 Redis 命名空间（consult:），
+    与咖啡点单聊天历史完全隔离。
+    """
+    from app.services import consult_service
+
+    enforce_rate_limit(
+        request,
+        scope="consult",
+        limit=20,
+        identity=f"account:{account.account_id}",
+    )
+    result = consult_service.consult(db, account, req.message)
+    return result
+
+
+@app.get("/api/consult/history")
+def consult_history_api(
+    account=Depends(require_account),
+    db: Session = Depends(get_db),
+):
+    """获取当前用户的咨询对话历史。"""
+    from app.services import consult_service
+
+    history = consult_service.get_consult_history(account)
+    return {"messages": history, "total": len(history)}
+
+
+@app.delete("/api/consult/history")
+def consult_clear_api(
+    account=Depends(require_account),
+    db: Session = Depends(get_db),
+):
+    """清空当前用户的咨询对话历史。"""
+    from app.services import consult_service
+
+    cleared = consult_service.clear_consult_history(account)
+    return {"cleared": cleared}
+
+
+@app.get("/consult")
+def consult_page():
+    """Serve the business consultation chat page (standalone HTML)."""
+    path = _STATIC_DIR / "consult.html"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="consult page not found")
+    return FileResponse(
+        path,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.get("/health/live")
+def health_live():
+    """Process liveness probe; it deliberately performs no external I/O."""
+    return {"status": "alive"}
+
+
+@app.get("/health/ready")
+def health_ready():
+    """Readiness probe for the configured persistence and memory backends."""
+    checks: dict[str, dict[str, Any]] = {
+        "database": {"type": settings.db_mode, "ok": False},
+        "memory": {
+            "type": "fakeredis" if settings.use_fakeredis else "redis",
+            "ok": False,
+        },
+        "3d_release": {"type": "static", "ok": False},
+    }
+    db = SessionLocal()
+    try:
+        db.execute(text("SELECT 1"))
+        checks["database"]["ok"] = True
+    except Exception:
+        logger.exception("Readiness database probe failed")
+    finally:
+        db.close()
+
+    try:
+        checks["memory"]["ok"] = bool(get_redis_client().ping())
+    except Exception:
+        logger.exception("Readiness memory probe failed")
+
+    release_errors = validate_3d_release(_3D_STATIC_DIR)
+    checks["3d_release"]["ok"] = not release_errors
+    if release_errors:
+        checks["3d_release"]["error"] = release_errors[0]
+
+    ready = all(check["ok"] for check in checks.values())
+    if not ready:
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "not_ready", "checks": checks},
+        )
+    return {"status": "ready", "checks": checks}
+
+
 @app.get("/status")
 def status():
     """Return system status: database backend + memory backend + LLM config."""
@@ -2451,9 +3661,7 @@ def status():
         "database": settings.db_mode,
         "memory": "fakeredis" if settings.use_fakeredis else "redis",
         "llm_active": llm.has_real_key(),
-        "llm_key_source": settings.llm_api_key_source,
         "llm_status_reason": settings.llm_status_reason,
-        "llm_base_url": settings.llm_base_url,
         "llm_model": settings.llm_model,
     }
 
@@ -2492,13 +3700,71 @@ def three_d_app_spa(full_path: str):
 
 @app.get("/")
 def index(request: Request, db: Session = Depends(get_db)):
-    """Root: 未登录 → 302 跳 /3d/login；已登录 → 2D 聊天页。"""
+    """Root: 未登录 → 302 跳 /welcome（独立HTML，不依赖前端构建）；已登录 → 3D 场景。"""
     from app.auth.router import current_account
 
     account = current_account(request, db)
     if not account:
-        return RedirectResponse(url="/3d/login", status_code=302)
-    chat_index = _STATIC_DIR / "index.html"
-    if chat_index.is_file():
-        return FileResponse(chat_index)
-    raise HTTPException(status_code=404, detail="index page not found")
+        return RedirectResponse(url="/welcome", status_code=302)
+    # 已登录 → 直接进入 3D 场景
+    return RedirectResponse(url="/3d", status_code=302)
+
+
+@app.get("/welcome")
+def welcome_page():
+    """Standalone registration + login landing page (no frontend build needed)."""
+    path = _STATIC_DIR / "welcome.html"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="welcome page not found")
+    return FileResponse(
+        path,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.get("/about")
+def about_page():
+    """Serve the Crossroads Agent Café product brochure (standalone HTML)."""
+    about_path = _STATIC_DIR / "about.html"
+    if not about_path.is_file():
+        raise HTTPException(status_code=404, detail="about page not found")
+    return FileResponse(
+        about_path,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.get("/services")
+def services_page():
+    """Serve the Agent Services Marketplace page."""
+    path = _STATIC_DIR / "services.html"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="services page not found")
+    return FileResponse(
+        path,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.get("/economy")
+def economy_page():
+    """Serve the Economic Value Dashboard page."""
+    path = _STATIC_DIR / "economy.html"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="economy page not found")
+    return FileResponse(
+        path,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )

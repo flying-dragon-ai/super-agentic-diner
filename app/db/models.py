@@ -15,10 +15,14 @@ from sqlalchemy import (
     SmallInteger,
     String,
     Text,
+    UniqueConstraint,
 )
 
 from app.db.database import Base
 from app.domain_constants import (
+    ACCOUNT_ROLES,
+    ACCOUNT_ROLE_USER,
+    DEVICE_AUTH_STATUSES,
     IDENTITY_STATUS_ACTIVE,
     IDENTITY_STATUSES,
     LEDGER_PAYMENT_STATUSES,
@@ -32,6 +36,7 @@ from app.domain_constants import (
     ORDER_STATUSES,
     PAYMENT_STATUS_PAID,
     PRODUCT_STATUSES,
+    STOCK_RESERVATION_STATUSES,
     PRODUCT_STATUS_AVAILABLE,
     TRANSACTION_TYPES,
     WALLET_CURRENCIES,
@@ -71,6 +76,11 @@ class UserAccount(Base):
     username = Column(String(64), nullable=False, unique=True)
     password_hash = Column(String(255), nullable=False)
     nickname = Column(String(64), nullable=True)
+    gender = Column(String(16), nullable=True)
+    specialty = Column(String(128), nullable=True)
+    profession = Column(String(128), nullable=True)
+    role = Column(String(16), nullable=False, default=ACCOUNT_ROLE_USER)
+    session_version = Column(Integer, nullable=False, default=0)
     user_id = Column(_PK, ForeignKey("user.user_id"), nullable=False, unique=True)
     status = Column(String(16), nullable=False, default=IDENTITY_STATUS_ACTIVE)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -86,6 +96,11 @@ class UserAccount(Base):
             f"status IN ({', '.join(repr(value) for value in sorted(IDENTITY_STATUSES))})",
             name="ck_user_account_status",
         ),
+        CheckConstraint(
+            f"role IN ({', '.join(repr(value) for value in sorted(ACCOUNT_ROLES))})",
+            name="ck_user_account_role",
+        ),
+        CheckConstraint("session_version >= 0", name="ck_user_account_session_version"),
     )
 
 
@@ -102,7 +117,7 @@ class Order(Base):
     total_amount = Column(DECIMAL(10, 2), nullable=True)
     cancelled_at = Column(DateTime, nullable=True)
     refunded_at = Column(DateTime, nullable=True)
-    request_id = Column(String(64), nullable=True, unique=True)
+    request_id = Column(String(128), nullable=True, unique=True)
     source_type = Column(String(32), nullable=False, default=ORDER_SOURCE_WEB_DIALOG)
     payment_status = Column(String(32), nullable=False, default=PAYMENT_STATUS_PAID)
     consumer_url = Column(String(512), nullable=True)
@@ -167,6 +182,11 @@ class AgentProfile(Base):
     __tablename__ = "agent_profile"
 
     agent_id = Column(_PK, primary_key=True, autoincrement=True)
+    consumer_id = Column(
+        BigInteger,
+        ForeignKey("evomap_consumer.consumer_id"),
+        nullable=True,
+    )
     tool_name = Column(String(64), nullable=False)
     display_name = Column(String(128), nullable=False)
     role_type = Column(String(32), nullable=False, default="waiter")
@@ -190,6 +210,7 @@ class AgentProfile(Base):
             name="ck_agent_profile_status",
         ),
         Index("idx_agent_status_role", "status", "role_type"),
+        Index("idx_agent_consumer", "consumer_id"),
     )
 
 
@@ -247,6 +268,44 @@ class EvomapConsumer(Base):
     )
 
 
+class SkillDeviceAuthorization(Base):
+    """Short-lived browser authorization used to bind an A2A node to an account."""
+
+    __tablename__ = "skill_device_authorization"
+
+    authorization_id = Column(_PK, primary_key=True, autoincrement=True)
+    device_code_hash = Column(String(64), nullable=False, unique=True)
+    user_code_hash = Column(String(64), nullable=False, unique=True)
+    evomap_node_id = Column(String(128), nullable=False)
+    evomap_did = Column(String(255), nullable=True)
+    tool_name = Column(String(64), nullable=False)
+    display_name = Column(String(128), nullable=False)
+    scopes_json = Column(Text, nullable=False)
+    status = Column(String(16), nullable=False, default="pending")
+    account_id = Column(BigInteger, ForeignKey("user_account.account_id"), nullable=True)
+    consumer_id = Column(BigInteger, ForeignKey("evomap_consumer.consumer_id"), nullable=True)
+    agent_id = Column(BigInteger, ForeignKey("agent_profile.agent_id"), nullable=True)
+    expires_at = Column(DateTime, nullable=False)
+    approved_at = Column(DateTime, nullable=True)
+    consumed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            f"status IN ({', '.join(repr(value) for value in sorted(DEVICE_AUTH_STATUSES))})",
+            name="ck_skill_device_authorization_status",
+        ),
+        Index("idx_skill_device_auth_status_expiry", "status", "expires_at"),
+        Index("idx_skill_device_auth_node", "evomap_node_id", "created_at"),
+    )
+
+
 class SkillOrderLedger(Base):
     """A2A Skill order ledger for free quota and EvoMap payment proofs."""
 
@@ -263,10 +322,15 @@ class SkillOrderLedger(Base):
     order_ids_json = Column(Text, nullable=True)
     coffee_items_json = Column(Text, nullable=False)
     amount_credits = Column(Integer, nullable=False)
+    amount_cny = Column(DECIMAL(10, 2), nullable=True)
     payment_status = Column(String(32), nullable=False)
     evomap_order_id = Column(String(128), nullable=True)
     payment_proof_json = Column(Text, nullable=True)
     free_order_sequence = Column(Integer, nullable=True)
+    version = Column(Integer, nullable=False, default=0)
+    payment_attempts = Column(Integer, nullable=False, default=0)
+    stock_reservation_json = Column(Text, nullable=True)
+    stock_reservation_status = Column(String(16), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(
         DateTime,
@@ -279,6 +343,22 @@ class SkillOrderLedger(Base):
         CheckConstraint(
             f"payment_status IN ({', '.join(repr(value) for value in sorted(LEDGER_PAYMENT_STATUSES))})",
             name="ck_skill_order_ledger_payment_status",
+        ),
+        CheckConstraint(
+            "free_order_sequence IS NULL OR free_order_sequence > 0",
+            name="ck_skill_order_ledger_free_sequence",
+        ),
+        CheckConstraint("amount_credits >= 0", name="ck_skill_order_ledger_amount_nonneg"),
+        CheckConstraint("payment_attempts >= 0", name="ck_skill_order_ledger_attempts_nonneg"),
+        CheckConstraint(
+            "stock_reservation_status IS NULL OR "
+            f"stock_reservation_status IN ({', '.join(repr(value) for value in sorted(STOCK_RESERVATION_STATUSES))})",
+            name="ck_skill_order_ledger_stock_reservation",
+        ),
+        UniqueConstraint(
+            "consumer_id",
+            "free_order_sequence",
+            name="uq_skill_order_consumer_free_sequence",
         ),
         Index("idx_skill_order_consumer", "consumer_id", "created_at"),
         Index("idx_skill_order_payment", "payment_status"),
@@ -598,6 +678,7 @@ class OfficeLayout(Base):
     layout_id = Column(_PK, primary_key=True, autoincrement=True)
     namespace = Column(String(32), nullable=False, unique=True)
     layout_json = Column(Text, nullable=False)
+    version = Column(Integer, nullable=False, default=1)
     updated_at = Column(
         DateTime,
         nullable=False,
