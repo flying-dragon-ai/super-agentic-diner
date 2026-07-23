@@ -5,6 +5,7 @@ import { LoginPage, RegisterPage } from "./auth/AuthPages";
 import { ProfileModal, SpecialtyBadge } from "./auth/ProfileModal";
 import OfficeScene from "./screens/OfficeScene";
 import Dashboard from "./screens/Dashboard";
+import Demands from "./screens/Demands";
 import MachineShowcase from "./screens/MachineShowcase";
 import { isMuted, subscribeMute, toggleMute } from "./sounds/sceneMusic";
 
@@ -44,7 +45,8 @@ function TopBar() {
     >
       <Link to="/scene" style={navLink}>Crossroads Agent Café</Link>
       {account?.role === "admin" ? <Link to="/dashboard" style={navLink}>大屏</Link> : null}
-      <a href="/consult" target="_blank" rel="noopener" style={navLink}>咨询</a>
+      <Link to="/demands" style={navLink}>需求</Link>
+        <a href="/consult" target="_blank" rel="noopener" style={navLink}>咨询</a>
       <button
         onClick={() => toggleMute()}
         style={muteBtn}
@@ -94,6 +96,7 @@ export default function App() {
           <Route path="/scene" element={<OfficeScene />} />
           <Route path="/machines" element={<MachineShowcase />} />
           <Route path="/dashboard" element={<AdminRoute><Dashboard /></AdminRoute>} />
+          <Route path="/demands" element={<Demands />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

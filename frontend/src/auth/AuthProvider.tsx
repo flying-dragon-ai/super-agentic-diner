@@ -11,6 +11,7 @@ export type Account = {
   specialty?: string | null;
   profession?: string | null;
   role?: "user" | "admin";
+  account_id?: number;
 };
 
 type AuthState = {

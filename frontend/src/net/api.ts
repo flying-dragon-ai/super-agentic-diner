@@ -204,6 +204,44 @@ export type ConsultFeedMessage = {
 export const getConsultFeed = (limit = 20) =>
   getJson<{ messages: ConsultFeedMessage[]; total: number }>(`/admin/consult-feed?limit=${limit}`);
 
+// --- 需求榜单 + 认领任务 ---
+export type Demand = {
+  demand_id: number;
+  title: string;
+  description: string;
+  category: string;
+  reward_credits: number;
+  status: string; // "open" | "claimed" | "done"
+  creator_id: number;
+  creator_name: string | null;
+  claimer_id: number | null;
+  claimer_name: string | null;
+  created_at: string | null;
+  claimed_at: string | null;
+  completed_at: string | null;
+};
+
+export type DemandFeedItem = Demand & {
+  latest_action: string; // "created" | "claimed" | "completed"
+  action_time: string | null;
+};
+
+export const listDemands = (status?: string) =>
+  getJson<{ demands: Demand[]; total: number }>(`/api/demands${status ? `?status=${status}` : ""}`);
+
+export const createDemand = (body: { title: string; description?: string; category?: string; reward_credits?: number }) =>
+  postJson<Demand>("/api/demands", body);
+
+export const claimDemand = (demandId: number) =>
+  postJson<Demand>(`/api/demands/${demandId}/claim`, {});
+
+export const completeDemand = (demandId: number) =>
+  postJson<Demand>(`/api/demands/${demandId}/complete`, {});
+
+export const getDemandFeed = (limit = 20) =>
+  getJson<{ demands: DemandFeedItem[]; total: number }>(`/admin/demand-feed?limit=${limit}`);
+
+
 // --- 访客社交 ---
 export type OnlineVisitor = {
   agent_id: number;

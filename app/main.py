@@ -3610,6 +3610,101 @@ def consult_clear_api(
     return {"cleared": cleared}
 
 
+class DemandRequest(BaseModel):
+    """需求发布请求体"""
+    title: str = Field(min_length=1, max_length=128)
+    description: str = Field(default="", max_length=2000)
+    category: str = Field(default="", max_length=32)
+    reward_credits: int = Field(default=0, ge=0)
+
+
+@app.post("/api/demands")
+def create_demand_api(
+    req: DemandRequest,
+    request: Request,
+    account=Depends(require_account),
+    db: Session = Depends(get_db),
+):
+    """发布一个新需求到榜单。需要登录。"""
+    from app.services import demand_service
+
+    enforce_rate_limit(
+        request,
+        scope="demand-create",
+        limit=20,
+        window_seconds=300,
+        identity=f"account:{account.account_id}",
+    )
+    return demand_service.create_demand(
+        db, account, req.title, req.description, req.category, req.reward_credits
+    )
+
+
+@app.get("/api/demands")
+def list_demands_api(
+    status: str | None = None,
+    limit: int = 50,
+    _account=Depends(require_account),
+    db: Session = Depends(get_db),
+):
+    """获取需求榜单列表。需要登录。支持按状态过滤。"""
+    from app.services import demand_service
+
+    demands = demand_service.list_demands(db, status=status, limit=limit)
+    return {"demands": demands, "total": len(demands)}
+
+
+@app.post("/api/demands/{demand_id}/claim")
+def claim_demand_api(
+    demand_id: int,
+    request: Request,
+    account=Depends(require_account),
+    db: Session = Depends(get_db),
+):
+    """认领一个需求。不能认领自己发布的需求。"""
+    from app.services import demand_service
+
+    enforce_rate_limit(
+        request,
+        scope="demand-claim",
+        limit=20,
+        window_seconds=300,
+        identity=f"account:{account.account_id}",
+    )
+    try:
+        return demand_service.claim_demand(db, account, demand_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"code": "demand_error", "message": str(e)})
+
+
+@app.post("/api/demands/{demand_id}/complete")
+def complete_demand_api(
+    demand_id: int,
+    account=Depends(require_account),
+    db: Session = Depends(get_db),
+):
+    """完成一个需求。仅创建者或认领者可操作。"""
+    from app.services import demand_service
+
+    try:
+        return demand_service.complete_demand(db, account, demand_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"code": "demand_error", "message": str(e)})
+
+
+@app.get("/admin/demand-feed")
+def demand_feed_api(
+    limit: int = 20,
+    _admin=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """监控大屏：获取最近需求动态流。"""
+    from app.services import demand_service
+
+    feed = demand_service.get_recent_demand_feed(db, limit=min(max(limit, 1), 50))
+    return {"demands": feed, "total": len(feed)}
+
+
 @app.get("/consult")
 def consult_page():
     """Serve the business consultation chat page (standalone HTML)."""

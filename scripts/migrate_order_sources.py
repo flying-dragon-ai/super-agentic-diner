@@ -1238,6 +1238,7 @@ MIGRATIONS: tuple[MigrationStep, ...] = (
     ("20260712_003_constraints_and_indexes", _ensure_constraints_and_indexes),
     ("20260712_004_verify_schema", _verify_schema),
     ("20260719_005_skill_account_auth_schema", _create_declared_tables),
+    ("20260723_006_demand_schema", _create_declared_tables),
 )
 
 

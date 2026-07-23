@@ -751,3 +751,27 @@ class UserProfile(Base):
     __table_args__ = (
         Index("idx_user_profile_user_id", "user_id"),
     )
+
+
+class Demand(Base):
+    """需求榜单：用户发布需求，其他用户认领并完成。
+
+    状态流转：open(待认领) → claimed(进行中) → done(已完成)。
+    """
+    __tablename__ = "demand"
+    demand_id = Column(_PK, primary_key=True, autoincrement=True)
+    title = Column(String(128), nullable=False)
+    description = Column(Text, nullable=True)
+    category = Column(String(32), nullable=True)
+    reward_credits = Column(Integer, nullable=False, default=0)
+    status = Column(String(16), nullable=False, default="open")
+    creator_id = Column(_PK, ForeignKey("user_account.account_id"), nullable=False)
+    claimer_id = Column(_PK, ForeignKey("user_account.account_id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    claimed_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('open', 'claimed', 'done')", name="ck_demand_status"),
+    )
