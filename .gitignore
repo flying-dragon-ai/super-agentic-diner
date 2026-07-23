@@ -75,6 +75,7 @@ smoke-*.png
 
 # SSH public-tunnel runtime state (start-public.ps1 / stop-public.ps1)
 .tunnel-pids.json
+.tunnel-keepalive.log
 
 # OS metadata
 .DS_Store
