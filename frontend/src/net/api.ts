@@ -193,6 +193,17 @@ export type ChurnAnalysis = {
 };
 export const getChurnAnalysis = () => getJson<ChurnAnalysis>("/admin/churn-analysis");
 
+// --- 咨询消息流（监控大屏） ---
+export type ConsultFeedMessage = {
+  account_id: number;
+  role: string;       // "user" | "assistant"
+  content: string;    // 消息内容（截断 200 字）
+  timestamp: string;
+};
+
+export const getConsultFeed = (limit = 20) =>
+  getJson<{ messages: ConsultFeedMessage[]; total: number }>(`/admin/consult-feed?limit=${limit}`);
+
 // --- 访客社交 ---
 export type OnlineVisitor = {
   agent_id: number;

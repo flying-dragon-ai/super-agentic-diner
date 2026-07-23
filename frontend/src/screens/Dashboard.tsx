@@ -4,7 +4,7 @@
 // Also shows visitor analytics (conversion rate, intent distribution) and
 // churn analysis (AI-powered reasons for why visitors didn't order).
 import { useEffect, useState } from "react";
-import { getRestaurantState, listEvents, getVisitorAnalytics, getChurnAnalysis, type VisEvent, type VisitorAnalytics, type ChurnAnalysis } from "../net/api";
+import { getRestaurantState, listEvents, getVisitorAnalytics, getChurnAnalysis, getConsultFeed, type VisEvent, type VisitorAnalytics, type ChurnAnalysis, type ConsultFeedMessage } from "../net/api";
 
 type State = {
   summary?: {
@@ -19,6 +19,7 @@ type State = {
   today?: { order_count?: number; total_amount?: number; active_agent_count?: number; active_consumer_count?: number };
   recent_orders?: { order_id: number; coffee_name: string; amount: number; status: number; source_type: string; payment_status?: string; created_at: string }[];
   recent_events?: VisEvent[];
+  consultFeed?: ConsultFeedMessage[];
   agents?: { display_name?: string; role_type?: string; status?: string }[];
   consumers?: { display_name?: string; status?: string }[];
 };
@@ -108,6 +109,7 @@ export default function Dashboard() {
   const [events, setEvents] = useState<VisEvent[]>([]);
   const [visitorData, setVisitorData] = useState<VisitorAnalytics | null>(null);
   const [churnData, setChurnData] = useState<ChurnAnalysis | null>(null);
+  const [consultFeed, setConsultFeed] = useState<ConsultFeedMessage[]>([]);
 
   useEffect(() => {
     const load = () => {
@@ -120,9 +122,14 @@ export default function Dashboard() {
     };
     load();
     loadVisitor();
+    const loadConsult = () => {
+      getConsultFeed(20).then((r) => setConsultFeed(r.messages ?? [])).catch(() => {});
+    };
+    loadConsult();
     const t = setInterval(load, 4000);
     const tv = setInterval(loadVisitor, 8000);
-    return () => { clearInterval(t); clearInterval(tv); };
+    const tc = setInterval(loadConsult, 5000);
+    return () => { clearInterval(t); clearInterval(tv); clearInterval(tc); };
   }, []);
 
   const recentEvents = events.length ? events : (state?.recent_events ?? []);
@@ -298,6 +305,41 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
+        </div>
+      </div>
+      {/* 实时咨询消息流 */}
+      <div style={{ marginTop: 16, background: "#111827", borderRadius: 10, border: "1px solid rgba(255,255,255,0.08)", padding: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 15, color: "#fbbf24" }}>💬 实时咨询消息</h3>
+          <span style={{ fontSize: 12, color: "#5a6a82" }}>{consultFeed?.length ?? 0} 条 · 5秒刷新</span>
+        </div>
+        <div style={{ maxHeight: 320, overflowY: "auto" }}>
+          {(!consultFeed || consultFeed.length === 0) ? (
+            <div style={{ padding: 20, textAlign: "center", color: "#5a6a82", fontSize: 13 }}>暂无咨询消息</div>
+          ) : (
+            consultFeed.map((m, i) => (
+              <div key={i} style={{
+                padding: "8px 12px",
+                marginBottom: 6,
+                borderRadius: 6,
+                background: m.role === "user" ? "rgba(34,211,238,0.06)" : "rgba(52,211,153,0.06)",
+                borderLeft: `3px solid ${m.role === "user" ? "#22d3ee" : "#34d399"}`,
+                fontSize: 13,
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                  <span style={{ fontWeight: 600, color: m.role === "user" ? "#22d3ee" : "#34d399" }}>
+                    {m.role === "user" ? `👤 用户 #${m.account_id}` : "🤖 AI店长"}
+                  </span>
+                  <span style={{ fontSize: 11, color: "#5a6a82" }}>
+                    {m.timestamp ? new Date(m.timestamp).toLocaleTimeString("zh-CN") : ""}
+                  </span>
+                </div>
+                <div style={{ color: "#8b9bb4", lineHeight: 1.5, wordBreak: "break-word" }}>
+                  {m.content}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>

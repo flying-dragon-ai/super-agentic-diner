@@ -26,6 +26,28 @@ from app.memory._redis_client import get_redis_client
 
 logger = logging.getLogger(__name__)
 
+
+def _broadcast_consult_event(account_id: int, display_name: str, role: str, content: str, is_fallback: bool = False) -> None:
+    """将咨询消息广播到可视化 WS，供监控大屏实时查看。
+
+    采用 transient 广播（不入快照缓冲），避免历史咨询消息在场景重放时刷屏。
+    """
+    try:
+        from app.services.visualization_service import visualization_hub
+        visualization_hub.broadcast_transient_from_sync({
+            "type": "consult.message",
+            "payload": {
+                "account_id": account_id,
+                "display_name": display_name,
+                "role": role,
+                "preview": content[:120],
+                "is_fallback": is_fallback,
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+            },
+        })
+    except Exception:
+        pass  # 广播失败不影响咨询主流程
+
 # ===== 系统知识库：平台核心信息 =====
 _PLATFORM_KB = """\
 # Crossroads Agent Café 平台知识库
@@ -165,6 +187,7 @@ def consult(
 
     # 存入用户消息
     _save_message(account.account_id, "user", msg)
+    _broadcast_consult_event(account.account_id, account.nickname or account.username, "user", msg)
 
     # 构造 LLM messages
     history = _load_history(account.account_id)
@@ -184,6 +207,8 @@ def consult(
 
     # 存入 AI 回复
     _save_message(account.account_id, "assistant", reply)
+    is_fb = reply.startswith("【系统提示】")
+    _broadcast_consult_event(account.account_id, "AI店长", "assistant", reply, is_fallback=is_fb)
 
     return {
         "reply": reply,
@@ -269,3 +294,42 @@ def _fallback_reply(msg: str) -> str:
         "- 合作与投资机会\n\n"
         "请描述您的具体需求，我会给出专业建议。"
     )
+
+
+def get_recent_consult_feed(limit: int = 20) -> list[dict]:
+    """获取最近所有用户的咨询消息，供监控大屏实时查看。
+
+    扫描所有 consult:history:* key，取每条最新的消息，按时间倒序返回。
+    """
+    try:
+        r = get_redis_client()
+        keys = r.keys("consult:history:*")
+        if not keys:
+            return []
+        feed: list[dict] = []
+        for key in keys:
+            try:
+                key_str = key.decode() if isinstance(key, bytes) else key
+                account_id = key_str.replace("consult:history:", "")
+                raw = r.lrange(key, 0, -1)
+                if not raw:
+                    continue
+                # LRANGE 返回最新→最旧，取前几条
+                for item in raw[:4]:
+                    try:
+                        msg = json.loads(item)
+                        feed.append({
+                            "account_id": int(account_id),
+                            "role": msg.get("role", ""),
+                            "content": msg.get("content", "")[:200],
+                            "timestamp": msg.get("ts", ""),
+                        })
+                    except (json.JSONDecodeError, TypeError, ValueError):
+                        pass
+            except Exception:
+                continue
+        feed.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        return feed[:limit]
+    except Exception:
+        logger.warning("consult: feed 读取失败", exc_info=True)
+        return []

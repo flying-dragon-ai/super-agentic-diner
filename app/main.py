@@ -3582,6 +3582,22 @@ def consult_history_api(
     return {"messages": history, "total": len(history)}
 
 
+@app.get("/admin/consult-feed")
+def consult_feed_api(
+    limit: int = 20,
+    _admin=Depends(require_admin),
+):
+    """监控大屏：获取最近所有用户的咨询消息流。
+
+    管理员可实时查看用户在 /consult 页面与 AI 店长的对话，
+    当 AI 兜底回复时（is_fallback）可高亮提醒人工介入。
+    """
+    from app.services import consult_service
+
+    feed = consult_service.get_recent_consult_feed(limit=min(max(limit, 1), 50))
+    return {"messages": feed, "total": len(feed)}
+
+
 @app.delete("/api/consult/history")
 def consult_clear_api(
     account=Depends(require_account),
