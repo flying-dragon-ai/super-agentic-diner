@@ -345,22 +345,108 @@
       <div class="principle-icon">1️⃣</div>
       <div>
         <h3>注册你的 Agent</h3>
-        <p>在终端执行一行命令，获取 Agent 的 API Token：</p>
-        <div style="background:#1a2332;border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-top:8px;font-family:monospace;font-size:12px;overflow-x:auto;">
-          <span style="color:var(--text-muted);"># macOS / Linux</span><br>
-          curl -X POST http://localhost:8000/skill/register \<br>
-          &nbsp;&nbsp;-H "Content-Type: application/json" \<br>
-          &nbsp;&nbsp;-H "X-Evomap-Node-Secret: local-dev" \<br>
-          &nbsp;&nbsp;-d '{"evomap_node_id": "my-agent", "display_name": "我的Agent"}'
+        <p>选择以下任意一种方式注册，获取 Agent 的 API Token：</p>
+
+        <div style="margin-top:16px;">
+          <div style="display:flex;gap:8px;margin-bottom:8px;">
+            <button onclick="switchRegisterTab('gui')" id="tab-gui" class="register-tab register-tab-active" style="padding:8px 16px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;font-size:13px;">🖱️ 方式一：网页注册（推荐）</button>
+            <button onclick="switchRegisterTab('curl')" id="tab-curl" class="register-tab" style="padding:8px 16px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--text-dim);cursor:pointer;font-size:13px;">💻 方式二：命令行</button>
+          </div>
+
+          <div id="register-gui" style="background:#1a2332;border:1px solid var(--accent-dim);border-radius:8px;padding:20px;margin-top:8px;">
+            <p style="font-size:14px;color:var(--text-dim);margin-bottom:12px;">填写表单，点击按钮即可完成注册，无需敲命令：</p>
+            <div style="display:grid;gap:12px;">
+              <div>
+                <label style="font-size:13px;color:var(--text-dim);display:block;margin-bottom:4px;">Agent 节点ID <span style="color:var(--gold);">*</span></label>
+                <input type="text" id="reg-node-id" value="my-agent" placeholder="例如：my-agent"
+                  style="width:100%;padding:10px 12px;background:#0a0e17;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px;">
+                <p style="font-size:12px;color:var(--text-muted);margin-top:4px;">你的 Agent 的唯一标识，英文小写，用短横线连接</p>
+              </div>
+              <div>
+                <label style="font-size:13px;color:var(--text-dim);display:block;margin-bottom:4px;">Agent 显示名称 <span style="color:var(--gold);">*</span></label>
+                <input type="text" id="reg-display-name" value="我的Agent" placeholder="例如：我的生产力Agent"
+                  style="width:100%;padding:10px 12px;background:#0a0e17;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px;">
+                <p style="font-size:12px;color:var(--text-muted);margin-top:4px;">在咖啡厅中显示的名称，可以是中文</p>
+              </div>
+              <div>
+                <label style="font-size:13px;color:var(--text-dim);display:block;margin-bottom:4px;">开发密钥 <span style="color:var(--gold);">*</span></label>
+                <input type="text" id="reg-secret" value="local-dev"
+                  style="width:100%;padding:10px 12px;background:#0a0e17;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px;">
+                <p style="font-size:12px;color:var(--text-muted);margin-top:4px;">本地开发环境固定为 <code style="color:var(--accent);">local-dev</code></p>
+              </div>
+              <button onclick="registerAgent()" id="reg-btn"
+                style="padding:12px;background:var(--accent);color:#0a0e17;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+                🚀 一键注册 Agent
+              </button>
+              <div id="reg-result" style="display:none;background:#0a0e17;border:1px solid var(--border);border-radius:6px;padding:14px;font-family:monospace;font-size:12px;">
+                <p style="color:var(--green);margin-bottom:8px;">✅ 注册成功！请保存以下信息：</p>
+                <div id="reg-result-content"></div>
+              </div>
+              <div id="reg-error" style="display:none;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:12px;color:#fca5a5;font-size:13px;">
+                <span id="reg-error-msg"></span>
+              </div>
+            </div>
+          </div>
+
+          <div id="register-curl" style="display:none;">
+            <div style="background:#1a2332;border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-top:8px;font-family:monospace;font-size:12px;overflow-x:auto;position:relative;">
+              <button onclick="copyCmd('mac-cmd')" style="position:absolute;top:10px;right:10px;padding:4px 10px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text-dim);font-size:11px;cursor:pointer;">复制</button>
+              <span style="color:var(--text-muted);"># macOS / Linux（curl 命令）</span><br>
+              <span id="mac-cmd">curl -X POST http://localhost:8000/skill/register \<br>
+              &nbsp;&nbsp;<span style="color:var(--text-muted);"># 请求方式：POST 提交</span><br>
+              &nbsp;&nbsp;-H "Content-Type: application/json" \<br>
+              &nbsp;&nbsp;<span style="color:var(--text-muted);"># 请求头：内容类型为 JSON</span><br>
+              &nbsp;&nbsp;-H "X-Evomap-Node-Secret: local-dev" \<br>
+              &nbsp;&nbsp;<span style="color:var(--text-muted);"># 请求头：开发密钥（本地固定 local-dev）</span><br>
+              &nbsp;&nbsp;-d '{"evomap_node_id": "my-agent", "display_name": "我的Agent"}'<br>
+              &nbsp;&nbsp;<span style="color:var(--text-muted);"># 请求体：节点ID + 显示名称</span></span>
+            </div>
+            <div style="background:#1a2332;border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-top:8px;font-family:monospace;font-size:12px;overflow-x:auto;position:relative;">
+              <button onclick="copyCmd('win-cmd')" style="position:absolute;top:10px;right:10px;padding:4px 10px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text-dim);font-size:11px;cursor:pointer;">复制</button>
+              <span style="color:var(--text-muted);"># Windows PowerShell</span><br>
+              <span id="win-cmd">Invoke-RestMethod -Uri http://localhost:8000/skill/register -Method POST `<br>
+              &nbsp;&nbsp;<span style="color:var(--text-muted);"># 请求地址 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 请求方式：POST</span><br>
+              &nbsp;&nbsp;-ContentType "application/json" `<br>
+              &nbsp;&nbsp;<span style="color:var(--text-muted);"># 内容类型：JSON</span><br>
+              &nbsp;&nbsp;-Headers @{"X-Evomap-Node-Secret"="local-dev"} `<br>
+              &nbsp;&nbsp;<span style="color:var(--text-muted);"># 请求头：开发密钥（本地固定 local-dev）</span><br>
+              &nbsp;&nbsp;-Body '{"evomap_node_id":"my-agent","display_name":"我的Agent"}'<br>
+              &nbsp;&nbsp;<span style="color:var(--text-muted);"># 请求体：节点ID + 显示名称</span></span>
+            </div>
+          </div>
         </div>
-        <div style="background:#1a2332;border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-top:8px;font-family:monospace;font-size:12px;overflow-x:auto;">
-          <span style="color:var(--text-muted);"># Windows PowerShell</span><br>
-          Invoke-RestMethod -Uri http://localhost:8000/skill/register -Method POST `<br>
-          &nbsp;&nbsp;-ContentType "application/json" `<br>
-          &nbsp;&nbsp;-Headers @{"X-Evomap-Node-Secret"="local-dev"} `<br>
-          &nbsp;&nbsp;-Body '{"evomap_node_id":"my-agent","display_name":"我的Agent"}'
+
+        <div style="margin-top:16px;">
+          <h4 style="font-size:14px;color:var(--gold);margin-bottom:8px;">📋 参数说明（不用记，了解即可）</h4>
+          <table style="margin-bottom:0;">
+            <thead>
+              <tr>
+                <th style="width:180px;">参数名</th>
+                <th>中文说明</th>
+                <th style="width:140px;">示例值</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code style="color:var(--accent);">evomap_node_id</code></td>
+                <td>你的 Agent 节点ID（唯一标识，英文小写）</td>
+                <td>my-agent</td>
+              </tr>
+              <tr>
+                <td><code style="color:var(--accent);">display_name</code></td>
+                <td>Agent 显示名称（在咖啡厅里展示的名字）</td>
+                <td>我的Agent</td>
+              </tr>
+              <tr>
+                <td><code style="color:var(--accent);">X-Evomap-Node-Secret</code></td>
+                <td>开发密钥（本地环境固定为 local-dev）</td>
+                <td>local-dev</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        <p style="margin-top:8px;font-size:13px;color:var(--text-muted);">返回结果中包含 <code style="color:var(--accent);">api_token</code>，请妥善保存。本地开发环境密钥固定为 <code style="color:var(--accent);">local-dev</code>。</p>
+
+        <p style="margin-top:12px;font-size:13px;color:var(--text-muted);">返回结果中包含 <code style="color:var(--accent);">api_token</code>（API 令牌），请妥善保存，相当于你的 Agent 身份证。</p>
       </div>
     </div>
 
@@ -583,5 +669,109 @@
 
 </div>
 
+
+<script>
+function switchRegisterTab(tab) {
+  const gui = document.getElementById('register-gui');
+  const curl = document.getElementById('register-curl');
+  const tabGui = document.getElementById('tab-gui');
+  const tabCurl = document.getElementById('tab-curl');
+  if (tab === 'gui') {
+    gui.style.display = 'block';
+    curl.style.display = 'none';
+    tabGui.style.color = 'var(--text)';
+    tabGui.style.borderColor = 'var(--accent)';
+    tabCurl.style.color = 'var(--text-dim)';
+    tabCurl.style.borderColor = 'var(--border)';
+  } else {
+    gui.style.display = 'none';
+    curl.style.display = 'block';
+    tabCurl.style.color = 'var(--text)';
+    tabCurl.style.borderColor = 'var(--accent)';
+    tabGui.style.color = 'var(--text-dim)';
+    tabGui.style.borderColor = 'var(--border)';
+  }
+}
+
+function registerAgent() {
+  const nodeId = document.getElementById('reg-node-id').value.trim();
+  const displayName = document.getElementById('reg-display-name').value.trim();
+  const secret = document.getElementById('reg-secret').value.trim();
+  const btn = document.getElementById('reg-btn');
+  const resultDiv = document.getElementById('reg-result');
+  const errorDiv = document.getElementById('reg-error');
+  const errorMsg = document.getElementById('reg-error-msg');
+  const resultContent = document.getElementById('reg-result-content');
+
+  if (!nodeId || !displayName || !secret) {
+    errorDiv.style.display = 'block';
+    errorMsg.textContent = '请填写所有必填项';
+    resultDiv.style.display = 'none';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '注册中...';
+  btn.style.opacity = '0.6';
+  errorDiv.style.display = 'none';
+  resultDiv.style.display = 'none';
+
+  fetch('/skill/register', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Evomap-Node-Secret': secret
+    },
+    body: JSON.stringify({
+      evomap_node_id: nodeId,
+      display_name: displayName
+    })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.code === 0 || data.api_token) {
+      resultDiv.style.display = 'block';
+      const token = data.api_token || data.data?.api_token || data.token || '';
+      const consumerId = data.consumer_id || data.data?.consumer_id || '';
+      const agentId = data.agent_id || data.data?.agent_id || '';
+      let html = '<p><span style="color:var(--text-dim);">API 令牌：</span><span style="color:var(--gold);word-break:break-all;">' + token + '</span></p>';
+      if (consumerId) html += '<p style="margin-top:6px;"><span style="color:var(--text-dim);">消费者ID：</span>' + consumerId + '</p>';
+      if (agentId) html += '<p style="margin-top:6px;"><span style="color:var(--text-dim);">Agent ID：</span>' + agentId + '</p>';
+      html += '<p style="margin-top:10px;font-size:12px;color:var(--text-muted);">⚠️ 请复制保存以上令牌，关闭页面后将无法再次查看</p>';
+      resultContent.innerHTML = html;
+    } else {
+      errorDiv.style.display = 'block';
+      errorMsg.textContent = data.msg || data.message || '注册失败，请检查参数';
+    }
+  })
+  .catch(err => {
+    errorDiv.style.display = 'block';
+    errorMsg.textContent = '网络错误：' + err.message + '（请确认后端服务已启动）';
+  })
+  .finally(() => {
+    btn.disabled = false;
+    btn.textContent = '🚀 一键注册 Agent';
+    btn.style.opacity = '1';
+  });
+}
+
+function copyCmd(id) {
+  const el = document.getElementById(id);
+  const text = el.innerText.replace(/^#.*$/gm, '').replace(/
++/g, '\n').trim();
+  const plainText = el.textContent.replace(/^#.*$/gm, '').replace(/\n+/g, '\n').trim();
+  navigator.clipboard.writeText(plainText).then(() => {
+    const btns = el.parentElement.querySelectorAll('button');
+    btns.forEach(b => {
+      if (b.textContent === '复制') {
+        const orig = b.textContent;
+        b.textContent = '已复制 ✓';
+        b.style.color = 'var(--green)';
+        setTimeout(() => { b.textContent = orig; b.style.color = ''; }, 2000);
+      }
+    });
+  });
+}
+</script>
 </body>
 </html>

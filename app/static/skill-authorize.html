@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
@@ -38,7 +38,7 @@ async function init() {
   }
   if (!response.ok) { fail('无法读取登录账号'); return; }
   const account = await response.json();
-  accountEl.textContent = '当前账号：' + (account.nickname || account.username) + '（' + account.username + '）';
+  accountEl.textContent = '当前账号：' + (account.nickname || account.username) + '（' + account.username + '）';`n  setActionsDisabled(false);
 }
 
 function fail(text) {
