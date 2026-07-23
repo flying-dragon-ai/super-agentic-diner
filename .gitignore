@@ -73,6 +73,9 @@ smoke-*.png
 *.db-shm
 *.db-wal
 
+# SSH public-tunnel runtime state (start-public.ps1 / stop-public.ps1)
+.tunnel-pids.json
+
 # OS metadata
 .DS_Store
 Thumbs.db
